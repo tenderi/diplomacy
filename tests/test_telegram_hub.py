@@ -392,13 +392,28 @@ class TestMenuActions:
         with patch("server.telegram_bot.hub.api_get", return_value=status), \
              patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:
             _press("g|5|pt")
-        assert run.call_args[0][1:] == ("5", "555")
+        assert run.call_args[0][1:] == ("5", "555", None)
 
     def test_process_now_with_everything_in_runs_it(self, two_games) -> None:
         with patch("server.telegram_bot.hub.api_get", return_value={"missing": []}), \
              patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:
             _press("g|5|pt")
-        assert run.call_args[0][1:] == ("5", "555")
+        assert run.call_args[0][1:] == ("5", "555", None)
+
+    def test_process_now_button_carries_the_phase_and_sends_it(self, two_games) -> None:
+        """DD6: the menu button pins the phase it was shown for."""
+        with patch("server.telegram_bot.hub.api_get", return_value={"missing": [], "phase": "F1901M"}), \
+             patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:
+            _press("g|5|pt|S1901M")  # pressed after the phase moved on
+        assert run.call_args[0][1:] == ("5", "555", "S1901M")
+
+    def test_a_stale_process_button_skips_the_confirm_for_the_new_phase(self, two_games) -> None:
+        """DD6: orders missing in the *new* phase must not turn a stale press into a confirm."""
+        status = {"missing": ["ENGLAND"], "phase": "F1901M"}
+        with patch("server.telegram_bot.hub.api_get", return_value=status), \
+             patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:
+            _press("g|5|pt|S1901M")
+        assert run.call_args[0][1:] == ("5", "555", "S1901M")
 
     def test_a_game_you_are_not_in_is_refused_before_any_action(self, two_games) -> None:
         with patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:

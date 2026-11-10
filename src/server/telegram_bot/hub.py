@@ -170,7 +170,7 @@ def _hub_keyboard(
         else:
             rows.append([_btn("✋ Wait for me before processing", game_id, "nr")])
     if is_creator:
-        rows.append([_btn("⚙️ Process turn now", game_id, "pt")])
+        rows.append([_btn("⚙️ Process turn now", game_id, "pt", (orders_status or {}).get("phase") or None)])
     rows.append([_btn("🏳️ Concede", game_id, "cd")])
     rows.append([_btn("🔄 Refresh", game_id, "hub"), InlineKeyboardButton("⬅️ All games", callback_data="my_games")])
     return InlineKeyboardMarkup(rows)
@@ -296,7 +296,7 @@ async def handle_game_callback(query: Any, context: ContextTypes.DEFAULT_TYPE, d
             parse_mode=None,
         )
     elif action == "pt":
-        await _process_turn(send, user_id, game_id)
+        await _process_turn(send, user_id, game_id, arg)
     elif action == "cd":
         await send(concede_prompt(game_id, power), reply_markup=concede_keyboard(game_id), parse_mode=None)
     elif action == "cdok":
@@ -442,16 +442,19 @@ async def _show_deadline(send: Sender, game_id: str, power: str) -> None:
     await send("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
 
 
-async def _process_turn(send: Sender, user_id: str, game_id: str) -> None:
+async def _process_turn(send: Sender, user_id: str, game_id: str, pinned_phase: Optional[str] = None) -> None:
     """The creator's "Process turn now": confirm first if orders are missing."""
     try:
         status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id) or {}
     except requests.RequestException:
         status = {}
     missing = status.get("missing") or []
+    # A menu shown for an earlier phase: send that phase, so the player reads
+    # the server's "already processed" refusal, not a confirm for a phase they never saw.
+    moved = bool(pinned_phase and status.get("phase") and status.get("phase") != pinned_phase)
     # With an empty seat the API refuses the turn whatever is missing (BA6):
     # go straight to it, so the player reads that refusal, not a confirm.
-    if missing and not status.get("unseated"):
+    if missing and not status.get("unseated") and not moved:
         await send(
             f"⚠️ Still waiting on: {', '.join(missing)}. Their units will hold if you process now.",
             reply_markup=InlineKeyboardMarkup([
@@ -464,7 +467,8 @@ async def _process_turn(send: Sender, user_id: str, game_id: str) -> None:
     async def plain(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None, parse_mode: Optional[str] = None) -> None:
         await send(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
-    await run_process_turn(plain, game_id, user_id)
+    # The phase the menu showed (an older button has none: use what was just read).
+    await run_process_turn(plain, game_id, user_id, pinned_phase or status.get("phase") or None)
 
 
 # -- Find a game --------------------------------------------------------------------

@@ -18,7 +18,7 @@ from telegram.error import TelegramError
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from .api_client import api_get, api_post, api_post_reliable, queued_reply
+from .api_client import ApiError, api_get, api_post, api_post_reliable, queued_reply
 from .game_context import GameContextError, group_read_game, in_group, resolve_game_and_power
 from .utils import escape_markdown, game_end_line, game_over_note, phase_label, phase_text
 
@@ -595,7 +595,9 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    await run_process_turn(update.message.reply_text, game_id, user_id)
+    await run_process_turn(
+        update.message.reply_text, game_id, user_id, (orders_status or {}).get("phase") or None
+    )
 
 
 def adjustment_duty(data: dict[str, Any]) -> str:
@@ -670,6 +672,17 @@ async def run_process_turn(
         if expected_phase:
             body["expected_phase_code"] = expected_phase
         result = api_post(f"/games/{game_id}/process_turn", body)
+    except ApiError as e:
+        resp = getattr(e, "response", None)
+        if resp is not None and resp.status_code == 409 and resp.headers.get("X-Error-Code") == "phase_moved":
+            # The phase the player saw was processed meanwhile: nothing ran.
+            await send(
+                f"⚠️ {escape_markdown(str(e))}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Game menu", callback_data=f"g|{game_id}|hub")]]),
+            )
+            return
+        await send(f"❌ Process turn error: {escape_markdown(str(e))}")
+        return
     except requests.RequestException as e:
         await send(f"❌ Process turn error: {escape_markdown(str(e))}")
         return
