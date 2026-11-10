@@ -17,35 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-10.
-- **Open tracks:** DC (bot retreat-phase UX) and F (a human playing the game end to end, and
+- **Open tracks:** only F (a human playing the game end to end, and
   host chores, which are the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DC — Bot retreat-phase UX
-
-Found by a play-through of the Telegram bot through S1901R and F1901R.
-
-- [x] **DC1** A disband counts as an order for its unit (`order_is_for_unit`: unit-first and
-      verb-first, coast-insensitive), so the confirmation no longer says "No order yet
-      (disbanded)" after one; a dislodged unit whose only option is disband is left out of
-      the walk, the unit picker and the hub's order buttons (`orderable_units`), with "has
-      nowhere to retreat and is disbanded automatically". The server's `orders_status`
-      already lists such a power under `nothing_to_do`, not `submitted`; the bot now agrees.
-- [x] **DC2** Retreat buttons read `↩️ Retreat to Mid-Atlantic Ocean (MAO)` (`_order_label`),
-      listed before the disband; the callback still carries the canonical order.
-- [x] **DC3** The walk step, the unit picker and the hub menu say "Your A MAR was dislodged:
-      retreat to BUR or GAS, or disband. With no order it is disbanded." (`retreat_context`,
-      `retreat_duty`; the hub line also carries DC1's forced-disband note). Who dislodged the
-      unit is not in `legal_orders` (the turn DM does not say either), so it is not shown.
-- [x] **DC4a** A refused move or retreat into a bordering province says what stops it,
-      not "not adjacent": an army cannot enter a sea, a fleet cannot enter an inland
-      province, which coast the fleet can reach, or that the provinces share no coastline
-      (`retreats.unreachable_reason`).
-- [ ] **DC4** Nits: the `/order` echo is not coast-canonical (`F SPA R POR` echoes without
-      `/SC`); the map caption is a bare "🗺 Game 3" and the map offers `📝 Enter orders` to a
-      power with nothing to order (`hub.py` ~371).
 
 # Track F — Manual acceptance and host chores (maintainer)
 

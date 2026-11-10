@@ -26,7 +26,7 @@ def test_all_refused_non_merge_submission_keeps_the_earlier_orders(client: TestC
     resp = client.post("/games/set_orders", json={**body, "orders": ["BUILD A MUN"]})
     assert resp.json()["results"] == [{
         "order": "BUILD A MUN", "success": False, "error": "MUN is not a home supply center of FRANCE",
-        "replaced": [], "superseded_by": None,
+        "replaced": [], "superseded_by": None, "stored": None,
         "note": "none of these orders was accepted, so nothing was changed. Your earlier orders stand: BUILD F BRE",
     }]
     assert game_service.pending_orders_view(game_id)["FRANCE"] == ["BUILD F BRE"]

@@ -321,11 +321,31 @@ class TestMenuActions:
         assert query.edit_message_text.call_args[0][0] == "🗑 Your orders in game 3 for this turn have been cleared."
 
     def test_the_map_arrives_as_a_photo_with_next_steps(self, two_games) -> None:
-        with patch("server.telegram_bot.hub.api_get_bytes", return_value=b"\x89PNG") as get:
+        legal = {"phase": "S1901R", "phase_type": "RETREAT", "units": [{"kind": "A", "location": "MAR"}],
+                 "orders_by_unit": {"A MAR": ["A MAR R BUR", "D A MAR"]}}
+        with patch("server.telegram_bot.hub.api_get_bytes", return_value=b"\x89PNG") as get, \
+             patch("server.telegram_bot.hub.api_get", return_value=legal) as legal_get:
             query, _ = _press("g|3|map")
         get.assert_called_once_with("/games/3/map")
+        legal_get.assert_called_once_with("/games/3/legal_orders/GERMANY")
         kwargs = query.message.reply_photo.call_args[1]
-        assert kwargs["photo"].read() == b"\x89PNG" and kwargs["caption"] == "🗺 Game 3"
+        assert kwargs["photo"].read() == b"\x89PNG" and kwargs["caption"] == "🗺 Game 3 — Spring 1901 retreats"
+        assert _buttons(kwargs["reply_markup"]) == [("📝 Enter orders", "g|3|all"), ("🎮 Game menu", "g|3|hub")]
+
+    def test_no_enter_orders_button_when_nothing_to_order(self, two_games) -> None:
+        legal = {"phase": "S1901R", "phase_type": "RETREAT", "units": [{"kind": "A", "location": "MAR"}],
+                 "orders_by_unit": {"A MAR": ["D A MAR"]}}
+        with patch("server.telegram_bot.hub.api_get_bytes", return_value=b"x"), \
+             patch("server.telegram_bot.hub.api_get", return_value=legal):
+            query, _ = _press("g|3|map")
+        assert _buttons(query.message.reply_photo.call_args[1]["reply_markup"]) == [("🎮 Game menu", "g|3|hub")]
+
+    def test_map_without_legal_orders_keeps_plain_caption_and_button(self, two_games) -> None:
+        with patch("server.telegram_bot.hub.api_get_bytes", return_value=b"x"), \
+             patch("server.telegram_bot.hub.api_get", side_effect=requests.ConnectionError("down")):
+            query, _ = _press("g|3|map")
+        kwargs = query.message.reply_photo.call_args[1]
+        assert kwargs["caption"] == "🗺 Game 3"
         assert _buttons(kwargs["reply_markup"]) == [("📝 Enter orders", "g|3|all"), ("🎮 Game menu", "g|3|hub")]
 
     def test_a_map_that_cannot_be_drawn_says_so(self, two_games) -> None:

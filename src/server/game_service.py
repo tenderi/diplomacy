@@ -350,7 +350,7 @@ class GameService:
                 accepted_at.append(len(results))
                 if key is not None:
                     accepted_keys.add(key)
-                result: dict[str, Any] = {"order": raw, "ok": True, "reason": None}
+                result: dict[str, Any] = {"order": raw, "ok": True, "reason": None, "stored": stored}
                 if needs_convoy:
                     # Accepted, but it can only succeed if fleets convoy it.
                     result["note"] = NEEDS_CONVOY_NOTE

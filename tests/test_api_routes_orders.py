@@ -75,9 +75,10 @@ class TestSetOrders:
         assert resp.status_code == 200
         assert resp.json()["results"] == [
             {"order": "A PAR - BUR", "success": True, "error": None, "replaced": [],
-             "note": "replaced by a later order in this submission: A PAR H", "superseded_by": "A PAR H"},
+             "note": "replaced by a later order in this submission: A PAR H", "superseded_by": "A PAR H",
+             "stored": None},
             {"order": "A PAR H", "success": True, "error": None, "replaced": [],
-             "note": None, "superseded_by": None},
+             "note": None, "superseded_by": None, "stored": "A PAR H"},
         ]
 
     @pytest.mark.parametrize("orders", [[], [""], ["  "]])
