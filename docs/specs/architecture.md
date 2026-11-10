@@ -739,8 +739,13 @@ notification costs one short database write.
 ## Deployment and message reliability
 
 Every service — `postgres`, `diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx),
-`caddy`, `diplomacy_docs` — runs from one `docker-compose.yml` on one VPS; only Caddy is
-public, and the bot and nginx reach the API by its compose service name
+`caddy`, `diplomacy_docs` — runs from one `docker-compose.yml` on one VPS; Caddy is the
+public entry (80/443). Two other ports are published by compose and bound by env: nginx on
+`${WEB_BIND:-0.0.0.0}:${WEB_PORT:-80}` (`ensure_env.sh` sets `WEB_BIND=127.0.0.1` and
+`WEB_PORT=8080` once `DOMAIN` is set, so with HTTPS on only Caddy is reachable; without a
+`DOMAIN`, nginx is the public HTTP entry) and DAIDE on `${DAIDE_BIND:-127.0.0.1}:8432`
+(loopback unless `DAIDE_BIND` says otherwise; `ensure_env.sh` does not set it). The API is
+published on `127.0.0.1` only and Postgres not at all. The bot and nginx reach the API by its compose service name
 (`docs/DEPLOYMENT.md`). The images of our four services (API, bot, web, docs) are built
 in GitHub Actions and pushed to GHCR tagged with the commit SHA
 (`ghcr.io/tenderi/diplomacy-<service>:<sha>`, `.github/workflows/deploy.yml`); the host
@@ -786,7 +791,9 @@ with a 5xx is told "I will retry it for a few minutes". An order retried after i
   dropped before sending.
 - **`Idempotency-Key`** — a UUID per entry. `api/idempotency.py` stores the first response
   (status + JSON) and replays it, with `Idempotent-Replayed: true`, to any later request with
-  the same key. Honoured only with `X-Bot-Secret`, only for mutating methods, only for
+  the same key. The key alone identifies the entry: `endpoint` is stored but not compared on
+  replay, so the same key sent to a different route would replay the first response. This does
+  not occur, since only the bot sends keys and it generates one per write. Honoured only with `X-Bot-Secret`, only for mutating methods, only for
   responses below 500 (a 5xx should be retried, a 4xx is a definitive answer to relay).
   The key is **reserved before the route runs**: `DatabaseService.reserve_idempotency_key`
   inserts a pending row (`status_code` 0) on the key's primary key, so of two concurrent
@@ -815,7 +822,7 @@ found) are acked as failed with the error kept on the row. Delivered rows are pu
 
 The poll is a **long-poll**. `GET /bot/outbox?wait=N` (`0 ≤ N ≤ 60`, default 0 = answer at
 once) answers immediately when rows are pending; otherwise it holds the request until a row
-is committed or `N` seconds pass, and then answers with what is there (`[]` on timeout).
+is committed or `N` seconds pass, and then answers with what is there (on timeout `{"items": [], "count": 0}`; the count is also sent as `X-Outbox-Count`).
 The wait holds no database connection: the request registers an `asyncio.Event` and queries
 only when woken. Two things wake it: `DatabaseService.enqueue_bot_notification` calls its
 `bot_outbox` listeners after each commit, which wake every waiter *in that process*; and
