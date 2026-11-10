@@ -1535,16 +1535,6 @@ class DatabaseService:
             session.commit()
             return len(rows)
 
-    def record_bot_notification_attempt(self, notification_id: int, error: str) -> None:
-        """Note a transient delivery failure without acking the row."""
-        with self.session_factory() as session:
-            row = session.get(BotOutboxModel, int(notification_id))
-            if row is None:
-                return
-            row.attempts = int(row.attempts or 0) + 1
-            row.last_error = error[:2000]
-            session.commit()
-
     def purge_delivered_bot_notifications(
         self, older_than_days: int = OUTBOX_DELIVERED_RETENTION_DAYS
     ) -> int:

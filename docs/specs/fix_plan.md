@@ -44,12 +44,13 @@ Found by a spec-vs-code audit of `docs/specs/architecture.md`.
       `tests/test_cache_coherence.py`.
 - [ ] **DD4** The `/feedback` DM labels the sender by email (`routes/feedback.py`), against the
       no-real-names rule; use the nickname or "user N".
-- [ ] **DD5** Docs and dead code: architecture.md §Deployment says the outbox long-poll answers
-      `[]` on timeout, the code returns `{"items": [], "count": 0}` (`bot_outbox.py`);
-      `DAIDE_BIND`/`WEB_BIND` and the compose-level DAIDE port are not documented (the spec
-      says only Caddy is public); the idempotency key is not compared against `endpoint` on
-      replay (scope it or document it); `DatabaseService.record_bot_notification_attempt` is
-      dead; stale comment in `routes/orders.py` ("GET /state shows pending orders").
+- [x] **DD5** Docs and dead code: the outbox long-poll's timeout shape, `WEB_BIND`/`DAIDE_BIND`
+      and what is public, the idempotency key not being scoped to `endpoint` (documented), the
+      dead `record_bot_notification_attempt` removed, a stale comment in `routes/orders.py`.
+- [ ] **DD6** The bot's `/processturn` and the hub's "Process turn now" send no phase when no
+      orders are missing (or the `orders_status` fetch fails), so the DD2 client-side pin
+      covers only "Process anyway": send the phase the bot last saw on every process call
+      (`telegram_bot/orders.py` `run_process_turn`, `hub.py`).
 
 # Track F — Manual acceptance and host chores (maintainer)
 
