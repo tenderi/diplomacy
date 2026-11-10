@@ -613,18 +613,23 @@ class GameService:
         meta = self._repo.get_meta(game_id) or {}
         return frozenset(meta.get("wait_flags") or ())
 
-    def set_wait(self, game_id: str, power: str, waiting: bool) -> list[str]:
-        """Raise or lower ``power``'s wait flag. Returns the powers now waiting."""
+    def set_wait(self, game_id: str, power: str, waiting: bool) -> tuple[list[str], bool]:
+        """Raise or lower ``power``'s wait flag. Returns the powers now waiting and
+        whether this call changed the flag (decided on the locked row)."""
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
         _require_active(game, game_id, "wait flags can no longer be changed")
         power = power.upper()
-        return self._repo.modify_wait_flags(
-            game_id,
-            lambda flags: flags | {power} if waiting else flags - {power},
-            expected_phase_code=game.state.phase_name,
-        )
+        changed = False
+
+        def change(flags: set[str]) -> set[str]:
+            nonlocal changed
+            changed = (power in flags) != waiting
+            return flags | {power} if waiting else flags - {power}
+
+        flags = self._repo.modify_wait_flags(game_id, change, expected_phase_code=game.state.phase_name)
+        return flags, changed
 
     def _demo_ai_orders(
         self,

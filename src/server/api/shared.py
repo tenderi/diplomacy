@@ -1277,7 +1277,7 @@ def unordered_held_line(
 def vacant_seat_hint(game_id: str, powers: Iterable[str]) -> str:
     """How to fill a vacant seat, naming the real commands (BL3)."""
     powers = [str(p).upper() for p in powers]
-    names = ", ".join(p.title() for p in powers)
+    names = ", ".join(powers)
     arg = powers[0] if len(powers) == 1 else "<power>"
     return (
         f"Vacant: {names}. Someone can take the seat with /replace {game_id} {arg}, "
