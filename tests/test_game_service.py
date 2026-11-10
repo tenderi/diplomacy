@@ -603,7 +603,7 @@ class TestPhaseAwareOrders:
         assert "retreat and disband" in results[0]["reason"]
         # The real retreat still goes through, so the gate is not over-eager.
         results = service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])
-        assert results == [{"order": "A MUN R SIL", "ok": True, "reason": None}]
+        assert results == [{"order": "A MUN R SIL", "ok": True, "reason": None, "stored": "A MUN R SIL"}]
 
     def test_orders_status_waits_only_on_the_dislodged_power(self, service):
         gid = self._to_retreat_phase(service)
@@ -816,6 +816,11 @@ class TestOrdersNameTheUnitsCoast:
     and the order history showed ``F STP - BOT`` (BO3). The stored order now
     names the coast the unit stands on."""
 
+    def test_each_accepted_result_carries_the_stored_form(self, service):
+        gid = _new_game(service)
+        res = service.submit_orders(gid, "RUSSIA", ["F STP - BOT", "A MOS S F STP", "A WAR - XXX"])
+        assert [r.get("stored") for r in res] == ["F STP/SC - BOT", "A MOS S F STP/SC", None]
+
     def test_a_move_written_without_the_fleets_coast_is_stored_with_it(self, service):
         gid = _new_game(service)
         assert service.submit_orders(gid, "RUSSIA", ["F STP - BOT", "A MOS S F STP"])[0]["ok"] is True
@@ -972,7 +977,7 @@ class TestAdjustmentCounts:
             [Unit(UnitKind.ARMY, "ENGLAND", Location("LVP")), Unit(UnitKind.FLEET, "ENGLAND", Location("NTH"))],
         )
         assert service.submit_orders(gid, "ENGLAND", ["BUILD F LON", "BUILD A EDI"]) == [
-            {"order": "BUILD F LON", "ok": True, "reason": None},
+            {"order": "BUILD F LON", "ok": True, "reason": None, "stored": "BUILD F LON"},
             {"order": "BUILD A EDI", "ok": False, "reason": "ENGLAND has 1 build; 2 builds/waives submitted"},
         ]
         assert service.pending_orders_view(gid)["ENGLAND"] == ["BUILD F LON"]
@@ -995,7 +1000,7 @@ class TestAdjustmentCounts:
             [Unit(UnitKind.ARMY, "TURKEY", Location("CON")), Unit(UnitKind.FLEET, "TURKEY", Location("BLA"))],
         )
         assert service.submit_orders(gid, "TURKEY", ["WAIVE", "WAIVE"]) == [
-            {"order": "WAIVE", "ok": True, "reason": None},
+            {"order": "WAIVE", "ok": True, "reason": None, "stored": "WAIVE"},
             {"order": "WAIVE", "ok": False, "reason": "TURKEY has 1 build; 2 builds/waives submitted"},
         ]
         assert service.pending_orders_view(gid)["TURKEY"] == ["WAIVE"]
@@ -1038,7 +1043,7 @@ class TestTwoOrdersForOneUnitInOneSubmission:
                 "superseded_by": "A PAR H",
                 "note": "replaced by a later order in this submission: A PAR H",
             },
-            {"order": "A PAR H", "ok": True, "reason": None},
+            {"order": "A PAR H", "ok": True, "reason": None, "stored": "A PAR H"},
         ]
         assert service.pending_orders_view(gid)["FRANCE"] == ["A PAR H"]
 
@@ -1078,7 +1083,7 @@ class TestConvoyOrdersSurviveStorage:
         assert results == [
             {"order": "F ION C A ALB - APU", "ok": False,
              "reason": "the unit at ALB is a fleet; only an army can be convoyed"},
-            {"order": "A ROM - TUS", "ok": True, "reason": None},
+            {"order": "A ROM - TUS", "ok": True, "reason": None, "stored": "A ROM - TUS"},
         ]
         assert service.pending_orders_view(gid)["ITALY"] == ["A ROM - TUS"]
 

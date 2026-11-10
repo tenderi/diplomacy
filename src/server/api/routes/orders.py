@@ -114,7 +114,8 @@ def set_orders(
     note}``: ``replaced`` lists the stored adjustment orders a merged order
     pushed out of the power's build/disband count (``[]`` otherwise), and
     ``note`` says so in a sentence (``"replaced BUILD F BRE (you may build
-    1)"``) or is ``null``.
+    1)"``) or is ``null``. ``stored`` is the canonical form kept for an accepted
+    order (``F SPA R POR`` is stored ``F SPA/SC R POR``), ``null`` for a refused one.
     """
     _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     if not any(o.strip() for o in req.orders):
@@ -140,6 +141,7 @@ def set_orders(
             "error": r["reason"],
             "replaced": r.get("replaced", []),
             "note": r.get("note"),
+            "stored": r.get("stored"),
             "superseded_by": r.get("superseded_by"),
         }
         for r in raw

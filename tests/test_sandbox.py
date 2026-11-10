@@ -143,8 +143,8 @@ def test_a_board_steps_through_retreat_and_adjustment_to_the_next_spring(client:
     built = _adjudicate(client, retreated["state"], {"FRANCE": ["A PAR B", "F BRE B"]})
 
     assert built["order_results"]["FRANCE"] == [
-        {"order": "A PAR B", "ok": True, "reason": None},
-        {"order": "F BRE B", "ok": True, "reason": None},
+        {"order": "A PAR B", "ok": True, "reason": None, "stored": "BUILD A PAR"},
+        {"order": "F BRE B", "ok": True, "reason": None, "stored": "BUILD F BRE"},
     ]
     assert built["view"]["phase"] == "S1902M"
     assert sorted(f"{u['kind']} {u['location']}" for u in built["view"]["units_by_power"]["FRANCE"]) == [
