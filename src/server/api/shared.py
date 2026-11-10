@@ -1725,8 +1725,8 @@ def finish_processed_turn(
     so -- and returns the players' DM lines instead of sending them; ``carried``
     is what the previous, folded call returned (``notify_turn_processed``).
 
-    Each of these steps was once done by only one trigger -- the snapshot (W1),
-    the cache invalidation, the notification fan-out (G3) -- and the deadline
+    Each of these steps was once done by only one trigger -- the cache
+    invalidation, the notification fan-out (G3) -- and the deadline
     path never told players when its turn ended the game. One function, three
     callers, so they cannot drift again.
     """
@@ -1734,21 +1734,8 @@ def finish_processed_turn(
     invalidate_cache(f"games/{game_id}")
     view = game_service.view(game_id)
     meta = game_service.meta(game_id) or {}
-    if view is not None:
-        # Snapshot the new board for /history/{turn} and the bot's /replay.
-        try:
-            db_service.create_game_snapshot(
-                game_id=numeric_game_id,
-                turn=int(meta.get("current_turn", 0) or 0),
-                year=view["year"],
-                season=view["season"],
-                phase=view["phase_type"],
-                phase_code=view["phase"],
-                game_state=view,
-                state_json=game_service.state_json(game_id),
-            )
-        except SQLAlchemyError as e:
-            scheduler_logger.error(f"Failed to snapshot game {game_id} after its turn: {e}")
+    # The new board's map_snapshots row was written with the turn itself
+    # (``GameRepo.save_state``, DE4), not here under a re-read turn number.
     # A deadline is scoped to the phase it was set for (Track N): spent now.
     # Only a weekly schedule the players set arms the next one.
     game_ended = view is not None and view["status"] == "COMPLETED"

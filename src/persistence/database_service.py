@@ -17,6 +17,7 @@ from .database import (
     TournamentModel, TournamentGameModel, TournamentPlayerModel,
     SpectatorModel, WaitingListModel, BotOutboxModel, IdempotencyKeyModel, FeedbackModel,
     get_session_factory,
+    upsert_map_snapshot,
     utcnow_naive,
 )
 
@@ -1013,6 +1014,7 @@ class DatabaseService:
         phase_code: str,
         game_state: Dict[str, Any],
         state_json: Optional[Dict[str, Any]] = None,
+        replace: bool = True,
     ) -> MapSnapshotModel:
         """Record a point-in-time snapshot.
 
@@ -1020,23 +1022,26 @@ class DatabaseService:
         columns, kept for ``/history`` and ``/replay``). ``state_json``, when given,
         is the raw serialized ``GameState`` (``engine.serialization.state_to_dict``)
         -- the only shape ``restore_game_snapshot`` can rebuild a ``Game`` from.
+
+        A game has one row per turn (``uq_map_snapshots_game_turn``): a turn
+        that already has one gets its board replaced (``replace=False``: is left
+        as it is, and that row is returned), never a second row.
         """
-        units = game_state.get('units', {})
-        supply_centers = game_state.get('supply_centers', {})
         with self.session_factory() as session:
-            snap = MapSnapshotModel(
+            snap_id = upsert_map_snapshot(
+                session,
                 game_id=game_id,
                 turn_number=turn,
                 phase_code=phase_code,
-                units=units,
-                supply_centers=supply_centers,
+                units=game_state.get('units', {}),
+                supply_centers=game_state.get('supply_centers', {}),
                 state_json=state_json,
+                replace=replace,
             )
+            session.commit()
+            snap = session.query(MapSnapshotModel).filter_by(id=snap_id).one()
             # dynamic attribute for compatibility
             setattr(snap, 'phase', phase)
-            session.add(snap)
-            session.commit()
-            session.refresh(snap)
             return snap
 
     def get_game_snapshot_by_game_id_and_turn(self, game_id: int, turn: int) -> Optional[MapSnapshotModel]:

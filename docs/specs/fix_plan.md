@@ -41,6 +41,11 @@ Found by a spec-vs-code audit of `docs/specs/data_spec.md`.
       shape lacks `bounced_off`/`bounced_with`; `process_turn`'s `phase` is the phase after
       skipping/auto-processing; `GameState` is not hashable (`ownership` is a dict);
       `order_history` skips turns with no orders.
+- [x] **DE4** `map_snapshots` could hold two rows for one (game, turn): a processed turn's
+      row was written by `finish_processed_turn`, in a later transaction than the turn,
+      under a re-read `current_turn` (an admin restore in between gave the turn a second
+      row), and `POST /games/{id}/snapshot` added a row per call; `/history/{n}` read
+      whichever Postgres returned first.
 
 # Track F — Manual acceptance and host chores (maintainer)
 

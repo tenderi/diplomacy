@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from persistence.database import GameModel, MapSnapshotModel, PlayerModel, utcnow_naive
+from persistence.database import GameModel, MapSnapshotModel, PlayerModel, upsert_map_snapshot, utcnow_naive
 
 __all__ = ["GameRepo", "PhaseInputsChangedError", "StaleGameError"]
 
@@ -373,6 +373,7 @@ class GameRepo:
         order_history_entry: Optional[dict[str, list[str]]] = None,
         resolution_history_entry: Optional[dict[str, Any]] = None,
         refuse_completed: bool = False,
+        board: Optional[dict[str, Any]] = None,
     ) -> None:
         """Persist the next ``GameState`` and bump the phase counter. When given, the
         adjudication ``last_resolution`` is stored for later resolution-map rendering,
@@ -401,7 +402,14 @@ class GameRepo:
         ``refuse_completed`` refuses (``StaleGameError``) to write over a game that has
         already ended: two deciding draw votes cast together both reach quorum,
         and the phase code (which a draw keeps) cannot tell the second one that the
-        first already ended the game."""
+        first already ended the game.
+
+        ``board``, the view-shaped ``units`` and ``supply_centers`` of
+        ``state_json``, is recorded in the same transaction as the
+        ``map_snapshots`` row of the turn number this write produces (the board
+        that turn begins on). Written later, in a transaction of its own and
+        under a re-read ``current_turn``, a restore landing in between gave a
+        turn a second row (DE4)."""
         guarded = (
             refuse_completed
             or expected_phase_code is not None
@@ -439,6 +447,16 @@ class GameRepo:
                 order_history_entry=order_history_entry,
                 resolution_history_entry=resolution_history_entry,
             )
+            if board is not None:
+                upsert_map_snapshot(
+                    session,
+                    game_id=int(row.id),
+                    turn_number=int(row.current_turn),
+                    phase_code=phase_code,
+                    units=board["units"],
+                    supply_centers=board["supply_centers"],
+                    state_json=state_json,
+                )
             session.commit()
 
     def end_game_if(
