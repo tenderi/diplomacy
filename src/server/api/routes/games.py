@@ -1787,7 +1787,9 @@ def restore_game_snapshot(
             detail="Snapshot predates state_json capture and cannot be restored",
         )
     try:
-        game_service.restore_snapshot(game_id, snapshot_state_json, snapshot.phase_code)
+        game_service.restore_snapshot(
+            game_id, snapshot_state_json, snapshot.phase_code, turn=int(snapshot.turn_number)
+        )
     except ValueError as e:
         raise HTTPException(status_code=500, detail=f"Corrupt snapshot: {e}") from e
     # The restore spent the discarded phase's deadline (CP4); the restored phase

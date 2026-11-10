@@ -1640,7 +1640,7 @@ class GameService:
         )
 
     def restore_snapshot(
-        self, game_id: str, state_json: dict[str, Any], phase_code: str
+        self, game_id: str, state_json: dict[str, Any], phase_code: str, *, turn: Optional[int] = None
     ) -> None:
         """Roll a game's live state back to a previously captured snapshot.
 
@@ -1648,10 +1648,12 @@ class GameService:
         writing it -- raises ``ValueError`` on a malformed payload rather than
         leaving the game in a state ``load()`` can't read back. Also clears
         pending orders (see ``GameRepo.restore_state``): whatever was pending was
-        submitted against the phase being discarded.
+        submitted against the phase being discarded. ``turn``, the snapshot's
+        turn number, rewinds the turn counter and the per-turn histories with
+        the board (``GameRepo.restore_state``).
         """
         self.check_state_json(state_json)
-        self._repo.restore_state(game_id, state_json, phase_code=phase_code)
+        self._repo.restore_state(game_id, state_json, phase_code=phase_code, turn=turn)
 
     @staticmethod
     def check_state_json(state_json: dict[str, Any]) -> None:

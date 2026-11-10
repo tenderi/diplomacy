@@ -27,7 +27,7 @@
 
 Found by a spec-vs-code audit of `docs/specs/data_spec.md`.
 
-- [ ] **DE1** Admin restore (`GameRepo.restore_state`, route `routes/games.py` restore) resets
+- [x] **DE1** Admin restore (`GameRepo.restore_state`, route `routes/games.py` restore) resets
       the board but not `current_turn`, `last_resolution`, `order_history` or
       `resolution_history`: after rolling back from turn 5 to 2, `/last_resolution` and
       `/resolutions` describe turns no longer on the board and the next turn is stored as 5.
