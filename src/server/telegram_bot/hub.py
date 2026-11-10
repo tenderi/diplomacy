@@ -43,6 +43,8 @@ from .games import (
 from .messages import recent_messages_text, send_diplomatic_message
 from .utils import ending_outcome, game_end_line, game_over_note
 from .orders import (
+    forced_disband_note,
+    orderable_units,
     Sender, adjustment_duty, my_orders_text, orderhistory_text, run_process_turn, show_unit_picker, start_order_walk,
 )
 
@@ -142,7 +144,7 @@ def _order_row(game_id: str, legal: Optional[dict]) -> list[InlineKeyboardButton
         if action == "disband":
             return [_btn("✂️ Disbands", game_id, "all")]
         return []
-    if legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not legal.get("units"):
+    if legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not orderable_units(legal):
         return []
     return [_btn("📝 Order all units", game_id, "all"), _btn("🎯 One unit", game_id, "one")]
 
@@ -201,8 +203,8 @@ async def show_hub(send: Sender, user_id: str, game_id: str) -> None:
             legal = None
         if legal and legal.get("phase_type") == "ADJUSTMENT":
             text += f"\n{adjustment_duty(legal)}"
-        elif legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not legal.get("units"):
-            text += "\nYou have nothing to order this phase; wait for the other powers."
+        elif legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not orderable_units(legal):
+            text += "\n" + (forced_disband_note(legal) or "You have nothing to order this phase; wait for the other powers.")
     await send(text, reply_markup=_hub_keyboard(game_id, power, state, orders_status, is_creator, legal))
 
 

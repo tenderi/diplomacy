@@ -27,7 +27,11 @@ def test_movement_lists_the_units_with_no_order() -> None:
 
 
 def test_retreat_says_disbanded() -> None:
-    legal = {"phase_type": "RETREAT", "units": [{"kind": "A", "location": "RUM"}]}
+    legal = {
+        "phase_type": "RETREAT",
+        "units": [{"kind": "A", "location": "RUM"}],
+        "orders_by_unit": {"A RUM": ["A RUM R BUL", "D A RUM"]},
+    }
     with _api(legal, []):
         assert bot_orders.unordered_note("1", "RUSSIA", "5") == "No order yet (disbanded): A RUM"
 
