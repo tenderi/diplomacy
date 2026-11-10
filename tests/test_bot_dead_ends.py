@@ -25,7 +25,10 @@ def test_hub_has_no_order_buttons_when_the_power_has_no_units_to_order(phase_typ
     labels = _buttons({"phase_type": phase_type, "units": []})
     assert "📝 Order all units" not in labels and "🎯 One unit" not in labels
     assert "📋 My orders" in labels and "🗺 Map" in labels
-    with_unit = {"phase_type": phase_type, "units": [{"kind": "A", "location": "PAR"}]}
+    with_unit = {
+        "phase_type": phase_type, "units": [{"kind": "A", "location": "PAR"}],
+        "orders_by_unit": {"A PAR": ["A PAR H", "A PAR R BUR", "D A PAR"]},
+    }
     assert "📝 Order all units" in _buttons(with_unit)
 
 

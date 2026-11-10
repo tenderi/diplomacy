@@ -203,6 +203,47 @@ def resolve_pending_order(
     return cached[idx]
 
 
+def order_is_for_unit(order: str, unit_key: str) -> bool:
+    """Whether ``order`` is an order *for* the unit ``unit_key`` (``"F SPA/SC"``).
+
+    Unit-first (``A MUN D``, ``F SPA/SC R MAO``) and verb-first disbands
+    (``D A MUN``, ``DISBAND A MUN``) both count; the coast is ignored, so a
+    stored ``F SPA R POR`` still belongs to ``F SPA/SC``. Only the ordered
+    unit counts, never one named later (``A PAR S A MAR``).
+    """
+    words = order.upper().split()
+    if words and words[0] in ("D", "DISBAND"):
+        words = words[1:]
+    want = unit_key.upper().split()
+    if len(words) < 2 or len(want) < 2:
+        return False
+    return words[0] == want[0] and words[1].split("/")[0] == want[1].split("/")[0]
+
+
+def orderable_units(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """The units of a ``legal_orders`` payload that need a decision: in a retreat
+    phase a dislodged unit with no retreat can only disband (the engine does it),
+    so it is left out. Movement units are all kept."""
+    units = list(data.get("units", []))
+    if data.get("phase_type") != "RETREAT":
+        return units
+    by_unit = data.get("orders_by_unit", {})
+    return [
+        u for u in units
+        if any(_order_verb(o) != "D" for o in by_unit.get(f"{u['kind']} {u['location']}", []))
+    ]
+
+
+def forced_disband_note(data: dict[str, Any]) -> str:
+    """``A WAR has nowhere to retreat and is disbanded automatically.`` for each
+    unit :func:`orderable_units` left out of a retreat phase, else ``""``."""
+    keep = {f"{u['kind']} {u['location']}" for u in orderable_units(data)}
+    gone = [k for k in (f"{u['kind']} {u['location']}" for u in data.get("units", [])) if k not in keep]
+    if data.get("phase_type") != "RETREAT" or not gone:
+        return ""
+    return f"{', '.join(gone)} {'has' if len(gone) == 1 else 'have'} nowhere to retreat and {'is' if len(gone) == 1 else 'are'} disbanded automatically."
+
+
 def unordered_note(game_id: str, power: str, user_id: str) -> str:
     """BS5: what the power still has no order for this phase, as a line to append
     to an order confirmation (``""`` when nothing is missing or the API can't say).
@@ -231,8 +272,8 @@ def unordered_note(game_id: str, power: str, user_id: str) -> str:
                 "chooses them by the civil-disorder rule (farthest from home first)."
             )
         return ""
-    keys = [f"{u['kind']} {u['location']}" for u in legal.get("units", [])]
-    missing = [k for k in keys if not any(o.startswith(k + " ") for o in pending)]
+    keys = [f"{u['kind']} {u['location']}" for u in orderable_units(legal)]
+    missing = [k for k in keys if not any(order_is_for_unit(o, k) for o in pending)]
     if not missing:
         return ""
     fate = "disbanded" if phase_type == "RETREAT" else "holds"
@@ -751,10 +792,11 @@ async def show_unit_picker(
         await _present_order_choices(reply_or_edit, context, game_id, header, flat_orders)
         return
 
-    units = data.get("units", [])
+    units = orderable_units(data)
     if not units:
         label = "retreat" if phase_type == "RETREAT" else "orders"
-        await reply_or_edit(f"❌ No units require {label} for {power} in game {game_id}.")
+        auto = forced_disband_note(data)
+        await reply_or_edit(auto or f"❌ No units require {label} for {power} in game {game_id}.")
         return
 
     # Z2: two flows. Most turns a player orders every unit; this is the
@@ -921,9 +963,10 @@ async def start_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, use
         noun = "Build" if adjustment.get("action") == "build" else "Disband"
         steps = [f"{noun} {n} of {slots}" for n in range(1, slots + 1)]
     else:
-        steps = [f"{u['kind']} {u['location']}" for u in data.get("units", [])]
+        steps = [f"{u['kind']} {u['location']}" for u in orderable_units(data)]
         if not steps:
-            await send(f"✅ {power} has no units to order in game {game_id} this phase.")
+            auto = forced_disband_note(data)
+            await send(f"✅ {auto or f'{power} has no units to order in game {game_id} this phase.'}")
             return
 
     context.user_data.setdefault(_WALK, {})[str(game_id)] = {
