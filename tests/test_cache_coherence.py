@@ -12,6 +12,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
+from persistence.database import GameModel
 from server.api import ADMIN_TOKEN, app
 from server.api.shared import db_service
 from server.response_cache import clear_response_cache
@@ -181,3 +182,66 @@ def test_relinking_telegram_drops_the_old_ids_cached_game_list(client: TestClien
     _link(client, headers, new)
     assert client.get(f"/users/{old}/games", headers=BOT).status_code == 404
     assert _my_games(client, new) == [game_id]
+
+
+def _my_game_rows(client: TestClient, tg: str) -> dict[str, dict]:
+    return {str(g["game_id"]): g for g in client.get(f"/users/{tg}/games", headers=BOT).json()["games"]}
+
+
+def test_a_processed_turn_shows_the_new_turn_in_my_games(client: TestClient) -> None:
+    game_id, tg = _game(client)
+    client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
+    fill_with_dummies(game_id)
+    turn = _my_game_rows(client, tg)[game_id]["current_turn"]  # warm
+    assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
+    assert _my_game_rows(client, tg)[game_id]["current_turn"] == turn + 1
+
+
+def test_an_admin_restore_shows_the_restored_status_in_my_games(client: TestClient) -> None:
+    game_id, tg = _game(client)
+    client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
+    fill_with_dummies(game_id)
+    (opening,) = [s["id"] for s in client.get(f"/games/{game_id}/snapshots").json()["snapshots"] if s["turn"] == 0]
+    with db_service.session_factory() as session:  # the game ended after the snapshot
+        session.query(GameModel).filter(GameModel.game_id == game_id).update({"status": "completed"})
+        session.commit()
+    assert _my_game_rows(client, tg)[game_id]["status"] == "completed"  # warm
+    restored = client.post(f"/games/{game_id}/restore/{opening}", headers={"X-Admin-Token": ADMIN_TOKEN})
+    assert restored.status_code == 200, restored.text
+    assert _my_game_rows(client, tg)[game_id]["status"] == "active"
+
+
+def test_marking_a_player_inactive_drops_the_game_from_their_list(client: TestClient) -> None:
+    game_id, tg = _game(client)
+    client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
+    assert game_id in _my_games(client, tg)  # warm
+    resp = client.post(f"/games/{game_id}/players/FRANCE/mark_inactive", json={"admin_token": ADMIN_TOKEN})
+    assert resp.status_code == 200, resp.text
+    assert game_id not in _my_games(client, tg)
+
+
+def test_importing_a_game_shows_it_in_a_players_list(client: TestClient) -> None:
+    game_id, tg = _game(client)
+    client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
+    doc = client.get(f"/games/{game_id}/export", headers={"X-Admin-Token": ADMIN_TOKEN}).json()
+    assert _my_games(client, tg) == [game_id]  # warm
+    imported = client.post("/games/import", json=doc, headers={"X-Admin-Token": ADMIN_TOKEN})
+    assert imported.status_code == 200, imported.text
+    assert sorted(_my_games(client, tg)) == sorted([game_id, str(imported.json()["game_id"])])
+
+
+def test_an_admin_added_seat_shows_in_the_seat_list(client: TestClient) -> None:
+    game_id, _tg = _game(client)
+    assert _seats(client, game_id) == {}  # warm
+    resp = client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers={"X-Admin-Token": ADMIN_TOKEN})
+    assert resp.status_code == 200, resp.text
+    assert _seats(client, game_id) == {"FRANCE": None}
+
+
+def test_deleting_every_game_empties_the_cached_state_and_lists(client: TestClient) -> None:
+    game_id, tg = _game(client)
+    client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
+    assert _state(client, game_id)["phase"] == "S1901M" and game_id in _my_games(client, tg)  # warm
+    assert client.post("/admin/delete_all_games", headers={"X-Admin-Token": ADMIN_TOKEN}).status_code == 200
+    assert client.get(f"/games/{game_id}/state").status_code == 404
+    assert game_id not in _my_games(client, tg)
