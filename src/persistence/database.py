@@ -6,12 +6,14 @@ with proper foreign key relationships and data validation constraints.
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, Index, text, inspect, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy import JSON
 from sqlalchemy import false as sa_false
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 Base = declarative_base()
 
@@ -379,8 +381,47 @@ class MapSnapshotModel(Base):
     # /history and /replay, they just can't be restored (see restore_game_snapshot).
     state_json = Column(JSON, nullable=True)
 
+    # One row per turn: the board that turn began on. Writers go through
+    # ``upsert_map_snapshot``, so a second write of a turn replaces the first.
+    __table_args__ = (UniqueConstraint('game_id', 'turn_number', name='uq_map_snapshots_game_turn'),)
+
     # Relationships
     game = relationship("GameModel", back_populates="map_snapshots")
+
+
+def upsert_map_snapshot(
+    session: Any,
+    *,
+    game_id: int,
+    turn_number: int,
+    phase_code: str,
+    units: Any,
+    supply_centers: Any,
+    state_json: Optional[Dict[str, Any]],
+    replace: bool = True,
+) -> int:
+    """Write turn ``turn_number``'s ``map_snapshots`` row in the caller's
+    transaction and return its id. A row already there for the turn gets this
+    board when ``replace`` (keeping its id, ``created_at`` and
+    ``map_image_path``, which only tells the cleanup job what file to delete),
+    and is left exactly as it is otherwise."""
+    board = {
+        "phase_code": phase_code,
+        "units": units,
+        "supply_centers": supply_centers,
+        "state_json": state_json,
+    }
+    new_row = pg_insert(MapSnapshotModel).values(game_id=game_id, turn_number=turn_number, **board)
+    if replace:
+        stmt = new_row.on_conflict_do_update(constraint="uq_map_snapshots_game_turn", set_=board)
+    else:
+        stmt = new_row.on_conflict_do_nothing(constraint="uq_map_snapshots_game_turn")
+    written = session.execute(stmt.returning(MapSnapshotModel.id)).scalar_one_or_none()
+    if written is not None:
+        return int(written)
+    return int(
+        session.query(MapSnapshotModel.id).filter_by(game_id=game_id, turn_number=turn_number).scalar()
+    )
 
 
 class MessageModel(Base):

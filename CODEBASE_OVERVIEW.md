@@ -315,9 +315,10 @@ images and pushes them to GHCR (`ghcr.io/tenderi/diplomacy-<service>:<sha>`), th
 5. The last order in (auto-process), the creator's "process now", or the deadline →
    `GameService.process_turn` loads `state_json`, parses every power's pending orders, calls
    `Game.adjudicate(orders)`, advances the phase, persists the next `state_json` +
-   `last_resolution`, appends the order and resolution histories, clears `pending_orders`;
-   then `finish_processed_turn` snapshots the board and notifies the players (and the
-   group, with the orders and result maps).
+   `last_resolution`, appends the order and resolution histories, writes the new board's
+   `map_snapshots` row and clears `pending_orders`, all in one transaction; then
+   `finish_processed_turn` notifies the players (and the group, with the orders and result
+   maps).
 6. `/map` → map endpoint → `src/rendering/` renders the SVG from the `GameService.view`
    shape (optionally with order/resolution arrows) → PNG back to the chat.
 

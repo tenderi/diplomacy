@@ -1727,6 +1727,10 @@ def save_game_snapshot(game_id: str, _: None = Depends(require_bot_or_game_membe
         phase_code=view["phase"],
         game_state=view,
         state_json=game_service.state_json(game_id),
+        # Every processed turn writes its own row: one already there is right,
+        # and a turn processed between the reads above would pair turn t+1 with
+        # turn t's board.
+        replace=False,
     )
     return {"status": "ok", "snapshot_id": snapshot.id, "turn": turn}
 

@@ -196,9 +196,16 @@ its number, and an admin restore of the snapshot of turn *t* sets it back to *t*
 
 There are no relational unit, order or supply-centre tables: `state_json` holds the
 board, and `map_snapshots` one row per turn: the board the turn began on (turn 0, the
-opening board, is written by `GameRepo.create`; every later one after the turn before it is
-processed; an admin restore of turn *t*'s row deletes the rows after it, boards the
-restored game never reached, which the replayed turns write afresh). `/history/{turn}`, `/map/history/{turn}` and `/map/turn/{turn}/orders` read it, `{turn}` being a number or a phase code (`S1901M`, the board that began that phase; 400 for neither, 404 for a phase not reached); for a game created
+opening board, is written by `GameRepo.create`; every later one by `GameRepo.save_state`, in
+the transaction that processes the turn before it, under the turn number that write
+produces; an admin restore of turn *t*'s row deletes the rows after it, boards the
+restored game never reached, which the replayed turns write afresh). `(game_id,
+turn_number)` is unique (`uq_map_snapshots_game_turn`): every writer goes through
+`persistence.database.upsert_map_snapshot`, so a second write of a turn replaces that
+row's board (keeping its id, `created_at` and `map_image_path`) instead of adding a row.
+`POST /games/{id}/snapshot` only adds a missing row: it reads the board and the turn
+number separately, and a turn processed in between would pair the new number with the old
+board. A saved-game import skips the turns already recorded. `/history/{turn}`, `/map/history/{turn}` and `/map/turn/{turn}/orders` read it, `{turn}` being a number or a phase code (`S1901M`, the board that began that phase; 400 for neither, 404 for a phase not reached); for a game created
 before the turn-0 row existed they fall back to the opening board, which every game starts
 from.
 
