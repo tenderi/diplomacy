@@ -10,18 +10,39 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DF**.
+>   history. Track letters run in sequence; the next free one is **DG**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-10.
-- **Open tracks:** F only (a human playing the game end to end, and host chores, which are
+- **Open tracks:** DF (non-order play-through) and F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DF — play-through of messages, votes, quitting
+
+Found by an API play-through of the non-order features (messages, draw votes, concede, wait
+flags, deadlines, quitting) on a local server, reading the `bot_outbox` texts.
+
+- [ ] **DF1** Messages (`routes/messages.py`): a NUL character in the text is a 500 (Postgres
+      refuses it) instead of a 400; `/message` and `/broadcast` are accepted after the game
+      ended (other actions answer 409); a private message to a conceded/eliminated power
+      returns 200; a message to a dummy says "no player is assigned" instead of naming civil
+      disorder. An unregistered `telegram_id` gets a bare `401 Not authenticated` instead of
+      "send /start first".
+- [ ] **DF2** Seats and flags (`routes/games.py`): a conceded power who then quits makes
+      everyone get "Vacant: Italy … /replace 2 ITALY … its draw vote is still needed", all
+      false for an eliminated power; setting a wait flag that is already set DMs the table
+      again; the quit/replace DMs title-case the power ("Italy") where every other DM says
+      "ITALY".
+- [ ] **DF3** Nobody is told a game has started: when the last seat is filled or made a
+      dummy, players get "X joined"/"X is now played by civil disorder", and the first
+      "the game is live" signal is a turn-processed notice. Send one start DM per player
+      (their power, first deadline if any, the Enter-orders button).
 
 # Track F — Manual acceptance and host chores (maintainer)
 
