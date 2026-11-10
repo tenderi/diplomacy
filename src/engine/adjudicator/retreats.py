@@ -36,11 +36,17 @@ from engine.types import (
     Resolution,
     ResultCode,
     Retreat,
+    ProvinceType,
     Unit,
     UnitKind,
 )
 
-__all__ = ["compute_retreat_options", "retreat_refusal", "adjudicate_retreats"]
+__all__ = [
+    "compute_retreat_options",
+    "retreat_refusal",
+    "unreachable_reason",
+    "adjudicate_retreats",
+]
 
 
 def compute_retreat_options(
@@ -63,7 +69,9 @@ def compute_retreat_options(
         dests = list(map.fleet_moves(unit.location))
 
     opts = [
-        d for d in dests if _blocked_reason(d.province, attacker_origin, occupied, contested) is None
+        d
+        for d in dests
+        if _blocked_reason(d.province, attacker_origin, occupied, contested) is None
     ]
     return tuple(sorted(set(opts)))
 
@@ -90,8 +98,46 @@ def retreat_refusal(
     else:
         reachable = dest in map.fleet_moves(unit.location)
     if not reachable:
-        return f"it is not adjacent to {unit.location}"
+        return unreachable_reason(map, unit.location, unit.kind, dest) or (
+            f"it is not adjacent to {unit.location}"
+        )
     return _blocked_reason(dest.province, attacker_origin, occupied, contested)
+
+
+def unreachable_reason(
+    map: MapData, frm: Location, kind: UnitKind, dest: Location
+) -> Optional[str]:
+    """Why a ``kind`` unit at ``frm`` cannot move to ``dest`` although the provinces border.
+
+    Called only once ``dest`` is known to be out of reach. ``None`` means the
+    provinces do not border at all (the caller says "not adjacent"); otherwise
+    the clause names what does stop the unit: an army cannot enter a sea, a
+    fleet cannot enter an inland province, the fleet reaches only another coast
+    of ``dest``, only another coast of ``frm`` borders ``dest``, or the two
+    provinces share no coastline. All of it is read from ``map``.
+    """
+    origins = map.fleet_locations(frm.province) or (Location(frm.province),)
+    borders = dest.province in map.army_moves(frm.province) or any(
+        d.province == dest.province for o in origins for d in map.fleet_moves(o)
+    )
+    if not borders:
+        return None
+    dest_type = map.province_type(dest.province)
+    if kind is UnitKind.ARMY:
+        return "an army cannot enter a sea" if dest_type is ProvinceType.WATER else None
+    if dest_type is ProvinceType.LAND:
+        return "a fleet cannot enter an inland province"
+    here = sorted(str(d) for d in map.fleet_moves(frm) if d.province == dest.province)
+    if here:
+        return f"a fleet in {frm} can reach only {' or '.join(here)}"
+    other = sorted(
+        str(o)
+        for o in origins
+        if o != frm and any(d.province == dest.province for d in map.fleet_moves(o))
+    )
+    if other:
+        return f"{dest.province} borders {frm.province} only from {' or '.join(other)}"
+    return f"{frm.province} and {dest.province} share no coastline, so a fleet cannot move between them"
 
 
 def _blocked_reason(
