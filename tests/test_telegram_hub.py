@@ -378,12 +378,13 @@ class TestMenuActions:
         ]
 
     def test_process_now_with_orders_missing_asks_for_confirmation(self, two_games) -> None:
-        with patch("server.telegram_bot.hub.api_get", return_value={"missing": ["ITALY", "TURKEY"]}), \
+        with patch("server.telegram_bot.hub.api_get", return_value={"missing": ["ITALY", "TURKEY"], "phase": "S1901M"}), \
              patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:
             query, _ = _press("g|5|pt")
         run.assert_not_awaited()
         assert query.edit_message_text.call_args[0][0] == "⚠️ Still waiting on: ITALY, TURKEY. Their units will hold if you process now."
-        assert ("✅ Process anyway", "ptforce|5") in _buttons(query.edit_message_text.call_args[1]["reply_markup"])
+        # DD2: the button pins the phase the warning was about.
+        assert ("✅ Process anyway", "ptforce|5|S1901M") in _buttons(query.edit_message_text.call_args[1]["reply_markup"])
 
     def test_process_now_with_an_empty_seat_skips_the_confirm(self, two_games) -> None:
         """BA6: the API refuses the turn anyway; the player reads that, not a confirm."""

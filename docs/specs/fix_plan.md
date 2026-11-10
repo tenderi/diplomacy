@@ -10,18 +10,46 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DD**.
+>   history. Track letters run in sequence; the next free one is **DE**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-10.
-- **Open tracks:** only F (a human playing the game end to end, and
+- **Open tracks:** DD (architecture.md audit) and F (a human playing the game end to end, and
   host chores, which are the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DD — architecture.md audit
+
+Found by a spec-vs-code audit of `docs/specs/architecture.md`.
+
+- [x] **DD1** A web user could suppress another player's DM: the caller left out of the
+      fan-out on `/wait`, `/draw_vote`, `/concede`, `/deadline/propose` and `/deadline/vote`
+      was the request body's `telegram_id`, even under a Bearer token (which
+      `resolve_user_or_telegram` ignores it for). It is now the authenticated user's linked
+      `telegram_id` (`_own_telegram_id`).
+- [x] **DD2** The creator's `POST /games/{id}/process_turn` pins the phase it read
+      (`expected_phase_code`), and takes the phase the client saw in the body; the web and the
+      bot's "Process anyway" button (`ptforce|{game}|{phase}`) send it. A phase processed
+      meanwhile is a 409 `phase_moved`, never an adjudication of the next phase.
+- [ ] **DD3** Cache invalidation gaps: no `users/{tg}` invalidation in `mark_player_inactive`
+      (`games.py`), `import_game` (`archive.py`), `restore_game_snapshot` (`games.py`) and
+      ordinary turn processing (`finish_processed_turn` invalidates user lists only when the
+      game ended, so `current_turn` is stale for up to 60 s); no `games/{id}` invalidation in
+      admin `add_player` (`games.py`) and `admin_delete_all_games` (`admin.py`). Extend
+      `tests/test_cache_coherence.py`.
+- [ ] **DD4** The `/feedback` DM labels the sender by email (`routes/feedback.py`), against the
+      no-real-names rule; use the nickname or "user N".
+- [ ] **DD5** Docs and dead code: architecture.md §Deployment says the outbox long-poll answers
+      `[]` on timeout, the code returns `{"items": [], "count": 0}` (`bot_outbox.py`);
+      `DAIDE_BIND`/`WEB_BIND` and the compose-level DAIDE port are not documented (the spec
+      says only Caddy is public); the idempotency key is not compared against `endpoint` on
+      replay (scope it or document it); `DatabaseService.record_bot_notification_attempt` is
+      dead; stale comment in `routes/orders.py` ("GET /state shows pending orders").
 
 # Track F — Manual acceptance and host chores (maintainer)
 

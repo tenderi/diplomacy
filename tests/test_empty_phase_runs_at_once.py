@@ -264,7 +264,7 @@ def test_another_worker_processing_the_empty_phase_still_gets_the_lines_out(
     monkeypatch.setattr(game_service, "process_turn", once)
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/process_turn", headers=BOT).json()["phase"] == "S1901R"
-    assert calls == [None, "S1901R"]
+    assert calls == ["S1901M", "S1901R"]  # DD2: the manual process pins its phase too
     assert probe.by_recipient()[f] == [
         f"The turn has been processed for game {game_id}.\nYour results for Spring 1901 movement:\n"
         "A BEL was dislodged by A PIC (ENGLAND).\nA PAR held.\n"

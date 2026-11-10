@@ -521,7 +521,7 @@ function stubFetchActive(
   state: Record<string, unknown>,
   players: Record<string, unknown>[],
   opts: {
-    onProcessTurn?: () => void
+    onProcessTurn?: (body?: unknown) => void
     processTurnResponse?: () => Promise<Response>
     ordersStatus?: Record<string, unknown>
     savedOrders?: string[]
@@ -534,7 +534,7 @@ function stubFetchActive(
 ) {
   return vi.fn((url: string, init?: RequestInit) => {
     if (url.includes('/process_turn') && init?.method === 'POST') {
-      opts.onProcessTurn?.()
+      opts.onProcessTurn?.(init.body ? JSON.parse(String(init.body)) : undefined)
       return opts.processTurnResponse ? opts.processTurnResponse() : jsonResponse({ status: 'ok' })
     }
     if (url.includes('/resolutions')) return jsonResponse({ resolutions: opts.resolutions ?? {} })
@@ -673,6 +673,9 @@ describe('GameView — process turn: the creator only, and confirmed', () => {
     await waitFor(() => {
       expect(onProcessTurn).toHaveBeenCalledTimes(1)
     })
+    // DD2: the phase on screen is pinned, so a phase the deadline processed
+    // meanwhile is a 409, not an adjudication of the next one.
+    expect(onProcessTurn).toHaveBeenCalledWith({ expected_phase_code: 'S1901M' })
   })
 })
 

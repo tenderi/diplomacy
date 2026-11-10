@@ -506,12 +506,37 @@ class TestProcessTurnConfirmation:
         def api_get_side(endpoint, *a, **kw):
             return {"phase": "F1901M", "status": "IN_PROGRESS", "dislodged": [], "contested": []}
 
-        with patch("server.telegram_bot.orders.api_post", return_value={"status": "ok"}), \
+        with patch("server.telegram_bot.orders.api_post", return_value={"status": "ok"}) as post, \
              patch("server.telegram_bot.orders.api_get", side_effect=api_get_side):
             asyncio.run(bot_app.button_callback(update, context))
 
         text = query.edit_message_text.call_args[0][0]
         assert "Turn Processed" in text
+        # A button sent before DD2 carries no phase, so none is pinned.
+        assert post.call_args[0] == ("/games/1/process_turn", {"telegram_id": "12345"})
+
+    def test_button_callback_ptforce_sends_the_pinned_phase(self):
+        """DD2: the phase in the button reaches the API as expected_phase_code."""
+        query = Mock()
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.data = "ptforce|1|S1901M"
+        query.from_user = Mock(id=12345)
+        update = Mock()
+        update.callback_query = query
+        refused = ApiError(
+            "Phase S1901M has already been processed: the game is now in F1901M. "
+            "Nothing was processed; check the new board."
+        )
+        with patch("server.telegram_bot.orders.api_post", side_effect=refused) as post:
+            asyncio.run(bot_app.button_callback(update, Mock()))
+        assert post.call_args[0] == (
+            "/games/1/process_turn", {"telegram_id": "12345", "expected_phase_code": "S1901M"}
+        )
+        assert query.edit_message_text.call_args[0][0] == (
+            "❌ Process turn error: Phase S1901M has already been processed: the game is now in F1901M. "
+            "Nothing was processed; check the new board."
+        )
 
     def test_button_callback_ptcancel_does_not_process(self):
         query = Mock()
