@@ -553,6 +553,8 @@ class GameService:
             # Same dict as ``last_resolution``, but kept per turn so it survives
             # the next ``process_turn``.
             resolution_history_entry=resolution_dict,
+            # The new board's map_snapshots row, for /history/{turn} and /replay.
+            board=_snapshot_board(next_game.state),
         )
         # save_state cleared pending orders and draw votes in the same
         # transaction: both are scoped to the phase just processed.
@@ -1199,13 +1201,7 @@ class GameService:
         ``supply_centers``): for games created before it was recorded, which
         all started from the same board."""
         state = _initial_state(self._map)
-        board = board_view(state)
-        return {
-            "phase_code": state.phase_name,
-            "state": state_to_dict(state),
-            "units": board["units"],
-            "supply_centers": board["supply_centers"],
-        }
+        return {"phase_code": state.phase_name, "state": state_to_dict(state), **_snapshot_board(state)}
 
     def view(self, game_id: str) -> Optional[dict[str, Any]]:
         """The clean, GameState-native API representation of a game."""
@@ -1862,6 +1858,12 @@ def _decorated_results(resolution: dict[str, Any]) -> list[dict[str, Any]]:
             r["reason"] = reason
         r.update(bounce_rivals(r, results))
     return results
+
+
+def _snapshot_board(state: GameState) -> dict[str, Any]:
+    """The view-shaped ``units`` and ``supply_centers`` a ``map_snapshots`` row keeps."""
+    board = board_view(state)
+    return {"units": board["units"], "supply_centers": board["supply_centers"]}
 
 
 def _centre_changes(before: Any, after: Any) -> dict[str, dict[str, Any]]:
