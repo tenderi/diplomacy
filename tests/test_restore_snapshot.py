@@ -182,3 +182,82 @@ def test_a_restore_arms_the_restored_phases_scheduled_deadline(client: TestClien
     # The same slot unless the request straddled a slot's one-hour notice cut-off.
     assert _deadline(game_id) in {schedule.next_deadline(before), schedule.next_deadline(after)}
     assert _deadline(game_id) < datetime.now(timezone.utc) + timedelta(days=3)
+
+
+def _hold_and_process(client: TestClient, game_id: str, tg: str) -> None:
+    assert client.post("/games/set_orders", json=_as(tg, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 200
+    assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
+
+
+def _turns(game_id: str) -> tuple[int, list[str], list[str], list[int]]:
+    row = db_service.get_game_by_game_id(game_id)
+    snaps = sorted(int(s.turn_number) for s in db_service.get_game_snapshots_by_game_id(int(row.id)))
+    return int(row.current_turn), sorted(row.order_history or {}), sorted(row.resolution_history or {}), snaps
+
+
+def test_a_restore_rewinds_the_turn_counter_and_the_per_turn_histories(client: TestClient) -> None:
+    """DE1: rolled back from turn 3 to turn 1, the game's turn record is turn 1's:
+    the counter, the histories (turn 0's entry only -- turn 1's orders are about to be
+    replayed), ``last_resolution`` (turn 0's, which produced the restored board) and the
+    snapshots. The next processed turn is stored as turn 1 again, not 3."""
+    game_id, tg = _game(client)
+    for _ in range(3):
+        _hold_and_process(client, game_id, tg)
+    assert _turns(game_id) == (3, ["0", "1", "2"], ["0", "1", "2"], [0, 1, 2, 3])
+    row = db_service.get_game_by_game_id(game_id)
+    turn_0_resolution = row.resolution_history["0"]
+    (snap,) = [s.id for s in db_service.get_game_snapshots_by_game_id(int(row.id)) if s.turn_number == 1]
+
+    assert client.post(f"/games/{game_id}/restore/{snap}", headers=ADMIN).status_code == 200
+
+    assert _turns(game_id) == (1, ["0"], ["0"], [0, 1])
+    assert db_service.get_game_by_game_id(game_id).last_resolution == turn_0_resolution
+    resolutions = client.get(f"/games/{game_id}/resolutions").json()["resolutions"]
+    assert list(resolutions) == ["0"]
+    assert client.get(f"/games/{game_id}/last_resolution").json()["results"] == resolutions["0"]["results"]
+    assert client.get(f"/games/{game_id}/history/2").status_code == 404
+
+    _hold_and_process(client, game_id, tg)
+    assert _turns(game_id) == (2, ["0", "1"], ["0", "1"], [0, 1, 2])
+    assert db_service.get_game_by_game_id(game_id).phase_code == "S1902M"
+
+
+def test_a_restore_to_the_opening_board_has_no_last_resolution(client: TestClient) -> None:
+    game_id, tg = _game(client)
+    snap = _opening_snapshot_id(client, game_id)
+    _hold_and_process(client, game_id, tg)
+    assert db_service.get_game_by_game_id(game_id).last_resolution is not None
+
+    assert client.post(f"/games/{game_id}/restore/{snap}", headers=ADMIN).status_code == 200
+
+    assert _turns(game_id) == (0, [], [], [0])
+    assert db_service.get_game_by_game_id(game_id).last_resolution is None
+
+
+def test_a_restore_clears_the_reminder_of_the_discarded_deadline(client: TestClient) -> None:
+    """Every write of ``deadline`` clears ``reminded_deadline`` (data_spec): the
+    restore's own, before any route re-arms it (the saved-game import does not)."""
+    game_id, _tg = _game(client)
+    row = db_service.get_game_by_game_id(game_id)
+    deadline = datetime.now(timezone.utc) + timedelta(minutes=5)
+    db_service.update_game_deadline(int(row.id), deadline)
+    assert db_service.claim_deadline_reminder(int(row.id), deadline) is True
+
+    game_service.restore_snapshot(game_id, game_service.state_json(game_id), "S1901M")
+
+    row = db_service.get_game_by_game_id(game_id)
+    assert (row.deadline, row.reminded_deadline) == (None, None)
+
+
+def test_a_draw_ends_the_game_without_counting_a_turn(client: TestClient) -> None:
+    """DE1: ending a game outside a turn (here a draw) adjudicates nothing, so the
+    turn counter stays on the last turn that has a snapshot and a history entry."""
+    game_id, tg = _game(client)
+    _hold_and_process(client, game_id, tg)
+    assert _turns(game_id) == (1, ["0"], ["0"], [0, 1])
+
+    game_service.submit_draw_vote(game_id, "FRANCE", True)
+    game_service.submit_draw_vote(game_id, "GERMANY", True)
+
+    assert db_service.get_game_by_game_id(game_id).status == "completed"
+    assert _turns(game_id) == (1, ["0"], ["0"], [0, 1])
