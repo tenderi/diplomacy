@@ -2340,3 +2340,52 @@ describe('GameView — phone phases (CU1)', () => {
     expect(within(container).getByRole('button', { name: 'Board' }).className).toContain('bg-primary')
   })
 })
+
+describe('GameView — finished game', () => {
+  function finished(winners: string[] | null) {
+    const units = [{ kind: 'A', power: 'FRANCE', location: 'PAR' }]
+    return {
+      game_id: '5',
+      map_name: 'standard',
+      phase: 'F1905M',
+      year: 1905,
+      season: 'FALL',
+      phase_type: 'MOVEMENT',
+      status: 'COMPLETED',
+      winners,
+      units,
+      units_by_power: { FRANCE: units },
+      ownership: { PAR: 'FRANCE' },
+      supply_centers: { PAR: 'FRANCE' },
+      dislodged: [],
+      contested: [],
+      players: { FRANCE: { user_id: 1, is_active: true } },
+    }
+  }
+  async function line(winners: string[] | null): Promise<string | null> {
+    vi.stubGlobal('fetch', stubFetchFor(finished(winners), { orders: [], units: [], orders_by_unit: {} }))
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/5']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    const el = await within(container).findByTestId('game-end-line')
+    return el.textContent
+  }
+
+  it('names the solo winner', async () => {
+    expect(await line(['FRANCE'])).toBe('Game over — France wins')
+  })
+
+  it('names the powers sharing a draw', async () => {
+    expect(await line(['ENGLAND', 'FRANCE'])).toBe('Game over — draw between England, France')
+  })
+
+  it('says nobody won when no power is left', async () => {
+    expect(await line([])).toBe('Game over — no winner')
+  })
+})

@@ -33,7 +33,7 @@ Found by a spec-vs-code audit of `docs/specs/data_spec.md`.
       `/resolutions` describe turns no longer on the board and the next turn is stored as 5.
       Rewind them to the restored turn. Also `end_game_if` (draw/concede/dummy end) goes
       through `_write_state`, which bumps `current_turn` with no snapshot or history written.
-- [ ] **DE2** The web game page never shows who won: the view's `winners` is unread
+- [x] **DE2** The web game page never shows who won: the view's `winners` is unread
       (`GameView.tsx` shows only "Game over"); its view type also declares an `orders` field
       the server never sends.
 - [ ] **DE3** Stale lines in `data_spec.md`: `draw_votes` values are `"yes"`, not `true`;

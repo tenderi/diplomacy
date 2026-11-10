@@ -88,7 +88,8 @@ type GameState = {
   random_powers?: boolean
   /** The user who created the game -- the only one who may end a turn early. */
   created_by_user_id?: number | null
-  orders: Record<string, string[]>
+  /** Set once COMPLETED: one power (a solo win), several (a draw), or empty (nobody left). */
+  winners?: string[] | null
 }
 type Message = {
   id?: number
@@ -266,6 +267,14 @@ function senderLabel(m: Message): string {
 
 /** Background refresh period; GET /games/{id}/state is cached server-side for 30 s. */
 const POLL_INTERVAL_MS = 30_000
+
+/** The result line for a finished game; wording matches the bot's `game_end_line`. */
+export function gameEndLine(winners: string[] | null | undefined): string {
+  const names = (winners ?? []).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+  if (names.length === 0) return 'Game over — no winner'
+  if (names.length === 1) return `Game over — ${names[0]} wins`
+  return `Game over — draw between ${names.join(', ')}`
+}
 
 export default function GameView() {
   const { gameId } = useParams<{ gameId: string }>()
@@ -981,6 +990,15 @@ export default function GameView() {
         <p className="text-sm text-muted-foreground">
           {seasonLabel} {state.year} · {state.phase}
         </p>
+        {state.status === 'COMPLETED' && (
+          <div
+            role="status"
+            data-testid="game-end-line"
+            className="mt-2 w-full rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-semibold break-words"
+          >
+            {gameEndLine(state.winners)}
+          </div>
+        )}
         {messages.length > 0 && (
           <a
             href="#messages"
