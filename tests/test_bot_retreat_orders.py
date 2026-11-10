@@ -104,3 +104,73 @@ def test_unit_picker_skips_a_forced_disband() -> None:
          patch.object(bot_orders, "api_get", return_value=FORCED):
         asyncio.run(bot_orders.show_unit_picker(reply, Chat().context, "5", "7"))
     assert sent == [FORCED_TEXT]
+
+
+# -- DC2/DC3: readable retreat buttons and retreat context ---------------------------
+
+SPAIN = {
+    "phase": "S1901R", "phase_type": "RETREAT",
+    "units": [{"kind": "F", "location": "SPA/SC"}],
+    "orders": ["D F SPA/SC", "F SPA/SC R MAO", "F SPA/SC R MAR"],
+    "orders_by_unit": {"F SPA/SC": ["D F SPA/SC", "F SPA/SC R MAO", "F SPA/SC R MAR"]},
+}
+CONTEXT = "Your F SPA/SC was dislodged: retreat to MAO or MAR, or disband. With no order it is disbanded."
+
+
+NAMES = {"MAO": "Mid-Atlantic Ocean", "MAR": "Marseilles", "BOH": "Bohemia", "BOT": "Gulf of Bothnia"}
+
+
+def test_retreat_label_spells_out_the_target_and_stays_in_the_button_width(monkeypatch) -> None:
+    monkeypatch.setattr(bot_orders, "province_names", lambda: NAMES)
+    assert bot_orders._order_label("F SPA/SC R MAO") == "↩️ Retreat to Mid-Atlantic Ocean (MAO)"
+    assert bot_orders._order_label("A MUN R BOH") == "↩️ Retreat to Bohemia (BOH)"
+    assert bot_orders._order_label("F STP/SC R BOT") == "↩️ Retreat to Gulf of Bothnia (BOT)"
+    assert len(bot_orders._order_label("F SPA/SC R MAO")) <= 60
+
+
+def test_walk_step_lists_retreats_before_the_disband_and_gives_context(api, monkeypatch) -> None:  # noqa: F811
+    monkeypatch.setattr(bot_orders, "province_names", lambda: NAMES)
+    api.get.side_effect = lambda path, **_kw: {"phase": "S1901R"} if path.endswith("/state") else SPAIN
+    chat = Chat()
+    chat.command([])
+    labels = [t for t, d in chat.buttons if d.startswith("ord|")]
+    assert labels[0] == "↩️ Retreat to Mid-Atlantic Ocean (MAO)"
+    assert labels[1].startswith("↩️ Retreat to Marseilles")
+    assert labels[2].startswith("✂️ Disband")
+    assert CONTEXT in chat.text
+    cached = list(chat.context.user_data["pending_orders"].values())
+    assert cached == [["F SPA/SC R MAO", "F SPA/SC R MAR", "D F SPA/SC"]]
+
+
+def test_unit_picker_gives_the_retreat_context() -> None:
+    sent: list[str] = []
+
+    async def reply(text: str, reply_markup: Any = None, **_kw: Any) -> None:
+        sent.append(text)
+
+    with patch.object(bot_orders, "resolve_game_and_power", return_value=("7", "SPAIN")), \
+         patch.object(bot_orders, "api_get", return_value=SPAIN):
+        asyncio.run(bot_orders.show_unit_picker(reply, Chat().context, "5", "7"))
+    assert CONTEXT in sent[0]
+
+
+def test_hub_shows_the_retreat_duty_and_the_forced_disband() -> None:
+    assert bot_orders.retreat_duty(SPAIN) == CONTEXT
+    assert bot_orders.retreat_duty(MIXED) == (
+        "Your A MUN was dislodged: retreat to BOH, or disband. With no order it is disbanded.\n" + FORCED_TEXT
+    )
+    assert bot_orders.retreat_duty({**FORCED, "units": []}) == ""
+    sent: list[str] = []
+
+    async def send(text: str, reply_markup: Any = None, **_kw: Any) -> None:
+        sent.append(text)
+
+    def get(path: str, **_kw: Any) -> Any:
+        return {"phase_type": "RETREAT", "status": "ACTIVE"} if path.endswith("/state") else SPAIN
+
+    with patch.object(hub, "resolve_game_and_power", return_value=("7", "SPAIN")), \
+         patch.object(hub, "fetch_user_games", return_value=[]), \
+         patch.object(hub, "status_text", return_value="HDR"), \
+         patch.object(hub, "api_get", side_effect=get):
+        asyncio.run(hub.show_hub(send, "5", "7"))
+    assert sent == ["HDR\n" + CONTEXT]

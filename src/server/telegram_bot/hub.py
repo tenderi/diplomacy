@@ -43,9 +43,8 @@ from .games import (
 from .messages import recent_messages_text, send_diplomatic_message
 from .utils import ending_outcome, game_end_line, game_over_note
 from .orders import (
-    forced_disband_note,
     orderable_units,
-    Sender, adjustment_duty, my_orders_text, orderhistory_text, run_process_turn, show_unit_picker, start_order_walk,
+    Sender, adjustment_duty, my_orders_text, orderhistory_text, retreat_duty, run_process_turn, show_unit_picker, start_order_walk,
 )
 
 logger = logging.getLogger("diplomacy.telegram_bot.hub")
@@ -203,8 +202,10 @@ async def show_hub(send: Sender, user_id: str, game_id: str) -> None:
             legal = None
         if legal and legal.get("phase_type") == "ADJUSTMENT":
             text += f"\n{adjustment_duty(legal)}"
+        elif legal and legal.get("phase_type") == "RETREAT" and retreat_duty(legal):
+            text += "\n" + retreat_duty(legal)
         elif legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not orderable_units(legal):
-            text += "\n" + (forced_disband_note(legal) or "You have nothing to order this phase; wait for the other powers.")
+            text += "\n" + "You have nothing to order this phase; wait for the other powers."
     await send(text, reply_markup=_hub_keyboard(game_id, power, state, orders_status, is_creator, legal))
 
 
