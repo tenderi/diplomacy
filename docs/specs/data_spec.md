@@ -165,9 +165,9 @@ The columns that matter for game state (all nullable):
 |---|---|---|---|
 | `state_json` | JSON | `GameRepo.create` / `.save_state` | The serialized `GameState` — the authoritative source of truth for a game's board. |
 | `pending_orders` | JSON | `GameRepo.modify_pending_orders` (locked read-modify-write) | `{power: [order_str, ...]}`, submitted but not yet adjudicated; cleared after `process_turn`. Each is the accepted order re-rendered by `format_order` with the board's A/F letters and every unit it names on the coast it stands on (`F STP - BOT` is stored as `F STP/SC - BOT`), so the resolution's `order_str` and `order_history` name it too. |
-| `last_resolution` | JSON | `GameRepo.save_state` / `.set_histories` (saved-game import) | The most recent `resolution_to_dict()` output — what `/last_resolution` answers and what `/generate_map/resolution` draws arrows from; not otherwise authoritative (superseded on the next `process_turn`). |
-| `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn`, using the *truthful* A/F-lettered order text. Powers `/orders/history`, which also returns `phases` (`{turn_number_str: phase_code}`, from each turn's `map_snapshots` row) so clients label a turn `S1901M`, not by its counter. |
-| `resolution_history` | JSON | `GameRepo.save_state` | `{turn_number_str: resolution_dict}` — what each turn's orders did; powers `/resolutions`, `/history/{turn}` and each turn's orders map. |
+| `last_resolution` | JSON | `GameRepo.save_state` / `.set_histories` (saved-game import) / `.restore_state` (admin rollback: the restored turn's predecessor's `resolution_history` entry, or null) | The most recent `resolution_to_dict()` output — what `/last_resolution` answers and what `/generate_map/resolution` draws arrows from; not otherwise authoritative (superseded on the next `process_turn`). |
+| `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn` (an admin restore to turn *t* drops the keys `>= t`), using the *truthful* A/F-lettered order text. Powers `/orders/history`, which also returns `phases` (`{turn_number_str: phase_code}`, from each turn's `map_snapshots` row) so clients label a turn `S1901M`, not by its counter. |
+| `resolution_history` | JSON | `GameRepo.save_state` (rewound like `order_history` by `.restore_state`) | `{turn_number_str: resolution_dict}` — what each turn's orders did; powers `/resolutions`, `/history/{turn}` and each turn's orders map. |
 | `draw_votes` | JSON | `GameRepo.modify_draw_votes` | `{power: true}` for this phase's yes votes; cleared when a turn is processed. |
 | `pending_deadline_proposal` | JSON | `GameRepo` (locked read-modify-write) | The one open majority vote on a deadline change, with its yes/no votes and optional expiry. |
 | `reminded_deadline` | Timestamp (naive UTC, like `deadline`) | `DatabaseService.claim_deadline_reminder` | The deadline whose 10-minute reminder has been sent. Claimed by one conditional `UPDATE ... WHERE deadline = :d AND reminded_deadline IS DISTINCT FROM :d` before sending, so a restart or a second worker never sends it twice; every write of `deadline` clears it, so each new deadline gets its own reminder. |
@@ -188,12 +188,17 @@ Plus denormalized convenience columns kept in sync for code that doesn't want to
 `state_json` (deadline scheduler, game listings, channel posts): `map_name`,
 `current_turn`, `current_year`, `current_season`, `current_phase`, `phase_code`,
 `status`, `deadline`, `channel_settings`, `observer_mode`, `created_at`,
-`updated_at`.
+`updated_at`. `current_turn` counts processed turns: `save_state` adds one and keys the
+turn's `order_history`/`resolution_history` entries by the number it leaves behind, and
+the board it reaches gets the `map_snapshots` row with the new number. A game ended
+outside a turn (a draw, a concession, a seat made a dummy: `GameRepo.end_game_if`) keeps
+its number, and an admin restore of the snapshot of turn *t* sets it back to *t*.
 
 There are no relational unit, order or supply-centre tables: `state_json` holds the
 board, and `map_snapshots` one row per turn: the board the turn began on (turn 0, the
 opening board, is written by `GameRepo.create`; every later one after the turn before it is
-processed). `/history/{turn}`, `/map/history/{turn}` and `/map/turn/{turn}/orders` read it, `{turn}` being a number or a phase code (`S1901M`, the board that began that phase; 400 for neither, 404 for a phase not reached); for a game created
+processed; an admin restore of turn *t*'s row deletes the rows after it, boards the
+restored game never reached, which the replayed turns write afresh). `/history/{turn}`, `/map/history/{turn}` and `/map/turn/{turn}/orders` read it, `{turn}` being a number or a phase code (`S1901M`, the board that began that phase; 400 for neither, 404 for a phase not reached); for a game created
 before the turn-0 row existed they fall back to the opening board, which every game starts
 from.
 
