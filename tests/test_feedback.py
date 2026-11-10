@@ -183,3 +183,17 @@ def test_bot_feedback_refused_by_the_server_says_why() -> None:
     update.message.reply_text.assert_awaited_once_with(
         "❌ Feedback was not sent: That is a lot of feedback in one hour"
     )
+
+
+@db
+@pytest.mark.unit
+def test_the_dm_labels_a_nickname_less_sender_by_id_never_by_email(client: TestClient, admin_chat: int) -> None:
+    email = f"fb_{uuid.uuid4().hex[:10]}@example.com"
+    reg = client.post("/auth/register", json={"email": email, "password": "testpass123"}).json()
+    headers = {"Authorization": f"Bearer {reg['access_token']}"}
+    user = db_service.get_user_by_email(email)
+    before = len(_admin_dms())
+    resp = client.post("/feedback", json={"text": "hi"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert _admin_dms()[before:] == [f"💬 Feedback #{resp.json()['id']} from user {user.id} (web):\n\nhi"]
+    assert email not in "".join(_admin_dms()[before:])

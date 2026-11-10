@@ -1752,13 +1752,12 @@ def finish_processed_turn(
     # A deadline is scoped to the phase it was set for (Track N): spent now.
     # Only a weekly schedule the players set arms the next one.
     game_ended = view is not None and view["status"] == "COMPLETED"
-    if game_ended:
-        # Each player's cached game list shows the game's status (BL5/BL6).
-        try:
-            for telegram_id_val in db_service.get_player_telegram_ids(numeric_game_id):
-                invalidate_cache(f"users/{telegram_id_val}")
-        except SQLAlchemyError as e:
-            scheduler_logger.error(f"Failed to read the players of ended game {game_id}: {e}")
+    # Each player's cached game list shows the game's phase, turn and status.
+    try:
+        for telegram_id_val in db_service.get_player_telegram_ids(numeric_game_id):
+            invalidate_cache(f"users/{telegram_id_val}")
+    except SQLAlchemyError as e:
+        scheduler_logger.error(f"Failed to read the players of game {game_id} after its turn: {e}")
     next_deadline_at = None if game_ended or fold else scheduled_deadline(game_id)
     previous = db_service.get_game_by_id(numeric_game_id)
     had_deadline = previous is not None and previous.deadline is not None
