@@ -36,6 +36,7 @@ from ..shared import (
     utc_iso,
 )
 from ...deadline_schedule import from_json as schedule_from_json
+from ...response_cache import invalidate_cache
 
 router = APIRouter()
 
@@ -236,6 +237,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
             continue
         db_service.create_player(int(row.id), power, user_id=int(user.id))
         power_by_telegram[power] = str(telegram_id)
+        invalidate_cache(f"users/{telegram_id}")  # the game joins their cached list
         players_linked += 1
 
     # The export carries no deadline, so a scheduled game's current phase gets
