@@ -33,12 +33,12 @@ Found by a play-through of the Telegram bot through S1901R and F1901R.
       the walk, the unit picker and the hub's order buttons (`orderable_units`), with "has
       nowhere to retreat and is disbanded automatically". The server's `orders_status`
       already lists such a power under `nothing_to_do`, not `submitted`; the bot now agrees.
-- [ ] **DC2** Readable retreat buttons: `↩️ F SPA/SC R MAO` becomes e.g.
-      `↩️ Retreat to Mid-Atlantic Ocean (MAO)`, the disband listed after the retreats
-      (`_order_label` in `orders.py` only expands D and BUILD).
-- [ ] **DC3** Retreat context in the walk step and the unit picker (who dislodged the unit,
-      its options, "no order = disbanded"), and a retreat duty line in the hub menu like
-      the adjustment phase's `adjustment_duty` (`hub.py`).
+- [x] **DC2** Retreat buttons read `↩️ Retreat to Mid-Atlantic Ocean (MAO)` (`_order_label`),
+      listed before the disband; the callback still carries the canonical order.
+- [x] **DC3** The walk step, the unit picker and the hub menu say "Your A MAR was dislodged:
+      retreat to BUR or GAS, or disband. With no order it is disbanded." (`retreat_context`,
+      `retreat_duty`; the hub line also carries DC1's forced-disband note). Who dislodged the
+      unit is not in `legal_orders` (the turn DM does not say either), so it is not shown.
 - [ ] **DC4** Nits: an army retreating to a sea says "not adjacent" instead of "an army
       cannot enter a sea" (`engine/adjudicator/retreats.py:93`, `orders/validation.py:319`);
       the `/order` echo is not coast-canonical (`F SPA R POR` echoes without `/SC`); the map
