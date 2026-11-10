@@ -533,10 +533,10 @@ class TestGameSnapshots:
         resp = client.post(f"/games/{game_id}/snapshot", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
         assert resp.status_code == 200, resp.text
         assert resp.json()["turn"] == 0
+        # One row per turn (DE4): the turn-0 row is rewritten, not doubled.
+        assert resp.json()["snapshot_id"] == opening[0]["id"]
         listed = client.get(f"/games/{game_id}/snapshots").json()["snapshots"]
-        assert sorted((s["id"], s["turn"], s["phase_code"]) for s in listed) == [
-            (opening[0]["id"], 0, "S1901M"), (resp.json()["snapshot_id"], 0, "S1901M"),
-        ]
+        assert [(s["id"], s["turn"], s["phase_code"]) for s in listed] == [(opening[0]["id"], 0, "S1901M")]
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_snapshots(self, client):
