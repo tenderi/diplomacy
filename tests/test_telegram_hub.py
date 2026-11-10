@@ -52,6 +52,8 @@ def _hub_api_get(path: str, **_kw):
         return {"deadline": None}
     if path.endswith("/draw_vote_status"):
         return {"votes": [], "required": []}
+    if "/legal_orders/" in path:
+        return {"phase_type": "MOVEMENT", "units": [{"kind": "A", "location": "PAR"}]}
     raise AssertionError(path)
 
 
