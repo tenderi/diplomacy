@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-11-10.
+- **Last updated:** 2026-11-11.
 - **Open tracks:** DF (non-order play-through) and F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
@@ -28,12 +28,12 @@
 Found by an API play-through of the non-order features (messages, draw votes, concede, wait
 flags, deadlines, quitting) on a local server, reading the `bot_outbox` texts.
 
-- [ ] **DF1** Messages (`routes/messages.py`): a NUL character in the text is a 500 (Postgres
-      refuses it) instead of a 400; `/message` and `/broadcast` are accepted after the game
-      ended (other actions answer 409); a private message to a conceded/eliminated power
+- [x] **DF1** Messages (`routes/messages.py`): a NUL character in the text is a 500 (Postgres
+      refuses it) instead of a 400; a private message to a conceded/eliminated power
       returns 200; a message to a dummy says "no player is assigned" instead of naming civil
       disorder. An unregistered `telegram_id` gets a bare `401 Not authenticated` instead of
-      "send /start first".
+      "send /start first". (Messages after the game ended stay accepted: post-mortem chat is
+      deliberate, BZ5.)
 - [ ] **DF2** Seats and flags (`routes/games.py`): a conceded power who then quits makes
       everyone get "Vacant: Italy … /replace 2 ITALY … its draw vote is still needed", all
       false for an eliminated power; setting a wait flag that is already set DMs the table

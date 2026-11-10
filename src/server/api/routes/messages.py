@@ -61,6 +61,10 @@ def check_message_text(text: str) -> None:
     """400 for a message nobody should receive: blank, or too long to deliver."""
     if not text.strip():
         raise HTTPException(status_code=400, detail="A message cannot be empty.")
+    # Postgres refuses NUL in a text column (a 500 on insert), and no client
+    # sends one on purpose: refuse it. Other control characters are left alone.
+    if "\x00" in text:
+        raise HTTPException(status_code=400, detail="A message cannot contain a NUL (\\u0000) character.")
     length = text_length(text)
     if length > MAX_MESSAGE_LENGTH:
         raise HTTPException(
@@ -126,6 +130,12 @@ def send_private_message(
             status_code=400,
             detail=f"You play {recipient_power}: a private message goes to another power.",
         )
+    if recipient_power in {str(p).upper() for p in game_service.dummy_powers(str(game_id))}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot send a private message to {recipient_power}: it is played by civil disorder, so nobody would read it.",
+        )
+    require_not_eliminated(str(game_id), recipient_power, "it can no longer receive messages")
     recipient_player = db_service.get_player_by_game_id_and_power(game_id=str(game_id), power=recipient_power)
     # A seat whose player quit still has a row, with no user: nobody would
     # ever read the message, so say so instead of storing it silently.
