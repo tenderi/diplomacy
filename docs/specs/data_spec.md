@@ -14,7 +14,8 @@
 
 ## 1. Engine value types (`src/engine/types.py`)
 
-All frozen, hashable dataclasses; no dict-of-dicts, no mutation. Full definitions live in
+All frozen dataclasses, and all hashable except `GameState`, whose `ownership` is a `dict`
+(hashing one raises `TypeError`); no dict-of-dicts, no mutation. Full definitions live in
 the source — this is the field-level reference.
 
 ### `Location`
@@ -166,9 +167,9 @@ The columns that matter for game state (all nullable):
 | `state_json` | JSON | `GameRepo.create` / `.save_state` | The serialized `GameState` — the authoritative source of truth for a game's board. |
 | `pending_orders` | JSON | `GameRepo.modify_pending_orders` (locked read-modify-write) | `{power: [order_str, ...]}`, submitted but not yet adjudicated; cleared after `process_turn`. Each is the accepted order re-rendered by `format_order` with the board's A/F letters and every unit it names on the coast it stands on (`F STP - BOT` is stored as `F STP/SC - BOT`), so the resolution's `order_str` and `order_history` name it too. |
 | `last_resolution` | JSON | `GameRepo.save_state` / `.set_histories` (saved-game import) / `.restore_state` (admin rollback: the restored turn's predecessor's `resolution_history` entry, or null) | The most recent `resolution_to_dict()` output — what `/last_resolution` answers and what `/generate_map/resolution` draws arrows from; not otherwise authoritative (superseded on the next `process_turn`). |
-| `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn` (an admin restore to turn *t* drops the keys `>= t`), using the *truthful* A/F-lettered order text. Powers `/orders/history`, which also returns `phases` (`{turn_number_str: phase_code}`, from each turn's `map_snapshots` row) so clients label a turn `S1901M`, not by its counter. |
+| `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) by each `process_turn` in which some power ordered (a power with no orders is left out, and a turn where nobody ordered gets no key, unlike `resolution_history`, which has one for every processed turn) (an admin restore to turn *t* drops the keys `>= t`), using the *truthful* A/F-lettered order text. Powers `/orders/history`, which also returns `phases` (`{turn_number_str: phase_code}`, from each turn's `map_snapshots` row) so clients label a turn `S1901M`, not by its counter. |
 | `resolution_history` | JSON | `GameRepo.save_state` (rewound like `order_history` by `.restore_state`) | `{turn_number_str: resolution_dict}` — what each turn's orders did; powers `/resolutions`, `/history/{turn}` and each turn's orders map. |
-| `draw_votes` | JSON | `GameRepo.modify_draw_votes` | `{power: true}` for this phase's yes votes; cleared when a turn is processed. |
+| `draw_votes` | JSON | `GameRepo.modify_draw_votes` | `{power: "yes"}` for this phase's yes votes (withdrawing a vote removes the key); cleared in the same transaction as every phase change (`_write_state`) and by an admin restore. |
 | `pending_deadline_proposal` | JSON | `GameRepo` (locked read-modify-write) | The one open majority vote on a deadline change, with its yes/no votes and optional expiry. |
 | `reminded_deadline` | Timestamp (naive UTC, like `deadline`) | `DatabaseService.claim_deadline_reminder` | The deadline whose 10-minute reminder has been sent. Claimed by one conditional `UPDATE ... WHERE deadline = :d AND reminded_deadline IS DISTINCT FROM :d` before sending, so a restart or a second worker never sends it twice; every write of `deadline` clears it, so each new deadline gets its own reminder. |
 | `phase_length_seconds` | Integer | `create_game`, `POST /deadline` | A recurring phase length a caller may arm a deadline from; never armed on its own. |
@@ -176,7 +177,7 @@ The columns that matter for game state (all nullable):
 | `phase_started_at` | DateTime | `GameRepo` (every phase change) | When the current phase began; order submissions composed earlier are refused (409). |
 | `dummy_powers` | JSON | `GameRepo.create` / `.modify_dummy_powers` (locked) | Sorted list of powers played by civil disorder. Never joinable, never waited on (`orders_status`), excluded from draw quorum and deadline-proposal majorities (`GameService.active_powers`). Null/`[]` = none; at most six. In a game whose `map_name` is `"demo"` (the bot's solo demo), `process_turn` gives each dummy with no orders `engine.simple_ai` orders, seeded by game id and phase, and records them in `order_history` like anyone's. |
 | `auto_process` | Boolean | `GameRepo.create` / `.set_auto_process` | Process the turn as soon as `orders_status` has nothing missing and no order incomplete (`ready_to_auto_process`), no wait flag is up and every power is seated or a dummy. Null/false = manual or deadline only. |
-| `wait_flags` | JSON | `GameRepo.modify_wait_flags` | `{power: true}` for players who asked the table to wait. Cleared by `finish_processed_turn` on every processed turn; never stops a deadline or `/processturn`. |
+| `wait_flags` | JSON | `GameRepo.modify_wait_flags` | `{power: true}` for players who asked the table to wait. Cleared in the same transaction as every phase change (`GameRepo._write_state`, so a processed turn or a game ended outside one) and by an admin restore; never stops a deadline or `/processturn`. |
 | `join_password_hash` | String(100) | `GameRepo.create` / `.set_join_password_hash` | bcrypt hash of a private game's join password; null = open. Never serialized: views and `GET /games` carry only `private`, and the saved-game export leaves it out (an imported game comes back open). |
 | `anonymous` | Boolean, not null, default false | `GameRepo.create` | Chosen at creation (`POST /games/create` `anonymous`, the bot's `/newgame anonymous\|public`, the web's create form) and never changed. **True:** players are known only by their power — every announcement and relayed message names the power alone (`api.shared.power_label`), and no API read says who holds a seat (`api.shared.player_rows`: `user_id`, `nickname` are null; `seated` says whether the seat is held). **False (public):** the player's nickname, when they have set one, rides along with the power, `FRANCE (Anna)`. Carried by the saved-game export. |
 | `daide` | Boolean, not null, default false | `GameRepo.create` | True for the game the DAIDE listener creates on its first `NME` (`DaideServer.ensure_game_id`). Its seats are the listener's live connections, held in memory, never `players` rows, so the full-table rule does not apply to it (`unseated_powers` is empty). |
@@ -346,14 +347,17 @@ pre-existing `status: "ok"` key is unchanged so existing clients keep working):
 ```jsonc
 {
   "status": "ok",
-  "phase": "F1901M",           // GameState.phase_name of the *new* (post-adjudication) phase
-  "game_status": "ACTIVE",     // GameState.status of the new phase -- "status" was already
+  "phase": "F1901M",           // the phase the game is in once the call returns: the phase
+                                // adjudication reached, or a later one when phases that needed
+                                // nobody were run (BV2) or auto-processing ran the next turn
+  "game_status": "ACTIVE",     // the game's status at that same point -- "status" was already
                                 // taken by the pre-existing "ok" key above
   "resolution": {              // the stored resolution of the turn just adjudicated
     "phase": "S1901M",         // the phase it adjudicated
     "eliminated": [],          // powers this turn put out (not an earlier concession), sorted
     "centres": {"FRANCE": {"gained": ["BEL"], "lost": [], "count": 6}},  // per power whose centres changed (Fall only)
-    "results": [ ... ]         // per-result shape below, without `power` or `reason`
+    "results": [ ... ]         // per-result shape below, without `power`, `reason`,
+                                // `bounced_off` or `bounced_with`
   },
   "results": ["Your results for Winter 1901 builds:", "F MAR was built."]
                                 // the caller's own turn-DM results lines, only when the caller was
@@ -366,11 +370,13 @@ That is the dict `GameService.process_turn` stores (and `resolution_history` kee
 engine's `resolution_to_dict` (`results`, §2) plus fields `GameService` adds, not the
 serializer: `phase` and each result's `order_str` (`_resolution_dict`), then `eliminated`,
 `centres` and, on a result for a unit the power gave no order (the engine made one up),
-`unordered: true`. The `power` and `reason` of a result are not stored.
+`unordered: true`. A result's `power`, `reason`, `bounced_off` and `bounced_with` are not
+stored: reads derive them.
 
 `GET /games/{id}/resolutions` is `{"game_id", "resolutions": {turn: resolution}}`, every
 stored turn with the stored `phase` and its results decorated exactly as `/last_resolution`'s
-(`GameService.resolution_history_view`: `power`, `order_str`, `reason`). Like
+(`GameService.resolution_history_view`: `power`, `order_str`, `reason`, `bounced_off`,
+`bounced_with`). Like
 `/last_resolution` it needs no auth and hides nothing: adjudicated outcomes are public. The
 web's "Previous turns" selector reads it (the newest turn is the "last turn" section above it).
 
@@ -379,7 +385,8 @@ reload, since the inline `process_turn` response above isn't persisted client-si
 returns 404 when the game doesn't exist, `{"results": []}` when it exists but no turn has
 been processed yet, else `GameService.last_resolution_view`: only `results` (and
 `movement`, below), decorated, and **not** the stored dict: no `phase`, `eliminated` or
-`centres`. Each result is the stored one plus `power` and, where it applies, `reason`:
+`centres`. Each result is the stored one plus `power` and, where they apply, `reason`,
+`bounced_off` and `bounced_with`:
 
 ```jsonc
 {
@@ -397,7 +404,12 @@ been processed yet, else `GameService.last_resolution_view`: only `results` (and
                                    // province may print as "A"
       "unordered": true,        // only when set: the power gave this unit no order
       "power": "FRANCE",        // convenience: same as order.power, flattened
-      "reason": "it would dislodge your own F TRI"  // only when set, see below
+      "reason": "it would dislodge your own F TRI", // only when set, see below
+      "bounced_off": "GERMANY's A MUN",  // only on a BOUNCE move: the unit that kept the
+                                          // destination (held, failed to leave, or swapped)
+      "bounced_with": ["GERMANY's A RUH"] // only on a BOUNCE move: the other units that moved
+                                          // there (GameService.bounce_rivals); either key is
+                                          // absent when no such rival is found
     },
     ...
   ]

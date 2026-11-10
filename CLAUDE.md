@@ -139,7 +139,7 @@ Full writeups: [`docs/specs/architecture.md`](docs/specs/architecture.md) (packa
 
 ### Game engine (`src/engine/`)
 
-**Pure rules logic — stdlib only, no I/O, DB, rendering, or framework deps** (`tests/engine/test_purity.py` checks every import). All values are **frozen, hashable dataclasses** in `types.py` (`Location(province, coast)`, `Unit`, the `Order` variants, `GameState`, `DislodgedUnit`, `Resolution`/`OrderResult`, plus the enums). Adjudication is a pure function `(map, state, orders) -> (Resolution, new_state)`.
+**Pure rules logic — stdlib only, no I/O, DB, rendering, or framework deps** (`tests/engine/test_purity.py` checks every import). All values are **frozen dataclasses** in `types.py` (`Location(province, coast)`, `Unit`, the `Order` variants, `GameState`, `DislodgedUnit`, `Resolution`/`OrderResult`, plus the enums), hashable except `GameState` (its `ownership` is a dict). Adjudication is a pure function `(map, state, orders) -> (Resolution, new_state)`.
 
 - `game.py` — `Game` (frozen snapshot: map, state, history) + the phase machine `S{y}M → [S{y}R] → F{y}M → [F{y}R] → [W{y}A] → S{y+1}M`. Retreat phase only on dislodgement; adjustment only when a power's unit and center counts differ; SC ownership recomputed after Fall; victory at 18.
 - `map_loader.py` — parses `maps/standard.map` into `MapData`. **The sole topology source** — no hardcoded adjacency or coast tables anywhere. Multi-coast provinces (BUL, SPA, STP) have per-coast fleet adjacency; check here before assuming a single adjacency list. It is also the only alias source: to teach the parser a new province alias, edit the `.map` file's `=` line rather than adding a table. `display_names` are for client output only and deliberately do not parse.
