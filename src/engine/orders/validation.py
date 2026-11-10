@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from engine.adjudicator.retreats import retreat_refusal
+from engine.adjudicator.retreats import retreat_refusal, unreachable_reason
 from engine.map_loader import MapData
 from engine.types import (
     Build,
@@ -120,7 +120,12 @@ def _check_phase(order: Order, state: GameState, map: MapData) -> ValidationResu
             elif du.retreats:
                 legal = sorted(du.retreats, key=str)
                 why = retreat_refusal(
-                    map, du.unit, order.dest, du.attacker_origin, {u.province for u in state.units}, state.contested
+                    map,
+                    du.unit,
+                    order.dest,
+                    du.attacker_origin,
+                    {u.province for u in state.units},
+                    state.contested,
                 )
                 reason = f"{order.dest} is not a legal retreat for {du.unit}"
                 if why:
@@ -316,7 +321,10 @@ def _validate_move(order: Move, unit: Unit, map: MapData) -> ValidationResult:
         if coasts:
             return ValidationResult(True)
     if not map.is_adjacent(unit.location, dest, kind):
-        return ValidationResult(False, f"{dest} is not adjacent to {unit.location}")
+        why = unreachable_reason(map, unit.location, kind, dest)
+        if why is None:
+            return ValidationResult(False, f"{dest} is not adjacent to {unit.location}")
+        return ValidationResult(False, f"{unit} cannot reach {dest}: {why}")
     return ValidationResult(True)
 
 
@@ -344,9 +352,7 @@ def _validate_support_move(order: SupportMove, unit: Unit, map: MapData) -> Vali
     return ValidationResult(True)
 
 
-def _validate_convoy(
-    order: Convoy, unit: Unit, state: GameState, map: MapData
-) -> ValidationResult:
+def _validate_convoy(order: Convoy, unit: Unit, state: GameState, map: MapData) -> ValidationResult:
     if unit.kind is not UnitKind.FLEET:
         return ValidationResult(False, "only a fleet may convoy")
     if map.province_type(unit.location.province) is not ProvinceType.WATER:

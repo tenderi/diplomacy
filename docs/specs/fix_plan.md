@@ -39,11 +39,13 @@ Found by a play-through of the Telegram bot through S1901R and F1901R.
       retreat to BUR or GAS, or disband. With no order it is disbanded." (`retreat_context`,
       `retreat_duty`; the hub line also carries DC1's forced-disband note). Who dislodged the
       unit is not in `legal_orders` (the turn DM does not say either), so it is not shown.
-- [ ] **DC4** Nits: an army retreating to a sea says "not adjacent" instead of "an army
-      cannot enter a sea" (`engine/adjudicator/retreats.py:93`, `orders/validation.py:319`);
-      the `/order` echo is not coast-canonical (`F SPA R POR` echoes without `/SC`); the map
-      caption is a bare "🗺 Game 3" and the map offers `📝 Enter orders` to a power with
-      nothing to order (`hub.py` ~371).
+- [x] **DC4a** A refused move or retreat into a bordering province says what stops it,
+      not "not adjacent": an army cannot enter a sea, a fleet cannot enter an inland
+      province, which coast the fleet can reach, or that the provinces share no coastline
+      (`retreats.unreachable_reason`).
+- [ ] **DC4** Nits: the `/order` echo is not coast-canonical (`F SPA R POR` echoes without
+      `/SC`); the map caption is a bare "🗺 Game 3" and the map offers `📝 Enter orders` to a
+      power with nothing to order (`hub.py` ~371).
 
 # Track F — Manual acceptance and host chores (maintainer)
 

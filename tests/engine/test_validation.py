@@ -314,7 +314,7 @@ class TestRetreat:
         assert (bare.ok, bare.reason) == (True, None)
         wrong = validate(Retreat("RUSSIA", Location("BOT"), Location("STP", "NC")), state, m)
         assert (wrong.ok, wrong.reason) == (
-            False, "STP/NC is not a legal retreat for F BOT: it is not adjacent to BOT"
+            False, "STP/NC is not a legal retreat for F BOT: a fleet in BOT can reach only STP/SC"
         )
         assert validate(Retreat("RUSSIA", Location("BOT"), Location("STP", "SC")), state, m).ok is True
 
@@ -704,3 +704,53 @@ class TestRetreatKindMismatch:
             False,
             "the unit in WAR is an army, not a fleet",
         )
+
+
+class TestOutOfReachReasons:
+    """A refused move or retreat into a bordering province says what really stops it."""
+
+    @pytest.mark.parametrize(
+        "kind,where,power,text,clause",
+        [
+            (UnitKind.ARMY, Location("MAR"), "FRANCE", "A MAR - LYO", "an army cannot enter a sea"),
+            (UnitKind.FLEET, Location("MAR"), "FRANCE", "F MAR - BUR",
+             "a fleet cannot enter an inland province"),
+            (UnitKind.FLEET, Location("SPA", "NC"), "FRANCE", "F SPA/NC - MAR",
+             "MAR borders SPA only from SPA/SC"),
+            (UnitKind.FLEET, Location("LYO"), "FRANCE", "F LYO - SPA/NC",
+             "a fleet in LYO can reach only SPA/SC"),
+            (UnitKind.FLEET, Location("ROM"), "ITALY", "F ROM - VEN",
+             "ROM and VEN share no coastline, so a fleet cannot move between them"),
+        ],
+    )
+    def test_move(self, m, kind, where, power, text, clause):
+        unit = Unit(kind, power, where)
+        order = parse_order(text, power=power, map=m)
+        result = validate(order, _state([unit]), m)
+        assert (result.ok, result.reason) == (False, f"{unit} cannot reach {order.dest}: {clause}")
+
+    @pytest.mark.parametrize(
+        "kind,where,text,clause",
+        [
+            (UnitKind.ARMY, Location("MAR"), "A MAR R LYO", "an army cannot enter a sea"),
+            (UnitKind.FLEET, Location("MAR"), "F MAR R BUR",
+             "a fleet cannot enter an inland province"),
+            (UnitKind.FLEET, Location("SPA", "NC"), "F SPA/NC R MAR",
+             "MAR borders SPA only from SPA/SC"),
+            (UnitKind.ARMY, Location("PAR"), "A PAR R MUN", "it is not adjacent to PAR"),
+        ],
+    )
+    def test_retreat(self, m, kind, where, text, clause):
+        unit = Unit(kind, "FRANCE", where)
+        du = DislodgedUnit(unit, None, compute_retreat_options(m, unit, None, set(), set()))
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        order = parse_order(text, power="FRANCE", map=m)
+        result = validate(order, state, m)
+        assert (result.ok, result.reason) == (
+            False, f"{order.dest} is not a legal retreat for {unit}: {clause}"
+        )
+
+    def test_a_non_bordering_province_is_still_not_adjacent(self, m):
+        unit = Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))
+        result = validate(parse_order("A PAR - MOS", power="FRANCE", map=m), _state([unit]), m)
+        assert (result.ok, result.reason) == (False, "MOS is not adjacent to PAR")

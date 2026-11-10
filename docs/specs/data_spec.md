@@ -497,8 +497,14 @@ wins: `the unit in WAR is an army, not a fleet`, as for every other order.
 Moves and convoys. A non-adjacent **army** move between two coastal provinces is a convoyed
 move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is accepted like
 `A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). The submission result carries the note "needs a convoy: ..." (accepted, but it fails unless fleets convoy it). A support of a move onto the supporter's own unit is accepted (it is legal) with the note "your own F TRI is there: this support has no effect unless it moves away" (DATC 6.D.10). Any other
-non-adjacent move is refused (`BEL is not adjacent to MUN`), as is a move to the unit's own
-province (`LON cannot move to its own province`); a support of a move into the supporter's
+non-adjacent move is refused (`BEL is not adjacent to MUN`). A move into a province that
+borders the unit's but that the unit cannot enter says why instead, through
+`retreats.unreachable_reason` (topology from `MapData` only): `A MAR cannot reach LYO: an army
+cannot enter a sea`, `F MAR cannot reach BUR: a fleet cannot enter an inland province`,
+`F LYO cannot reach SPA/NC: a fleet in LYO can reach only SPA/SC`, `F SPA/NC cannot reach MAR:
+MAR borders SPA only from SPA/SC`, or `F ROM cannot reach VEN: ROM and VEN share no coastline,
+so a fleet cannot move between them`. A move to the unit's own
+province is refused as well (`LON cannot move to its own province`); a support of a move into the supporter's
 own province is refused as such (`VEN cannot support a move into its own province`), not as
 out of reach, and a unit supporting itself, to hold or to move (`A WAR S A WAR - UKR`), is
 refused (`a unit cannot support itself`). A fleet moving to a split-coast province
@@ -519,7 +525,8 @@ move does, and must name one when two are legal. A refusal says why, through
 `retreats.retreat_refusal` (the same rules as `compute_retreat_options`): `BUR is not a legal
 retreat for A PAR:` followed by `the unit that dislodged it attacked from there`, `another
 unit stands there`, `a standoff left it empty this turn, and no unit may retreat there`, or
-`it is not adjacent to PAR`.
+`it is not adjacent to PAR` (or, when the provinces border, the same clause as a move's:
+`an army cannot enter a sea`, ...).
 
 In an adjustment phase an order must also be on the right side of the power's delta
 (centres minus units): a `Build` or `Waive` needs a positive delta and a `Disband` a
