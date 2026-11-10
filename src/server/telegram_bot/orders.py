@@ -583,7 +583,7 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # go straight to it, so the player reads that refusal, not a confirm.
     if missing and not (orders_status or {}).get("unseated"):
         keyboard = [
-            [InlineKeyboardButton("✅ Process anyway", callback_data=f"ptforce|{game_id}")],
+            [InlineKeyboardButton("✅ Process anyway", callback_data=process_anyway_data(game_id, orders_status))],
             [InlineKeyboardButton("❌ Cancel", callback_data=f"ptcancel|{game_id}")],
         ]
         await update.message.reply_text(
@@ -634,7 +634,21 @@ def _owed_text(game_id: str, telegram_id: Optional[str]) -> str:
     return f"{name} owes {what} for {len(units)} unit{'' if len(units) == 1 else 's'}: /orderall {game_id}."
 
 
-async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str] = None) -> None:
+def process_anyway_data(game_id: str, orders_status: Optional[dict[str, Any]]) -> str:
+    """The "Process anyway" button's callback data: ``ptforce|{game_id}|{phase}``.
+
+    The phase is the one the warning was about. A player who presses the
+    button after the deadline processed that phase gets the API's 409 instead
+    of an adjudication of the next phase, with nobody's orders in it (DD2).
+    Without a known phase the button is the bare ``ptforce|{game_id}``.
+    """
+    phase = (orders_status or {}).get("phase")
+    return f"ptforce|{game_id}|{phase}" if phase else f"ptforce|{game_id}"
+
+
+async def run_process_turn(
+    send: Sender, game_id: str, telegram_id: Optional[str] = None, expected_phase: Optional[str] = None
+) -> None:
     """Adjudicate ``game_id``'s current phase (``POST /process_turn``) and
     report a short outcome summary.
 
@@ -652,7 +666,10 @@ async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str
     # The player's telegram id: the server lets only the game's creator end a
     # turn early from Telegram, and answers anyone else with a 403 explaining so.
     try:
-        result = api_post(f"/games/{game_id}/process_turn", {"telegram_id": telegram_id} if telegram_id else {})
+        body: dict[str, Any] = {"telegram_id": telegram_id} if telegram_id else {}
+        if expected_phase:
+            body["expected_phase_code"] = expected_phase
+        result = api_post(f"/games/{game_id}/process_turn", body)
     except requests.RequestException as e:
         await send(f"❌ Process turn error: {escape_markdown(str(e))}")
         return

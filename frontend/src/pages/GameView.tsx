@@ -752,7 +752,12 @@ export default function GameView() {
     setProcessing(true)
     setError('')
     try {
-      await apiJson(`/games/${gameId}/process_turn`, { method: 'POST' })
+      // Pin the phase this screen shows: if it was processed meanwhile (the
+      // deadline), the server answers 409 rather than processing the next one.
+      await apiJson(`/games/${gameId}/process_turn`, {
+        method: 'POST',
+        body: JSON.stringify({ expected_phase_code: state?.phase }),
+      })
       toast.success('Turn processed')
       load()
     } catch (e) {
