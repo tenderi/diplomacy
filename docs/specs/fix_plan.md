@@ -36,14 +36,12 @@ Found by a spec-vs-code audit of `docs/specs/architecture.md`.
       (`expected_phase_code`), and takes the phase the client saw in the body; the web and the
       bot's "Process anyway" button (`ptforce|{game}|{phase}`) send it. A phase processed
       meanwhile is a 409 `phase_moved`, never an adjudication of the next phase.
-- [ ] **DD3** Cache invalidation gaps: no `users/{tg}` invalidation in `mark_player_inactive`
-      (`games.py`), `import_game` (`archive.py`), `restore_game_snapshot` (`games.py`) and
-      ordinary turn processing (`finish_processed_turn` invalidates user lists only when the
-      game ended, so `current_turn` is stale for up to 60 s); no `games/{id}` invalidation in
-      admin `add_player` (`games.py`) and `admin_delete_all_games` (`admin.py`). Extend
-      `tests/test_cache_coherence.py`.
-- [ ] **DD4** The `/feedback` DM labels the sender by email (`routes/feedback.py`), against the
-      no-real-names rule; use the nickname or "user N".
+- [x] **DD3** Cache invalidation gaps closed: `users/{tg}` is dropped in `mark_player_inactive`,
+      `restore_game_snapshot`, `import_game` and after every processed turn
+      (`finish_processed_turn`; the game list carries `current_turn` and `status`);
+      `games/{id}` in admin `add_player`, and the whole cache in `admin_delete_all_games`.
+      `tests/test_cache_coherence.py` covers each.
+- [x] **DD4** The `/feedback` DM labels the sender by nickname, else `user N`, never the email.
 - [x] **DD5** Docs and dead code: the outbox long-poll's timeout shape, `WEB_BIND`/`DAIDE_BIND`
       and what is public, the idempotency key not being scoped to `endpoint` (documented), the
       dead `record_bot_notification_attempt` removed, a stale comment in `routes/orders.py`.

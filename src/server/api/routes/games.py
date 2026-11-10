@@ -520,6 +520,7 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
     if power in taken:
         raise HTTPException(status_code=400, detail=f"Power {power} already taken")
     player = db_service.create_player(int(row.id), power)
+    invalidate_cache(f"games/{req.game_id}")  # the cached /players list must show the seat
     return {"status": "ok", "player_id": getattr(player, "id", None)}
 
 
@@ -1318,7 +1319,10 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
         raise HTTPException(status_code=404, detail="Player not found")
     if getattr(player, 'is_active', True) is False and player.user_id is None:
         return {"status": "already_inactive"}
+    vacated_user = db_service.get_user_by_id(int(player.user_id)) if player.user_id is not None else None
     db_service.assign_player_seat(int(player.id), None, False)
+    if vacated_user is not None and vacated_user.telegram_id:
+        invalidate_cache(f"users/{vacated_user.telegram_id}")  # the seat left their game list
     invalidate_cache(f"games/{game_id}")
     notify_players(game_id, f"Player {power.title()} has been marked inactive by admin and is eligible for replacement.")
     return {"status": "ok", "game_id": game_id, "power": power}
@@ -1790,6 +1794,8 @@ def restore_game_snapshot(
     # gets the one a freshly entered phase gets, as after a processed turn.
     db_service.update_game_deadline(int(row.id), api_shared.scheduled_deadline(game_id))
     invalidate_cache(f"games/{game_id}")
+    for telegram_id_val in db_service.get_player_telegram_ids(int(row.id)):
+        invalidate_cache(f"users/{telegram_id_val}")  # their game lists show the phase and turn
     try:
         notify_players(
             int(row.id),

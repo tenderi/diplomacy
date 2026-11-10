@@ -69,6 +69,7 @@ def admin_delete_all_games() -> Dict[str, Any]:
         
     # Clear in-memory server games
     server.games.clear()
+    clear_response_cache()  # every game's state and seat list, every user's game list
         
     return {
         "status": "ok", 
