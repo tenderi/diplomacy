@@ -131,6 +131,8 @@ def _order_label(order_str: str) -> str:
         label = f"🏗️ Build {_site_label(parts[1], parts[2])}"
     elif len(parts) == 3 and parts[0] == "D":
         label = f"{_VERB_EMOJI['D']} Disband {_site_label(parts[1], parts[2])}"
+    elif len(parts) == 4 and parts[2] == "R":
+        label = f"{_VERB_EMOJI['R']} Retreat to {_location_label(parts[3])}"
     elif order_str.startswith("BUILD "):
         label = f"🏗️ {order_str}"
     else:
@@ -242,6 +244,25 @@ def forced_disband_note(data: dict[str, Any]) -> str:
     if data.get("phase_type") != "RETREAT" or not gone:
         return ""
     return f"{', '.join(gone)} {'has' if len(gone) == 1 else 'have'} nowhere to retreat and {'is' if len(gone) == 1 else 'are'} disbanded automatically."
+
+
+def retreat_context(data: dict[str, Any], unit_key: str) -> str:
+    """``Your A MAR was dislodged: retreat to BUR or GAS, or disband. With no order it
+    is disbanded.`` for one dislodged unit of a ``legal_orders`` payload (``""`` when it
+    has no retreat: :func:`forced_disband_note` covers that). The server does not say
+    who dislodged the unit, so neither does this."""
+    targets = [o.split()[-1] for o in data.get("orders_by_unit", {}).get(unit_key, []) if _order_verb(o) == "R"]
+    if not targets:
+        return ""
+    return f"Your {unit_key} was dislodged: retreat to {' or '.join(targets)}, or disband. With no order it is disbanded."
+
+
+def retreat_duty(data: dict[str, Any]) -> str:
+    """The hub's retreat-phase line: one :func:`retreat_context` per unit that can
+    retreat, then the :func:`forced_disband_note`; ``""`` when the power has no
+    dislodged unit."""
+    lines = [retreat_context(data, f"{u['kind']} {u['location']}") for u in orderable_units(data)]
+    return "\n".join(x for x in [*lines, forced_disband_note(data)] if x)
 
 
 def unordered_note(game_id: str, power: str, user_id: str) -> str:
@@ -817,10 +838,12 @@ async def show_unit_picker(
         "RETREAT": "Select a dislodged unit to retreat/disband",
     }.get(phase_type, "Select a unit")
 
+    duty = retreat_duty(data) if phase_type == "RETREAT" else ""
     await reply_or_edit(
         f"🎯 *{phase_header}*\n\n"
         f"📊 Game: {game_id} | Power: {power} | Phase: {phase_text(data.get('phase'))}\n\n"
-        f"🛡️ Army | 🚢 Fleet",
+        + (f"{duty}\n\n" if duty else "")
+        + "🛡️ Army | 🚢 Fleet",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -888,7 +911,10 @@ def _unit_order_keyboard(
     ``/selectunit`` (one order) and ``/orderall`` (every unit in turn)."""
     convoy_orders = [o for o in bucket if _order_verb(o) == "C"]
     support_orders = [o for o in bucket if _order_verb(o) == "S"]
-    direct_orders = [o for o in bucket if _order_verb(o) not in ("C", "S")]
+    # Retreats before the disband: the disband is the last resort, not the default.
+    direct_orders = sorted(
+        (o for o in bucket if _order_verb(o) not in ("C", "S")), key=lambda o: _order_verb(o) == "D"
+    )
 
     keyboard = order_buttons(context, game_id, direct_orders)
     if support_orders:
@@ -1014,6 +1040,8 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
         keyboard = _unit_order_keyboard(context, game_id, step, bucket)
         emoji = "🛡️" if step.startswith("A ") else "🚢"
         title = f"🎯 *Unit {progress}: {emoji} {step}*"
+        if data.get("phase_type") == "RETREAT":
+            title += f"\n{retreat_context(data, step)}"
     nav = []
     if walk["i"] > 0:
         nav.append(InlineKeyboardButton("⬅️ Back", callback_data=f"wlk|{game_id}|back"))
