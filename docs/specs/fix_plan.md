@@ -10,18 +10,37 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DE**.
+>   history. Track letters run in sequence; the next free one is **DF**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-10.
-- **Open tracks:** F (a human playing the game end to end, and
+- **Open tracks:** DE (data_spec.md audit) and F (a human playing the game end to end, and
   host chores, which are the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DE — data_spec.md audit
+
+Found by a spec-vs-code audit of `docs/specs/data_spec.md`.
+
+- [ ] **DE1** Admin restore (`GameRepo.restore_state`, route `routes/games.py` restore) resets
+      the board but not `current_turn`, `last_resolution`, `order_history` or
+      `resolution_history`: after rolling back from turn 5 to 2, `/last_resolution` and
+      `/resolutions` describe turns no longer on the board and the next turn is stored as 5.
+      Rewind them to the restored turn. Also `end_game_if` (draw/concede/dummy end) goes
+      through `_write_state`, which bumps `current_turn` with no snapshot or history written.
+- [ ] **DE2** The web game page never shows who won: the view's `winners` is unread
+      (`GameView.tsx` shows only "Game over"); its view type also declares an `orders` field
+      the server never sends.
+- [ ] **DE3** Stale lines in `data_spec.md`: `draw_votes` values are `"yes"`, not `true`;
+      `wait_flags` is cleared in `_write_state`, not `finish_processed_turn`; the result
+      shape lacks `bounced_off`/`bounced_with`; `process_turn`'s `phase` is the phase after
+      skipping/auto-processing; `GameState` is not hashable (`ownership` is a dict);
+      `order_history` skips turns with no orders.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
