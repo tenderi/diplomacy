@@ -503,12 +503,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # adjudication + summary /processturn would have run directly had every
     # power already submitted; "ptcancel|" just backs out.
     elif data.startswith("ptforce|"):
-        _, game_id = data.split("|", 1)
+        # ``ptforce|{game_id}|{phase}``; a button sent before DD2 has no phase.
+        _, game_id, *pinned = data.split("|", 2)
 
         async def _edit(text: str, reply_markup=None, parse_mode=None) -> None:
             await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
-        await run_process_turn(_edit, game_id, user_id)
+        await run_process_turn(_edit, game_id, user_id, pinned[0] if pinned else None)
 
     elif data.startswith("ptcancel|"):
         _, game_id = data.split("|", 1)

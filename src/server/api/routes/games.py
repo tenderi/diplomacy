@@ -425,7 +425,7 @@ def set_wait_flag(
     deadline, or a player pressing /processturn. Lowering the last flag
     processes the turn at once if everything else is ready.
     """
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     game = db_service.get_game_by_game_id(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -441,7 +441,7 @@ def set_wait_flag(
         f"{label} asks game {game_id} to wait before the turn is processed."
         if req.waiting
         else f"{label} is ready in game {game_id}.",
-        exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+        exclude_telegram_id=_own_telegram_id(caller_user),
     )
     processed = 0 if req.waiting else api_shared.maybe_auto_process(game_id)
     return {"status": "ok", "waiting": waiting, "auto_processed": processed}
@@ -523,27 +523,21 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
     return {"status": "ok", "player_id": getattr(player, "id", None)}
 
 
-def _caller_telegram_id(
-    credentials: Optional[HTTPAuthorizationCredentials],
-    telegram_id: Optional[str],
-) -> Optional[str]:
-    """The caller's Telegram id, for skipping their own notification (G3a).
+def _own_telegram_id(user: Any) -> Optional[str]:
+    """The acting user's linked Telegram id, for skipping their own notification (G3a).
 
     A player who takes an action gets the outcome in their HTTP response, so
     DM'ing them the same news is noise -- the same reasoning as
     ``process_turn``'s ``exclude_telegram_id``.
 
-    Two auth modes, two places to look: the bot passes ``telegram_id`` in the
-    request body, while a browser caller is identified only by their Bearer
-    token, so the id has to be read off the resolved user. Returns ``None`` when
-    neither yields one, which simply means nobody is excluded.
+    ``user`` is whoever ``_authorize_power`` (``resolve_user_or_telegram``)
+    authenticated -- never the request body's ``telegram_id``: a Bearer caller
+    can put anyone's id there, and ``resolve_user_or_telegram`` ignores it, so
+    reading it here let a web player silence another player's DM (DD1).
+    ``None`` (a web user with no linked Telegram) simply excludes nobody.
     """
-    if telegram_id:
-        return str(telegram_id)
-    user = get_current_user_optional(credentials)
-    if user is not None and user.telegram_id:
-        return str(user.telegram_id)
-    return None
+    tg = getattr(user, "telegram_id", None)
+    return str(tg) if tg else None
 
 
 def _authorize_process_turn(
@@ -598,6 +592,15 @@ def _authorize_process_turn(
     return str(user.telegram_id) if user.telegram_id else None
 
 
+def _phase_moved_message(seen: str, now: Optional[str]) -> str:
+    """The 409 for processing a phase that is no longer the current one (DD2)."""
+    where = f"is now in {now}" if now else "has moved on"
+    return (
+        f"Phase {seen} has already been processed: the game {where}. "
+        "Nothing was processed; check the new board."
+    )
+
+
 @router.post("/games/{game_id}/process_turn")
 async def process_turn(
     game_id: str,
@@ -630,6 +633,11 @@ async def process_turn(
     real cross-process guard is ``expected_phase_code`` in ``GameService.process_turn``
     -> ``GameRepo.save_state``, which raises ``StaleGameError`` (surfaced here as
     409) if another process already advanced the phase.
+
+    The route pins the phase it reads before processing (DD2), and a client may
+    pin the one it saw by sending ``{"expected_phase_code": "S1901M"}``: if the
+    game is no longer in that phase the answer is 409 with ``X-Error-Code:
+    phase_moved`` and nothing is processed.
     """
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
@@ -662,17 +670,40 @@ async def process_turn(
             )
     prev_view = game_service.view(game_id)
     prev_phase_code = prev_view["phase"] if prev_view else None
+    # DD2: the phase is pinned. A client that saw an older phase than the one
+    # stored (the deadline scheduler processed it while the creator was
+    # confirming) is refused rather than handed an adjudication of a phase
+    # nobody has ordered for. Without a client phase the route still pins the
+    # one it read above, so a commit between that read and the process below
+    # is a 409 too, and ``after_turn_processed`` never reports the wrong
+    # previous phase.
+    client_phase = (body or {}).get("expected_phase_code")
+    if client_phase is not None and str(client_phase) != prev_phase_code:
+        raise HTTPException(
+            status_code=409,
+            detail=_phase_moved_message(str(client_phase), prev_phase_code),
+            headers={"X-Error-Code": "phase_moved"},
+        )
     lock = get_process_turn_lock(game_id)
     if lock.locked():
         raise HTTPException(status_code=409, detail="Turn processing already in progress for this game")
     own_results: list[str] = []
     async with lock:
         try:
-            turn_result = game_service.process_turn(game_id)
-        except (StaleGameError, GameOverError) as e:
-            # Both are "the game is not where you think it is": another process
-            # already advanced the phase, or the game has ended. Before the
-            # GameOverError guard, processing a finished game "succeeded" with an
+            turn_result = game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
+        except StaleGameError as e:
+            current = game_service.view(game_id)
+            now_phase = current["phase"] if current else None
+            if now_phase == prev_phase_code:
+                # Still this phase: its inputs kept changing mid-adjudication.
+                raise HTTPException(status_code=409, detail=str(e)) from e
+            raise HTTPException(
+                status_code=409,
+                detail=_phase_moved_message(prev_phase_code or "?", now_phase),
+                headers={"X-Error-Code": "phase_moved"},
+            ) from e
+        except GameOverError as e:
+            # The game has ended. Before this guard, processing a finished game "succeeded" with an
             # empty resolution and then DMed every player "turn processed".
             raise HTTPException(status_code=409, detail=str(e)) from e
     row = db_service.get_game_by_game_id(game_id)
@@ -762,7 +793,7 @@ def submit_draw_vote(
     still has a unit has now voted yes -- the game is finalized as a draw
     immediately; the response's ``quorum_reached``/``game_status`` reflect that.
     """
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     api_shared.require_started(game_id)
@@ -779,7 +810,7 @@ def submit_draw_vote(
         )
     api_shared.after_draw_vote(
         game_id, req.power, req.vote, result,
-        exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+        exclude_telegram_id=_own_telegram_id(caller_user),
     )
     return result
 
@@ -811,7 +842,7 @@ def concede_game(
     the remaining powers play on; the conceding power's units are removed and
     it is picked up by the normal elimination check once it also holds no
     supply centers."""
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     api_shared.require_started(game_id)
@@ -824,7 +855,7 @@ def concede_game(
         # Stale: the turn was processed while this request was in flight.
         raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
-    caller = _caller_telegram_id(credentials, req.telegram_id)
+    caller = _own_telegram_id(caller_user)
     row = db_service.get_game_by_game_id(game_id)
     ended_game = result.pop("ended_game")
     if result["game_status"] == "COMPLETED":
@@ -1347,7 +1378,7 @@ def propose_deadline(
     ``POST .../deadline/vote`` reaches one, its own ``vote_hours`` expires, or
     the proposer withdraws it via ``POST .../deadline/withdraw``.
     """
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -1366,7 +1397,7 @@ def propose_deadline(
                 f"{power_label(game_id, req.power)}'s deadline proposal for game {game_id} was accepted "
                 f"immediately (they're the only active power): deadline now "
                 f"{_deadline_text(result['deadline'], game_id)}.",
-                exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+                exclude_telegram_id=_own_telegram_id(caller_user),
                 skip_out=True,
             )
         else:
@@ -1381,7 +1412,7 @@ def propose_deadline(
                 f"{power_label(game_id, req.power)} proposes {what}. "
                 f"Needs {needed} yes votes ({len(result['yes_votes'])}/{needed} so far). "
                 f"Use /deadline {game_id} vote yes|no.",
-                exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+                exclude_telegram_id=_own_telegram_id(caller_user),
                 skip_out=True,
             )
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
@@ -1398,7 +1429,7 @@ def vote_deadline_proposal(
 ) -> Dict[str, Any]:
     """Cast (or change) this power's yes/no vote on the pending deadline
     proposal. Only the assigned user for ``power`` may vote it."""
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -1409,7 +1440,7 @@ def vote_deadline_proposal(
         raise HTTPException(status_code=400, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
     try:
-        exclude = _caller_telegram_id(credentials, req.telegram_id)
+        exclude = _own_telegram_id(caller_user)
         if result["status"] == "accepted":
             notify_players(
                 int(game.id),
