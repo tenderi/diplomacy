@@ -42,8 +42,9 @@ class VisualizationConfig:
         "units": {
             "diameter": 30,
             "outline_width": 2,
-            "font_size": 17,
-            "light_text_threshold": 500,
+            "square_half_side": 0.86,
+            "square_corner_radius": 0.32,
+            "light_fill_luminance": 160,
             "build_alpha": 150,
         },
         "arrows": {
