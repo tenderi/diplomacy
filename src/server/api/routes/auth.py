@@ -339,6 +339,13 @@ def resolve_user_or_telegram(
                 detail="Not authenticated: bot_secret required for telegram_id auth",
             )
         user = db_service.get_user_by_telegram_id(telegram_id)
+        if user is None:
+            # The bot is vouched for, so this is a player who never registered:
+            # say what to do (the bot shows ``detail`` verbatim). Still a 401.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="You're not registered yet: send /start to the bot first.",
+            )
     if user is None or not getattr(user, "is_active", True):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
