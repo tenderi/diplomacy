@@ -451,12 +451,13 @@ class _Resolver:
     def _prevent_strength(self, m: Move) -> int:
         if self._uses_convoy(m) and not self._convoy_path_works(m):
             return 0
-        # A move that loses its head-to-head cannot prevent others.
-        hh = self._head_to_head_opponent(m)
-        if hh is not None and self._resolve(hh.unit.province):
-            # opponent moved into our source — we are dislodged and prevent nothing
-            if self._resolve(m.unit.province) is False:
-                return 0
+        # A unit dislodged by the unit coming from its destination has no effect
+        # on that space (rulebook IX.7), whether either of the two moves is
+        # convoyed or not. Kruijswijk words this for the head-to-head loser only;
+        # the rulebook's wording also covers a convoyed swap attempt.
+        opp = self._move_from_dest_to_source(m)
+        if opp is not None and self._resolve(m.dest.province) and not self._resolve(m.unit.province):
+            return 0
         strength = 1
         for s in self._supports_for_move(m):
             if self._resolve(s.unit.province):
@@ -875,6 +876,14 @@ class _Resolver:
             if self._resolve(other_prov):
                 return True
         return False
+
+    def _move_from_dest_to_source(self, m: Move) -> Optional[Move]:
+        """The move ordered from ``m``'s destination to its source, convoyed or not."""
+        dst_item = self.items.get(m.dest.province)
+        if dst_item is None or not isinstance(dst_item.order, Move):
+            return None
+        opp = dst_item.order
+        return opp if opp.dest.province == m.unit.province else None
 
     def _head_to_head_opponent(self, m: Move) -> Optional[Move]:
         """The opposing move if ``m`` is in a direct (non-convoyed) head-to-head."""
