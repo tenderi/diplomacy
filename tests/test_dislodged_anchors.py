@@ -13,9 +13,9 @@ from rendering.tokens import token_radius
 pytestmark = pytest.mark.unit
 
 SVG = "maps/standard.svg"
-#: London and Yorkshire are too small for a full token's clearance; they settle for a
-#: slight overlap (the script relaxes its gap only where it has to).
-CRAMPED = {"LON", "YOR"}
+#: Tuscany is too small for a full token's clearance; it settles for a slight
+#: overlap (the script relaxes its gap only where it has to).
+CRAMPED = {"TUS"}
 
 
 def test_every_province_has_a_dislodged_position() -> None:

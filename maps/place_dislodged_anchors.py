@@ -36,7 +36,7 @@ from PIL import Image
 SVG = Path(__file__).with_name("standard.svg")
 WIDTH, HEIGHT = 1835, 1360
 #: Unit token diameter plus a few pixels: two tokens this far apart do not touch. A
-#: province too small for that (London, Yorkshire) settles for a slight overlap.
+#: province too small for that (Tuscany) settles for a slight overlap.
 GAPS = (34.0, 30.0, 26.0)
 #: Preferred distance from the token centre to the region's edge (its radius).
 MARGINS = (15, 12, 9, 6, 3)
