@@ -104,6 +104,10 @@ class GameModel(Base):
     # clears it, so a new deadline (even an equal value for a new phase) gets
     # its own reminder.
     reminded_deadline = Column(DateTime, nullable=True)
+    # When the players were told the game has started (the start DM). Claimed by
+    # a conditional UPDATE (``claim_game_start_announcement``), so of two
+    # last-seat requests at once exactly one announces. Null until then.
+    start_announced_at = Column(DateTime, nullable=True)
     # How long each phase lasts, in seconds, for a caller that wants to arm an
     # automatic deadline explicitly (``POST /games/{id}/deadline`` with
     # ``phase_length_seconds`` and no ``deadline``). Purely a convenience for

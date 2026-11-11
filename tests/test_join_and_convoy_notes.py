@@ -32,11 +32,12 @@ def test_seating_seven_players_dms_each_one_confirmation_and_the_start_only() ->
     client = TestClient(app)
     game_id, users, probe = _seat_all(client, group=True)
     dms = [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "dm"]
-    started = f"Game {game_id} is now full. The game has started! Good luck to all players."
     for p, tg in users.items():
         mine = [m for t, m in dms if t == tg]
         assert mine[0] == f"You have joined game {game_id} as {p}."
-        assert len(mine) == 2 and mine[1].startswith(started)
+        assert mine[1:] == [
+            f"Game {game_id} has started! You play {p}. It is Spring 1901 movement: orders are due."
+        ]
     assert len(dms) == 14
     group = [r["message"] for r in probe.rows() if r["kind"] == "channel_text"]
     joins = [m for m in group if "has joined" in m]

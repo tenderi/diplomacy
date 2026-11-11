@@ -99,13 +99,15 @@ def test_a_schedule_set_before_the_game_fills_arms_when_the_last_seat_is_taken()
     assert resp.json()["deadline"] is None
     assert _deadline(client, game_id) is None
 
-    with patch("server.api.routes.games.notify_players") as notify:
+    with patch("server.api.shared.notify_user") as notify, patch.object(
+        api_shared.db_service, "get_player_powers_by_telegram_id", return_value={"111": ["TURKEY"]}
+    ):
         r = client.post(f"/games/{game_id}/join", json={"power": "TURKEY"}, headers=users["TURKEY"])
     assert r.status_code == 200, r.text
     assert _deadline(client, game_id) in _expected("daily 12:00")
-    started = [c[0][1] for c in notify.call_args_list if "is now full" in c[0][1]]
+    started = [c[0][1] for c in notify.call_args_list if "has started!" in c[0][1]]
     assert len(started) == 1
-    assert "The game has started! Good luck to all players. First deadline: " in started[0]
+    assert started[0].startswith(f"Game {game_id} has started! You play TURKEY. It is Spring 1901 movement: orders are due. First deadline: ")
 
 
 def test_a_schedule_given_at_creation_arms_when_the_game_fills():
