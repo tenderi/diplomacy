@@ -10,18 +10,39 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DG**.
+>   history. Track letters run in sequence; the next free one is **DI**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-11.
-- **Open tracks:** F (a human playing the game end to end, and host chores, which are
+- **Open tracks:** DH (the maintainer's bug reports #404–#408), then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DH — Maintainer bug reports from differential fuzzing and race review
+
+Each item is one GitHub issue carrying the failing test; the issue has the root cause and
+the suggested direction.
+
+- [ ] DH1 (#404): a convoyed army dislodged by the unit leaving its destination still
+      stands a third unit off there (rulebook IX.7). Prevent strength must be 0 whenever
+      the unit at the destination moves into the origin and the move fails, convoyed or
+      not; `adjudication.md` §5 and the `contested` rule updated.
+- [ ] DH2 (#408): `@cached_response` stores a response read before a write but put after
+      its `invalidate_cache`. Per-path generation counter; exact-path invalidation; note
+      that the cache is per process.
+- [ ] DH3 (#406): the deadline scheduler can process the phase after the one whose
+      deadline fell due, because the phase change and spending the deadline are two
+      commits. Make them one write.
+- [ ] DH4 (#407): auto-process ignores a wait flag raised between its readiness check and
+      the turn's write. Re-check the flags on the locked row, from the auto-process caller
+      only.
+- [ ] DH5 (#405): an adjacent move with only a partial chain of convoy orders fails
+      `NO_CONVOY` instead of walking. **Waiting for the maintainer's ruling** on the issue.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
