@@ -16,6 +16,7 @@ from tests.table_helpers import fill_with_dummies
 from fastapi.testclient import TestClient
 
 from server.api import ADMIN_TOKEN, app
+from server.api.shared import db_service
 from server.telegram_bot.channels import format_historical_timeline, format_player_dashboard
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
@@ -117,17 +118,54 @@ class TestHistoricalTimeline:
             "• 🇩🇪 GERMANY: 2 centers",
         ]
 
-    def test_eliminations_swings_of_two_and_a_win_are_events(self) -> None:
-        previous = {"ITALY": self._power(1), "AUSTRIA": self._power(5), "FRANCE": self._power(4), "RUSSIA": self._power(16)}
-        current = {"ITALY": self._power(0, eliminated=True), "AUSTRIA": self._power(3), "FRANCE": self._power(5), "RUSSIA": self._power(18)}
-        state = {"game_id": "7", "current_year": 1910, "current_season": "Fall", "powers": current, "supply_centers": {"x": []}}
-        events = format_historical_timeline(state, previous_powers=previous).split("*Fall 1910:*\n")[1].split("\n\n")[0]
-        assert events.splitlines() == [
-            "• 🇮🇹 ITALY eliminated",
-            "• 🇦🇹 AUSTRIA loses 2 supply centers",
-            "• 🇷🇺 RUSSIA gains 2 supply centers",
-            "• 🏆 🇷🇺 RUSSIA achieves victory with 18 supply centers",
-        ]  # FRANCE's +1 is not an event
+    @staticmethod
+    def _board(phase: str, centers: dict, units: dict | None = None) -> dict:
+        return {"phase_code": phase, "centers": centers, "units": units if units is not None else dict(centers)}
+
+    def _history(self) -> list:
+        return [
+            self._board("S1901M", {"ITALY": 3, "AUSTRIA": 3, "FRANCE": 3, "RUSSIA": 4}),
+            self._board("F1901M", {"ITALY": 3, "AUSTRIA": 3, "FRANCE": 3, "RUSSIA": 4}),  # quiet turn
+            self._board("S1902M", {"ITALY": 1, "AUSTRIA": 5, "FRANCE": 4, "RUSSIA": 4}),  # ITALY -2, AUSTRIA +2
+            self._board("F1902M", {"AUSTRIA": 6, "FRANCE": 4, "RUSSIA": 4}, {"AUSTRIA": 6, "FRANCE": 4, "RUSSIA": 4}),
+            self._board("S1903M", {"AUSTRIA": 6, "FRANCE": 4, "RUSSIA": 4}),
+        ]
+
+    def test_each_turn_with_events_gets_a_heading(self) -> None:
+        powers = {"AUSTRIA": self._power(6), "FRANCE": self._power(4), "RUSSIA": self._power(4)}
+        state = {"game_id": "7", "powers": powers}
+        assert format_historical_timeline(state, self._history()) == (
+            "📜 *HISTORICAL TIMELINE - GAME 7*\n\n"
+            "*Fall 1901:*\n"
+            "• 🇦🇹 AUSTRIA gains 2 supply centers\n"
+            "• 🇮🇹 ITALY loses 2 supply centers\n\n"
+            "*Spring 1902:*\n"
+            "• 🇮🇹 ITALY eliminated\n\n"
+            "*Current Status:*\n"
+            "• 🇦🇹 AUSTRIA: 6 centers\n"
+            "• 🇫🇷 FRANCE: 4 centers\n"
+            "• 🇷🇺 RUSSIA: 4 centers\n"
+        )
+
+    def test_a_win_is_an_event_of_the_turn_that_made_it(self) -> None:
+        history = [self._board("F1910M", {"RUSSIA": 16, "FRANCE": 4}), self._board("W1910A", {"RUSSIA": 18, "FRANCE": 3})]
+        text = format_historical_timeline({"game_id": "7", "powers": {}}, history)
+        assert "*Fall 1910:*\n• 🇷🇺 RUSSIA gains 2 supply centers\n• 🏆 🇷🇺 RUSSIA achieves victory with 18 supply centers\n\n" in text
+
+    def test_a_power_with_units_but_no_centres_is_not_eliminated(self) -> None:
+        history = [self._board("F1901M", {"ITALY": 1}, {"ITALY": 1}), self._board("S1902M", {}, {"ITALY": 1})]
+        assert "No major events recorded yet." in format_historical_timeline({"game_id": "7", "powers": {}}, history)
+
+    def test_a_long_history_keeps_the_newest_turns(self) -> None:
+        history = []
+        for year in range(1901, 1960):
+            history.append(self._board(f"F{year}M", {"AUSTRIA": 3}))
+            history.append(self._board(f"S{year + 1}M", {"AUSTRIA": 5}))
+            history.append(self._board(f"F{year + 1}M", {"AUSTRIA": 3}))
+        text = format_historical_timeline({"game_id": "7", "powers": {}}, history)
+        assert len(text) <= 4096
+        assert "_Earlier turns left out._" in text
+        assert "*Fall 1959:*" in text and "*Fall 1901:*" not in text
 
 
 needs_db = pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
@@ -171,6 +209,21 @@ class TestRoutesQueueForTheGroup:
         timeline = self._post(client, f"/games/{game_id}/channel/timeline")["message"]
         assert "• 🇷🇺 RUSSIA: 4 centers" in timeline
         assert client.get(f"/games/{game_id}/channel/timeline", headers=BOT).json()["timeline"] == timeline
+
+    def test_timeline_reads_the_snapshot_trail(self, client: TestClient) -> None:
+        game_id, _ = self._linked_game(client)
+        row = db_service.get_game_by_game_id(game_id)
+        boards = [
+            (0, "F1901M", {"VEN": "ITALY", "ROM": "ITALY", "NAP": "ITALY"}, [{"power": "ITALY"}]),
+            (1, "S1902M", {"VEN": "AUSTRIA", "ROM": "AUSTRIA", "NAP": "AUSTRIA"}, [{"power": "AUSTRIA"}]),
+        ]
+        for turn, code, centres, units in boards:
+            db_service.create_game_snapshot(
+                int(row.id), turn, 1901 + turn // 2, "Fall", "Movement", code,
+                {"units": units, "supply_centers": centres},
+            )
+        timeline = client.get(f"/games/{game_id}/channel/timeline", headers=BOT).json()["timeline"]
+        assert "*Fall 1901:*\n• 🇦🇹 AUSTRIA gains 3 supply centers\n• 🇮🇹 ITALY eliminated\n\n" in timeline
 
     def test_broadcast_is_attributed_and_escaped(self, client: TestClient) -> None:
         game_id, creator = self._linked_game(client)

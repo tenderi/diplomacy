@@ -15,30 +15,68 @@ from .utils import escape_markdown
 logger = logging.getLogger("diplomacy.telegram_bot.channels")
 
 
+_SEASONS = {"S": "Spring", "F": "Fall", "W": "Winter"}
+_TIMELINE_LIMIT = 3900  # Telegram caps a message at 4096 characters
+
+
+def _phase_heading(phase_code: str) -> str:
+    """``"F1902M"`` -> ``"Fall 1902"``; anything else is returned as is."""
+    season = _SEASONS.get(phase_code[:1])
+    year = phase_code[1:5]
+    return f"{season} {year}" if season and year.isdigit() else phase_code
+
+
+def _timeline_sections(board_history: List[Dict[str, Any]], power_emoji: Dict[str, str]) -> List[str]:
+    """One ``*Fall 1902:*`` block per turn that had an event.
+
+    ``board_history`` is the game's boards oldest first, each
+    ``{"phase_code", "centers": {power: n}, "units": {power: n}}`` -- the board a
+    phase *began* on. What changed between two boards happened during the earlier
+    board's phase, so that is the heading.
+    """
+    sections: List[str] = []
+    for before, after in zip(board_history, board_history[1:]):
+        events: List[str] = []
+        powers = sorted(set(before["centers"]) | set(before["units"]) | set(after["centers"]) | set(after["units"]))
+        for power in powers:
+            emoji = power_emoji.get(power, "")
+            was = before["centers"].get(power, 0)
+            now = after["centers"].get(power, 0)
+            if (was or before["units"].get(power, 0)) and not now and not after["units"].get(power, 0):
+                events.append(f"• {emoji} {power} eliminated")
+            elif now - was >= 2:
+                events.append(f"• {emoji} {power} gains {now - was} supply centers")
+            elif was - now >= 2:
+                events.append(f"• {emoji} {power} loses {was - now} supply centers")
+        for power in powers:
+            now = after["centers"].get(power, 0)
+            if now >= 18 > before["centers"].get(power, 0):
+                events.append(f"• 🏆 {power_emoji.get(power, '')} {power} achieves victory with {now} supply centers")
+        if events:
+            sections.append(f"*{_phase_heading(before['phase_code'])}:*\n" + "\n".join(events) + "\n\n")
+    return sections
+
+
 def format_historical_timeline(
     game_state: Dict[str, Any],
-    turn_history: Optional[List[Dict[str, Any]]] = None,
-    previous_powers: Optional[Dict[str, Dict[str, Any]]] = None
+    board_history: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """
-    Format historical timeline from game events.
-    
+    Format the game's timeline: the events of each turn, then the current standings.
+
     Args:
         game_state: Current game state dictionary
-        turn_history: List of turn history entries
-        previous_powers: Previous power states for comparison (power -> power_state dict)
-        
+        board_history: the game's boards, oldest first, each
+            ``{"phase_code", "centers": {power: count}, "units": {power: count}}``.
+            Eliminations, swings of 2+ centres and a win are read from consecutive
+            boards. The newest turns are kept if the text would pass Telegram's limit.
+
     Returns:
         Formatted historical timeline string
     """
-    # Extract game info
     game_id = game_state.get("game_id", "Unknown")
-    current_year = game_state.get("current_year", game_state.get("currentYear", 1901))
-    current_season = game_state.get("current_season", game_state.get("currentSeason", "Spring"))
-    
     header = f"📜 *HISTORICAL TIMELINE - GAME {game_id}*\n\n"
-    
-    # Power emoji mapping
+
     power_emoji = {
         "AUSTRIA": "🇦🇹",
         "ENGLAND": "🇬🇧",
@@ -48,59 +86,25 @@ def format_historical_timeline(
         "RUSSIA": "🇷🇺",
         "TURKEY": "🇹🇷"
     }
-    
-    timeline_events = []
-    
-    # Get current powers
+
     current_powers = game_state.get("powers", {})
-    current_supply_centers = game_state.get("supply_centers", {})
-    
-    # Check for eliminations
-    if previous_powers:
-        for power_name, prev_state in previous_powers.items():
-            prev_eliminated = prev_state.get("is_eliminated", False)
-            curr_state = current_powers.get(power_name, {})
-            curr_eliminated = curr_state.get("is_eliminated", False) if isinstance(curr_state, dict) else False
-            
-            if not prev_eliminated and curr_eliminated:
-                emoji = power_emoji.get(power_name, "")
-                timeline_events.append(f"• {emoji} {power_name} eliminated")
-    
-    # Check for major supply center changes (captures of 2+ centers in a turn)
-    if previous_powers and current_supply_centers:
-        for power_name, curr_state in current_powers.items():
-            if isinstance(curr_state, dict):
-                curr_centers = len(curr_state.get("controlled_supply_centers", []))
-                prev_state = previous_powers.get(power_name, {})
-                prev_centers = len(prev_state.get("controlled_supply_centers", []))
-                change = curr_centers - prev_centers
-                
-                if change >= 2:
-                    emoji = power_emoji.get(power_name, "")
-                    timeline_events.append(f"• {emoji} {power_name} gains {change} supply centers")
-                elif change <= -2:
-                    emoji = power_emoji.get(power_name, "")
-                    timeline_events.append(f"• {emoji} {power_name} loses {abs(change)} supply centers")
-    
-    # Check for victory condition
-    for power_name, power_state in current_powers.items():
-        if isinstance(power_state, dict):
-            centers = len(power_state.get("controlled_supply_centers", []))
-            if centers >= 18:
-                emoji = power_emoji.get(power_name, "")
-                timeline_events.append(f"• 🏆 {emoji} {power_name} achieves victory with {centers} supply centers")
-    
-    # Build timeline text
+    sections = _timeline_sections(board_history or [], power_emoji)
+
     timeline_text = header
-    
-    # Group events by turn/season if available
-    if timeline_events:
-        phase_label = f"{current_season} {current_year}"
-        timeline_text += f"*{phase_label}:*\n"
-        timeline_text += "\n".join(timeline_events) + "\n\n"
+    if sections:
+        kept: List[str] = []
+        size = len(header) + 400  # room for the standings
+        for section in reversed(sections):
+            if size + len(section) > _TIMELINE_LIMIT:
+                break
+            kept.append(section)
+            size += len(section)
+        if len(kept) < len(sections):
+            timeline_text += "_Earlier turns left out._\n\n"
+        timeline_text += "".join(reversed(kept))
     else:
         timeline_text += "*No major events recorded yet.*\n\n"
-    
+
     # Add current status summary
     timeline_text += "*Current Status:*\n"
     power_rankings = []
