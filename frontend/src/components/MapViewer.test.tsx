@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, within, cleanup } from '@testing-library/react'
-import MapViewer, { fitScaleFor } from './MapViewer'
+import MapViewer, { fitScaleFor, initialScaleFor } from './MapViewer'
 
 // `globals` is off in vite.config.ts, so Testing Library cannot register its automatic
 // per-test cleanup -- without this every test would see the previous test's DOM. Same
@@ -264,6 +264,29 @@ describe('MapViewer', () => {
     expect(fitScaleFor(390, 800, 1835, 1360)).toBeCloseTo(390 / 1835, 6)
     // Landscape desktop: height binds.
     expect(fitScaleFor(1600, 500, 1835, 1360)).toBeCloseTo(500 / 1360, 6)
+  })
+
+  it('opens at a readable zoom on a phone, not at the ~21% fit', () => {
+    expect(initialScaleFor(390, 700, 1835, 1360)).toBe(0.55)
+  })
+
+  it('keeps Fit on wide screens where fit is already legible', () => {
+    expect(initialScaleFor(1280, 700, 1835, 1360)).toBeCloseTo(700 / 1360, 6)
+    expect(initialScaleFor(0, 0, 1835, 1360)).toBe(1)
+  })
+
+  it('applies the readable zoom when the image loads in a narrow viewport', () => {
+    open()
+    const vp = screen.getByTestId('map-viewport')
+    Object.defineProperty(vp, 'clientWidth', { value: 390, configurable: true })
+    Object.defineProperty(vp, 'clientHeight', { value: 700, configurable: true })
+    const img = viewerImage()
+    Object.defineProperty(img, 'naturalWidth', { value: 1835, configurable: true })
+    Object.defineProperty(img, 'naturalHeight', { value: 1360, configurable: true })
+    fireEvent.load(img)
+    expect(scaleOf(viewerImage())).toBeCloseTo(0.55, 5)
+    fireEvent.click(screen.getByRole('button', { name: 'Fit map to screen' }))
+    expect(scaleOf(viewerImage())).toBeCloseTo(390 / 1835, 5)
   })
 
   it('falls back to 1:1 for an unmeasurable viewport or image', () => {

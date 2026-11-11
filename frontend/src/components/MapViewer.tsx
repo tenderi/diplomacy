@@ -37,6 +37,24 @@ export function fitScaleFor(vw: number, vh: number, nw: number, nh: number): num
   return clampScale(Math.min(vw / nw, vh / nh))
 }
 
+/** Below this scale province labels and unit icons are not legible. */
+const READABLE_SCALE = 0.55
+/** Fit scales under this are too small to read; viewports narrower than NARROW_VIEWPORT are "phones". */
+const MIN_LEGIBLE_FIT = 0.4
+const NARROW_VIEWPORT = 768
+
+/**
+ * Scale the enlarged map opens at. Fit when fit is already legible (desktop); on a
+ * narrow viewport, where fit is ~21% and no better than the in-page map, a readable zoom
+ * instead (panned from the board's centre: no province coordinates exist client-side).
+ */
+export function initialScaleFor(vw: number, vh: number, nw: number, nh: number): number {
+  const fit = fitScaleFor(vw, vh, nw, nh)
+  if (!vw || !vh || !nw || !nh) return fit
+  if (fit >= MIN_LEGIBLE_FIT || vw >= NARROW_VIEWPORT) return fit
+  return READABLE_SCALE
+}
+
 /**
  * Scale about a fixed point so the pixel under the cursor stays under the cursor.
  * `px`/`py` are relative to the transform's origin (the centre of the viewport).
@@ -126,14 +144,19 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
     setTransform({ scale: fitScale(), x: 0, y: 0 })
   }, [fitScale])
 
-  // Open fitted to the viewport, so the first thing seen is the whole board -- the
-  // inline map's failing is scale, not framing. 1:1 is a double-click away.
+  // Open fitted when fit is legible; on a phone, at a readable zoom instead (the inline
+  // map's failing is scale). "Fit" and "1:1" stay one tap away.
   useEffect(() => {
-    if (natural && !fitted) {
+    const vp = viewportRef.current
+    if (natural && !fitted && vp) {
       setFitted(true)
-      fitToViewport()
+      setTransform({
+        scale: initialScaleFor(vp.clientWidth, vp.clientHeight, natural.w, natural.h),
+        x: 0,
+        y: 0,
+      })
     }
-  }, [natural, fitted, fitToViewport])
+  }, [natural, fitted])
 
   useEffect(() => {
     dialogRef.current?.focus()

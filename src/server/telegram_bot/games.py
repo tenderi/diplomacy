@@ -316,7 +316,7 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
         if orders_status.get("incomplete"):
             text += "✏️ *Only some units ordered:* " + ", ".join(orders_status["incomplete"]) + "\n"
         if orders_status.get("auto_process"):
-            text += "⚡ Processes automatically once all orders are in.\n"
+            text += "⚡ Processes automatically once every unit has an order.\n"
         if orders_status.get("waiting"):
             text += "✋ *Asked to wait:* " + ", ".join(orders_status["waiting"]) + "\n"
 
