@@ -43,6 +43,13 @@ attacker's arrow, not on the defender; a dislodgement is marked on the unit disl
   data in `tokens.PICTOGRAMS`, in token units. The square (`units.square_half_side`,
   `units.square_corner_radius`) stays inside the token radius plus the marker gaps, so the
   rings and octagons drawn round a unit clear both outlines.
+- **Unit position**: a token is drawn at its province's `UNIT` position in
+  `maps/standard.svg` (a coast has its own). `maps/place_unit_anchors.py` derives them from
+  the province outlines in the same file: inside the province with the whole token clear of
+  the border, off the supply-centre dot and the province's name, and not touching any other
+  token. Liverpool, Naples and Rome are too narrow for that and settle for a token that
+  overlaps their coast by a few pixels. A name that a token would cover (Denmark,
+  Edinburgh, Albania…) is set in the small label size and moved beside its province.
 - **Dislodged unit** (on a retreat board): the same token with a red ring, drawn at its
   province's `DISLODGED_UNIT` position — a spot clear of the province's own unit and of every
   neighbour's (`maps/place_dislodged_anchors.py` derives them from the rendered map) — and
@@ -113,8 +120,8 @@ per power on the board, wrapping onto more rows when needed.
 - **Tests** check the picture by its numbers, not by "a PNG came back": geometry in
   `tests/test_arrow_geometry.py`, every symbol's placement against real adjudications in
   `tests/test_order_symbols.py`, pixels in `tests/test_board_render.py`, the unit tokens'
-  outlines, pictograms and ink in `tests/test_unit_tokens.py`, the dislodged spots
-  in `tests/test_dislodged_anchors.py`.
+  outlines, pictograms and ink in `tests/test_unit_tokens.py`, the unit positions in
+  `tests/test_unit_anchors.py`, the dislodged spots in `tests/test_dislodged_anchors.py`.
 
 ## Configuration
 

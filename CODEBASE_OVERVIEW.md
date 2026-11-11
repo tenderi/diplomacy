@@ -27,7 +27,7 @@ diplomacy/
 │   └── server/          # FastAPI + Telegram bot + DAIDE + CLI Server
 ├── tests/               # top-level test files + tests/datc/ + tests/engine/
 ├── frontend/            # React 18 + Vite + TypeScript SPA
-├── maps/                # standard.map (topology), standard.svg, place_dislodged_anchors.py
+├── maps/                # standard.map (topology), standard.svg, place_unit_anchors.py, place_dislodged_anchors.py
 ├── docker/              # api / bot / web / docs Dockerfiles, nginx configs, Caddyfile
 ├── .github/workflows/   # test.yml (the required checks), deploy.yml (deploy on merge)
 ├── alembic/             # Database migrations
@@ -128,7 +128,7 @@ no topology of its own.
 `maps/` holds `standard.map` (the canonical topology source: 75 provinces, aliases, 7
 powers with home centers and starting units, unowned centers, coast-specific adjacency),
 `standard.svg` (the rendered base map, province regions identified by ID, with each province's
-unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the latter) and `svg.dtd`.
+unit and dislodged-unit positions; `place_unit_anchors.py` and `place_dislodged_anchors.py` recompute them) and `svg.dtd`.
 
 ---
 
