@@ -81,4 +81,4 @@ def test_status_shows_auto_processing_and_who_waits(mock_ctx_get, mock_get):
     update, context, message = _update(["7"])
     asyncio.run(status(update, context))
     text = message.reply_text.call_args[0][0]
-    assert "automatically" in text and "ENGLAND" in text
+    assert "Processes automatically once every unit has an order." in text and "ENGLAND" in text
