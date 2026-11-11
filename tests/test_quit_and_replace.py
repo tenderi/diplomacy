@@ -108,7 +108,7 @@ class TestQuit:
 class TestFillingAVacatedSeat:
     BOT = _BOT
 
-    def test_replace_notice_writes_the_power_title_cased(self, client):
+    def test_replace_notice_writes_the_power_upper_cased(self, client):
         game_id, a = _game_with_france(client)
         fill_with_dummies(game_id)
         client.post(f"/games/{game_id}/quit", json=_as(a))
@@ -116,7 +116,7 @@ class TestFillingAVacatedSeat:
         with patch("server.api.routes.games.notify_players") as notify:
             assert client.post(f"/games/{game_id}/replace", json=_as(b, power="FRANCE")).status_code == 200
         text = notify.call_args[0][1]
-        assert text.endswith(f"has taken over France in game {game_id}.")
+        assert text.endswith(f"has taken over FRANCE in game {game_id}.")
 
     def test_replace_assigns_the_new_user(self, client):
         game_id, a = _game_with_france(client)
@@ -262,10 +262,40 @@ class TestVacantSeatBlocksDraw:
             assert client.post(f"/games/{game_id}/quit", json=_as(b)).status_code == 200
         text = notify.call_args[0][1]
         assert text == (
-            f"Germany has left game {game_id}. Vacant: Germany. Someone can take the seat with "
+            f"GERMANY has left game {game_id}. Vacant: GERMANY. Someone can take the seat with "
             f"/replace {game_id} GERMANY, or the game's creator can make it a dummy with "
             f"/dummy {game_id} GERMANY. Until then its draw vote is still needed."
         )
+
+    def test_quit_after_conceding_says_only_who_left(self, client):
+        game_id, a, b = self._table(client)
+        assert client.post(f"/games/{game_id}/concede", json=_as(b, power="GERMANY")).status_code == 200
+        with patch("server.api.routes.games.notify_players") as notify:
+            assert client.post(f"/games/{game_id}/quit", json=_as(b)).status_code == 200
+        assert notify.call_args[0][1] == f"GERMANY (eliminated) has left game {game_id}."
+        assert client.get(f"/games/{game_id}/draw_vote_status").json()["missing"] == ["FRANCE"]
+
+    def test_marking_an_eliminated_seat_inactive_does_not_offer_it(self, client):
+        game_id, a, b = self._table(client)
+        assert client.post(f"/games/{game_id}/concede", json=_as(b, power="GERMANY")).status_code == 200
+        with patch("server.api.routes.games.notify_players") as notify:
+            r = client.post(f"/games/{game_id}/players/GERMANY/mark_inactive", json={"admin_token": ADMIN_TOKEN})
+        assert r.status_code == 200, r.text
+        assert notify.call_args[0][1] == "GERMANY (eliminated) has been marked inactive by admin."
+
+    def test_wait_flag_notifies_only_on_a_change(self, client):
+        game_id, a, b = self._table(client)
+        body = _as(a, power="FRANCE", waiting=True)
+        with patch("server.api.routes.games.notify_players") as notify:
+            for _ in range(2):
+                assert client.post(f"/games/{game_id}/wait", json=body).status_code == 200
+        assert [c[0][1] for c in notify.call_args_list] == [
+            f"FRANCE asks game {game_id} to wait before the turn is processed."
+        ]
+        with patch("server.api.routes.games.notify_players") as notify:
+            for _ in range(2):
+                assert client.post(f"/games/{game_id}/wait", json={**body, "waiting": False}).status_code == 200
+        assert [c[0][1] for c in notify.call_args_list] == [f"FRANCE is ready in game {game_id}."]
 
     def test_draw_vote_names_the_vacant_power_still_needed(self, client):
         game_id, a, b = self._table(client)
@@ -278,7 +308,7 @@ class TestVacantSeatBlocksDraw:
         assert body["quorum_reached"] is False
         text = notify.call_args[0][1]
         assert text.endswith(
-            f"Use /draw to agree or /nodraw to withdraw. Vacant: Germany. Someone can take the seat "
+            f"Use /draw to agree or /nodraw to withdraw. Vacant: GERMANY. Someone can take the seat "
             f"with /replace {game_id} GERMANY, or the game's creator can make it a dummy with "
             f"/dummy {game_id} GERMANY."
         )

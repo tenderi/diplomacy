@@ -34,7 +34,7 @@ flags, deadlines, quitting) on a local server, reading the `bot_outbox` texts.
       disorder. An unregistered `telegram_id` gets a bare `401 Not authenticated` instead of
       "send /start first". (Messages after the game ended stay accepted: post-mortem chat is
       deliberate, BZ5.)
-- [ ] **DF2** Seats and flags (`routes/games.py`): a conceded power who then quits makes
+- [x] **DF2** Seats and flags (`routes/games.py`): a conceded power who then quits makes
       everyone get "Vacant: Italy … /replace 2 ITALY … its draw vote is still needed", all
       false for an eliminated power; setting a wait flag that is already set DMs the table
       again; the quit/replace DMs title-case the power ("Italy") where every other DM says
