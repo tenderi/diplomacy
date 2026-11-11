@@ -253,7 +253,7 @@ def test_a_processed_turn_says_a_vacant_powers_units_held(
     monkeypatch.setattr(api_shared, "_post_turn_to_channel", lambda _g, text, *_a: posted.append(text))
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/process_turn", headers=users[0][0]).status_code == 200
-    line = "Italy's seat is vacant: its units held."
+    line = "ITALY's seat is vacant: its units held."
     messages = _by_power(probe, users)
     assert messages["FRANCE"] == [
         f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement.\n"

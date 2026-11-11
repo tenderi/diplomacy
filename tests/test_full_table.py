@@ -53,7 +53,7 @@ def test_the_creator_cannot_process_a_game_with_empty_seats(client: TestClient) 
     resp = client.post(f"/games/{game_id}/process_turn", json={"telegram_id": creator}, headers=BOT)
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"] == (
-        "4 powers are unseated (Austria, England, France, Russia): seat players or mark them as dummies."
+        "4 powers are unseated (AUSTRIA, ENGLAND, FRANCE, RUSSIA): seat players or mark them as dummies."
     )
     # A stable name for the refusal, so a client need not match the sentence.
     assert resp.headers["X-Error-Code"] == "seats_unfilled"
@@ -74,7 +74,7 @@ def test_one_empty_seat_is_named_in_the_singular(client: TestClient) -> None:
     game_id, _ = _game(client, ["ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA"], ["TURKEY"])
     resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Admin-Token": "changeme"})
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == "1 power is unseated (Austria): seat players or mark them as dummies."
+    assert resp.json()["detail"] == "1 power is unseated (AUSTRIA): seat players or mark them as dummies."
 
 
 def test_a_table_full_of_players_and_dummies_processes(client: TestClient) -> None:
@@ -124,7 +124,7 @@ def test_the_scheduler_skips_a_game_with_empty_seats_spends_the_deadline_and_say
     assert db_service.get_game_by_game_id(game_id).deadline is None
     text = (
         f"⏰ Game {game_id}: the deadline passed, but the turn waits for a full table. "
-        "4 powers are unseated (Austria, England, France, Russia): seat players or mark them as dummies. "
+        "4 powers are unseated (AUSTRIA, ENGLAND, FRANCE, RUSSIA): seat players or mark them as dummies. "
         "Set a new deadline once the table is full."
     )
     players.assert_called_once_with(numeric, text, buttons=game_buttons(game_id))
