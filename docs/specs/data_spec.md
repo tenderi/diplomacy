@@ -272,7 +272,7 @@ paths) — built directly from `GameState`:
   "players": { "FRANCE": {"user_id": 42, "is_active": true}, ... },
                                         // anonymous game: {"user_id": null, "is_active": true, "seated": true}
   "dummy_powers": ["TURKEY"],           // played by civil disorder; [] if none
-  "auto_process": false,                // turn runs by itself once all orders are in
+  "auto_process": false,                // turn runs by itself once every unit has an order
   "wait_flags": ["ENGLAND"],            // powers that asked the table to wait
   "private": false,                     // joining needs a password (never the hash)
   "anonymous": false,                   // players known only by their power (games.anonymous)

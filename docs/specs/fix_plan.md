@@ -17,30 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-11.
-- **Open tracks:** DG (web UI on a phone) and F (a human playing the game end to end, and host chores, which are
+- **Open tracks:** F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DG — the web game page on a phone
-
-Found by driving the SPA at 390×844 with headless Chrome against a local API (one human,
-six dummies). No horizontal overflow anywhere; these are what a player would notice.
-
-- [x] **DG1** Game page states (`pages/GameView.tsx`): a finished game still shows the phase
-      line, the order form, "Submit orders" and the message box as if live; "Vote for draw"
-      ends the game on one tap with no confirmation (process turn and concede both ask); the
-      "Last resolution" tab before any turn is processed shows the plain board with no
-      "nothing resolved yet" text; React logs "Function components cannot be given refs"
-      (`AlertDialog`/`Slot`) when the resolve-turn dialog opens.
-- [x] **DG2** Auto-process: with every human's orders in and auto-process on, the page said
-      "processed automatically once all orders are in" but the turn stayed S1901M for 30+ s
-      until "Resolve orders" was pressed. Find out whether dummies' orders, the scheduler
-      interval or the status text is wrong, and fix whichever it is.
-- [ ] **DG3** Map readability (`components/MapViewer.tsx`): the enlarged map opens at "Fit"
-      (~21% at phone width), no bigger than the in-page map; open it at a readable zoom
-      centred on the player's units.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
