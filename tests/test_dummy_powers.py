@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.api import app
-from server.api.shared import game_service
+from server.api.shared import db_service, game_service
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
 from tests.reliability_helpers import OutboxProbe
@@ -82,7 +82,7 @@ def test_the_game_is_full_when_humans_and_dummies_cover_every_seat(client: TestC
     assert client.post(f"/games/{game_id}/join", json=_as(a, power="ENGLAND")).status_code == 200
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/join", json=_as(b, power="FRANCE")).status_code == 200
-    assert any("is now full" in m for m in probe.messages())
+    assert any("has started!" in m for m in probe.messages())
 
     # FRANCE quits mid-game and someone takes the seat over: that is a
     # replacement, not the start of the game, and must not be announced as one.
@@ -90,7 +90,7 @@ def test_the_game_is_full_when_humans_and_dummies_cover_every_seat(client: TestC
     c = _telegram_user(client, "c")
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/join", json=_as(c, power="FRANCE")).status_code == 200
-    assert not any("is now full" in m for m in probe.messages())
+    assert not any("has started!" in m for m in probe.messages())
     assert probe.by_recipient() == {
         c: [f"You have joined game {game_id} as FRANCE."],
         a: [f"A new player has joined game {game_id} as FRANCE."],
@@ -112,13 +112,13 @@ def test_a_vacated_seat_made_a_dummy_is_not_counted_twice(client: TestClient) ->
 
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/join", json=_as(c, power="RUSSIA")).status_code == 200
-    assert not any("is now full" in m for m in probe.messages())
+    assert not any("has started!" in m for m in probe.messages())
     listed = next(g for g in client.get("/games").json()["games"] if str(g["game_id"]) == str(game_id))
     assert (listed["player_count"], listed["max_players"]) == (2, 3)  # ENGLAND, RUSSIA; TURKEY open
 
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/join", json=_as(d, power="TURKEY")).status_code == 200
-    assert any("is now full" in m for m in probe.messages())
+    assert any("has started!" in m for m in probe.messages())
 
 
 def test_dummies_play_by_civil_disorder_through_a_real_turn(client: TestClient) -> None:
@@ -171,3 +171,80 @@ class TestChangingTheDummySet:
         assert game_service.meta(game_id)["created_by_user_id"] is None
         someone = _register_and_login(client, "someone")
         assert client.post(f"/games/{game_id}/dummies", json={"power": "ITALY"}, headers=someone).status_code == 403
+
+
+def _start_dms(probe: OutboxProbe) -> dict[str, list[str]]:
+    return {
+        tg: [m for m in msgs if "has started!" in m]
+        for tg, msgs in probe.by_recipient().items()
+        if any("has started!" in m for m in msgs)
+    }
+
+
+def test_the_last_unseated_power_made_a_dummy_starts_the_game_with_one_dm_per_player(
+    client: TestClient,
+) -> None:
+    """DF3: the start used to be announced only by a join; a dummy that filled the
+    table told nobody. Each seated human is told their power and the phase; the
+    dummies have no DM; a later reopen and re-dummy does not announce again."""
+    creator = _register_and_login(client, "dmy")
+    game_id = _create(client, creator, ["AUSTRIA", "GERMANY", "ITALY", "RUSSIA"])
+    a, b = _telegram_user(client, "a"), _telegram_user(client, "b")
+    assert client.post(f"/games/{game_id}/join", json=_as(a, power="ENGLAND")).status_code == 200
+    assert client.post(f"/games/{game_id}/join", json=_as(b, power="FRANCE")).status_code == 200
+    with OutboxProbe() as probe:
+        resp = client.post(f"/games/{game_id}/dummies", json={"power": "TURKEY", "dummy": True}, headers=creator)
+        assert resp.status_code == 200, resp.text
+    assert _start_dms(probe) == {
+        a: [f"Game {game_id} has started! You play ENGLAND. It is Spring 1901 movement: orders are due."],
+        b: [f"Game {game_id} has started! You play FRANCE. It is Spring 1901 movement: orders are due."],
+    }
+    buttons = [r["payload"]["buttons"] for r in probe.rows() if "has started!" in r["message"]]
+    assert all(btns[0][0]["callback_data"] == f"g|{game_id}|all|n" for btns in buttons)
+
+    with OutboxProbe() as probe:
+        for dummy in (False, True):
+            assert client.post(
+                f"/games/{game_id}/dummies", json={"power": "TURKEY", "dummy": dummy}, headers=creator
+            ).status_code == 200
+    assert _start_dms(probe) == {}
+
+
+def test_the_start_is_announced_once_even_when_two_requests_claim_it(client: TestClient) -> None:
+    """DF3: the decision is one conditional UPDATE of the committed row."""
+    game_id = int(_create(client, _register_and_login(client, "dmy"), []))
+    assert db_service.claim_game_start_announcement(game_id) is True
+    assert db_service.claim_game_start_announcement(game_id) is False
+
+
+def test_the_migration_backfill_marks_started_games_and_leaves_the_lobby_null(client: TestClient) -> None:
+    """DF3: a game seated before the column existed must not announce a start
+    mid-phase when a seat is later replaced; an unfilled lobby game still must."""
+    import importlib.util
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    path = next(Path("alembic/versions").glob("a5c1d2e3f4a5_*.py"))
+    spec = importlib.util.spec_from_file_location("df3_migration", path)
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+
+    creator = _register_and_login(client, "dmy")
+    full = _create(client, creator, ["AUSTRIA", "GERMANY", "ITALY", "RUSSIA", "TURKEY"])
+    a, b = _telegram_user(client, "a"), _telegram_user(client, "b")
+    for tg, power in ((a, "ENGLAND"), (b, "FRANCE")):
+        assert client.post(f"/games/{full}/join", json=_as(tg, power=power)).status_code == 200
+    lobby = _create(client, creator, ["AUSTRIA"])
+    ids = {"a": int(full), "b": int(lobby)}
+    with db_service.session_factory() as session:
+        session.execute(text("UPDATE games SET start_announced_at = NULL WHERE id IN (:a, :b)"), ids)
+        session.commit()
+        session.execute(text(module.BACKFILL_STARTED))
+        session.commit()
+        rows = dict(
+            session.execute(
+                text("SELECT id, start_announced_at IS NOT NULL FROM games WHERE id IN (:a, :b)"), ids
+            ).all()
+        )
+    assert rows == {int(full): True, int(lobby): False}
