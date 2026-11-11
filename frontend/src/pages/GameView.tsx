@@ -965,14 +965,16 @@ export default function GameView() {
       <div className="mb-4">
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <h1 className="text-2xl font-semibold">Game {gameId}</h1>
-          <span
-            className={cn(
-              'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold',
-              PHASE_BADGE_CLASS[state.phase_type]
-            )}
-          >
-            {phase}
-          </span>
+          {state.status !== 'COMPLETED' && (
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                PHASE_BADGE_CLASS[state.phase_type]
+              )}
+            >
+              {phase}
+            </span>
+          )}
           {state.status === 'COMPLETED' && (
             <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
               Game over
@@ -987,9 +989,11 @@ export default function GameView() {
             </span>
           )}
         </div>
-        <p className="text-sm text-muted-foreground">
-          {seasonLabel} {state.year} · {state.phase}
-        </p>
+        {state.status !== 'COMPLETED' && (
+          <p className="text-sm text-muted-foreground">
+            {seasonLabel} {state.year} · {state.phase}
+          </p>
+        )}
         {state.status === 'COMPLETED' && (
           <div
             role="status"
@@ -1132,7 +1136,11 @@ export default function GameView() {
               </Button>
             ))}
           </div>
-          {mapUrlMode !== mapMode ? (
+          {mapMode === 'resolution' && (resolution?.results.length ?? 0) === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center" role="status">
+              No turn has been resolved yet.
+            </p>
+          ) : mapUrlMode !== mapMode ? (
             <p className="text-sm text-muted-foreground py-8 text-center" role={mapFailed ? 'alert' : 'status'}>
               {mapFailed
                 ? 'This map could not be loaded. Try again or pick another view.'
@@ -1216,6 +1224,7 @@ export default function GameView() {
       {myPower && !iAmOut && (
         <>
           <p className="font-medium mb-4">Your power: {myPower}</p>
+          {state.status === 'ACTIVE' && (
           <section id="orders-panel" className="mb-6 scroll-mt-4">
             <h2 className="text-lg font-medium mb-2">Orders</h2>
             {useOrdersFallback ? (
@@ -1274,6 +1283,7 @@ export default function GameView() {
               />
             )}
           </section>
+          )}
         </>
       )}
 
@@ -1420,9 +1430,28 @@ export default function GameView() {
                   {votingDraw ? 'Updating...' : 'Withdraw draw vote'}
                 </Button>
               ) : (
-                <Button onClick={() => handleDrawVote(true)} disabled={votingDraw}>
-                  {votingDraw ? 'Voting...' : 'Vote for draw'}
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button disabled={votingDraw}>
+                      {votingDraw ? 'Voting...' : 'Vote for draw'}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Vote for a draw as {myPower}?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        If every remaining power votes for a draw, the game ends at once with
+                        the surviving powers sharing it. You can withdraw your vote until then.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleDrawVote(true)}>
+                        Vote for draw
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
             </>
           ) : (
