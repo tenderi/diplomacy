@@ -160,3 +160,39 @@ def test_concurrent_writers_never_overfill_it() -> None:
         t.join()
     assert len(cache.cache) <= 50
     assert set(cache.cache) == set(cache.access_times) == set(cache.cache_params)
+
+
+def test_invalidation_matches_whole_path_segments() -> None:
+    cache = ResponseCache()
+    ep = "server.api.routes.games.get_state"
+    for gid in ("1", "10", "123"):
+        cache.put(ep, {"g": gid}, 30, {"game_id": gid})
+    cache.invalidate_pattern("games/1")
+    assert cache.get(ep, {"game_id": "1"}) is None
+    assert cache.get(ep, {"game_id": "10"}) == {"g": "10"}
+    assert cache.get(ep, {"game_id": "123"}) == {"g": "123"}
+    cache.invalidate_pattern("games")
+    assert cache.get(ep, {"game_id": "10"}) is None
+
+
+def test_a_read_that_straddles_a_write_is_not_cached() -> None:
+    store = {"phase": "S1901M"}
+    reading, written = threading.Event(), threading.Event()
+
+    @cached_response(ttl=30, key_params=["game_id"])
+    def get_state(game_id: str) -> dict:
+        value = dict(store)
+        reading.set()
+        written.wait(timeout=5)
+        return value
+
+    clear_response_cache()
+    slow = threading.Thread(target=get_state, args=("42",))
+    slow.start()
+    assert reading.wait(timeout=5)
+    store["phase"] = "F1901M"
+    invalidate_cache("games/42")
+    written.set()
+    slow.join()
+    assert get_state("42") == {"phase": "F1901M"}
+    clear_response_cache()
