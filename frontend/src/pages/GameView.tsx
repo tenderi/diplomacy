@@ -55,6 +55,7 @@ import {
   ResultList,
   UnitOrdersSection,
   toUnitOut,
+  unitKey,
 } from '@/components/OrderEntry'
 
 /** A seat from GET /games/{id}/players. An anonymous game sends `seated` but no `user_id` or name. */
@@ -133,6 +134,8 @@ type OrdersStatus = {
   active_powers: string[]
   submitted: string[]
   missing: string[]
+  /** Powers in `submitted` that have not yet ordered every unit that must act (W10 waits for them). */
+  incomplete?: string[]
   /** Powers still in the game with no order due this phase (e.g. nothing to retreat). */
   nothing_to_do?: string[]
   /** W10: powers that asked the table to wait before auto-processing. */
@@ -703,6 +706,21 @@ export default function GameView() {
     }
   }
 
+  /** DG2: the order panel promises "a unit with no order holds" (a dislodged one is
+   *  disbanded), but the server counts a power as done -- and auto-processes the turn --
+   *  only once every unit that must act has an explicit order. So a submission from the
+   *  panel sends that default for each unit left blank. */
+  function withDefaultOrders(orders: string[]): string[] {
+    const ordered = new Set(
+      orders.map((o) => extractUnitFromOrderString(o.replace(/^\s*D\s+/i, ''))).filter(Boolean)
+    )
+    const retreat = state?.phase_type === 'RETREAT'
+    const defaults = myUnits
+      .filter((u) => Boolean(u.is_dislodged) === retreat && !ordered.has(unitKey(u)))
+      .map((u) => (retreat ? `D ${unitKey(u)}` : `${unitKey(u)} H`))
+    return [...orders, ...defaults]
+  }
+
   async function handleSubmitOrders() {
     if (!gameId || !myPower) return
     const orders: string[] = useOrdersFallback
@@ -711,7 +729,7 @@ export default function GameView() {
           if (state?.phase_type === 'ADJUSTMENT') {
             return buildOrderSlots.filter(Boolean)
           }
-          return Object.values(orderByUnit).filter(Boolean)
+          return withDefaultOrders(Object.values(orderByUnit).filter(Boolean))
         })()
     if (orders.length === 0) return
     setSubmitting(true)
@@ -1070,11 +1088,15 @@ export default function GameView() {
                 {ordersStatus.missing.length > 0
                   ? ` — waiting on ${ordersStatus.missing.join(', ')}.`
                   : '.'}
+                {(ordersStatus.incomplete ?? []).length > 0 &&
+                  ` ${(ordersStatus.incomplete ?? []).join(', ')} still ${
+                    (ordersStatus.incomplete ?? []).length === 1 ? 'has' : 'have'
+                  } units without an order.`}
               </p>
             )}
             {ordersStatus?.auto_process && (
               <p className="text-sm text-muted-foreground">
-                The turn is processed automatically once all orders are in
+                The turn is processed automatically once every unit has an order
                 {ordersStatus.waiting && ordersStatus.waiting.length > 0
                   ? ` — ${ordersStatus.waiting.join(', ')} asked to wait.`
                   : '.'}
