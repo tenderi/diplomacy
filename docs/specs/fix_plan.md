@@ -28,7 +28,7 @@
 Found by driving the SPA at 390×844 with headless Chrome against a local API (one human,
 six dummies). No horizontal overflow anywhere; these are what a player would notice.
 
-- [ ] **DG1** Game page states (`pages/GameView.tsx`): a finished game still shows the phase
+- [x] **DG1** Game page states (`pages/GameView.tsx`): a finished game still shows the phase
       line, the order form, "Submit orders" and the message box as if live; "Vote for draw"
       ends the game on one tap with no confirmation (process turn and concede both ask); the
       "Last resolution" tab before any turn is processed shows the plain board with no
