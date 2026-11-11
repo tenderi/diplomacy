@@ -155,6 +155,10 @@ LEGEND: dict[str, tuple[str, Symbol | None]] = {
 }
 
 
+#: The unit key: (kind, label), drawn as that kind's token in a neutral grey.
+UNIT_KEY: tuple[tuple[str, str], ...] = (("A", "Army"), ("F", "Fleet"))
+
+
 def _token_symbol(image: Image.Image, key: str, x: float, y: float, w: float) -> None:
     """Symbols built from a unit token are pasted, not drawn."""
     center = (x + w / 2, y)
@@ -208,6 +212,9 @@ def add_footer(
     if title:
         items.append(("title", "", title))
     items += [("legend", key, LEGEND[key][0]) for key in LEGEND if key in legend_keys]
+    if powers:
+        # What the two token outlines mean, on every picture that shows a unit's power.
+        items += [("unit", kind, label) for kind, label in UNIT_KEY]
     items += [("power", p, p.capitalize()) for p in powers]
     placed: list[tuple[tuple[str, str, Any], float, int]] = []
     x, row = float(pad), 0
@@ -240,6 +247,8 @@ def add_footer(
             continue
         if kind == "power":
             paste_token(out, (x + sym_w / 2, y), "", _cfg.get_power_color(key))
+        elif kind == "unit":
+            paste_token(out, (x + sym_w / 2, y), key, _cfg.get_color("void"))
         elif LEGEND[key][1] is None:
             _token_symbol(out, key, x, y, sym_w)
         draw.text((x + sym_w + 8, y), label, fill=ink, font=item_font, anchor="lm")

@@ -33,9 +33,17 @@ attacker's arrow, not on the defender; a dislodgement is marked on the unit disl
 
 ## Units and provinces
 
-- **Unit:** a disc in the power's colour with a bold `A` or `F` (white on dark colours,
-  near-black on light ones). A letter survives Telegram's downscaling; a silhouette did not.
-- **Dislodged unit** (on a retreat board): the same disc with a red ring, drawn at its
+- **Unit:** a token in the power's colour whose **outline says the kind** and whose
+  pictogram repeats it: an **army** is a rounded square with a cannon, a **fleet** a disc
+  with a sailing ship. The outline is what survives Telegram's downscaling (the square
+  reaches a quarter further along its diagonals than the disc); two discs lettered `A` and
+  `F` did not, and neither did a small silhouette inside a white disc. The pictogram is a
+  flat silhouette filling the token, white on dark colours and near-black on light ones
+  (Turkey), chosen by the fill's luminance (`units.light_fill_luminance`). Its shapes are
+  data in `tokens.PICTOGRAMS`, in token units. The square (`units.square_half_side`,
+  `units.square_corner_radius`) stays inside the token radius plus the marker gaps, so the
+  rings and octagons drawn round a unit clear both outlines.
+- **Dislodged unit** (on a retreat board): the same token with a red ring, drawn at its
   province's `DISLODGED_UNIT` position — a spot clear of the province's own unit and of every
   neighbour's (`maps/place_dislodged_anchors.py` derives them from the rendered map) — and
   drawn last, so it is never under the unit that replaced it.
@@ -59,7 +67,7 @@ any tint. Order lines run **under** the unit tokens; markers sit **over** them.
 | **Move** | Solid arrow from the unit to the destination; it stops short of a unit standing there and reaches the centre of an empty province. |
 | **Opposed moves** (A→B and B→A) | The two arrows side by side, each offset to its own right, never on top of each other. |
 | **Convoyed move** | The same arrow, curving through every convoying fleet in route order. |
-| **Hold** | An octagon round the unit, outside the disc. (A unit with no order holds too, but is not marked.) |
+| **Hold** | An octagon round the unit, outside the token. (A unit with no order holds too, but is not marked.) |
 | **Support to hold** | A dashed line, no arrowhead, ending in a ring round the supported unit (rings stack outward when several powers support one unit). |
 | **Support to move** | A dashed line, no arrowhead, ending in a dot on the supported move's arrow. |
 | **Convoy** | A dashed ring round the convoying fleet. A route no army took is shown as a thin dotted arrow. |
@@ -87,8 +95,9 @@ The orders picture shows no outcome at all: nothing red, nothing grey.
 
 A strip **below** the map, never on it (a key drawn on the map covered Portugal and the
 Mid-Atlantic): the title (`Orders` / `Orders and results`, then the phase, e.g. `Spring 1901 movement ·
-S1901M`), the key for exactly the symbols the picture uses, and a swatch per power on the
-board, wrapping onto more rows when needed.
+S1901M`), the key for exactly the symbols the picture uses, the unit key (a grey army
+token and a grey fleet token, labelled, on every picture that lists powers), and a swatch
+per power on the board, wrapping onto more rows when needed.
 
 ## Technical
 
@@ -103,7 +112,8 @@ board, wrapping onto more rows when needed.
 - **Determinism:** the same state and orders render byte-identically.
 - **Tests** check the picture by its numbers, not by "a PNG came back": geometry in
   `tests/test_arrow_geometry.py`, every symbol's placement against real adjudications in
-  `tests/test_order_symbols.py`, pixels in `tests/test_board_render.py`, the dislodged spots
+  `tests/test_order_symbols.py`, pixels in `tests/test_board_render.py`, the unit tokens'
+  outlines, pictograms and ink in `tests/test_unit_tokens.py`, the dislodged spots
   in `tests/test_dislodged_anchors.py`.
 
 ## Configuration
