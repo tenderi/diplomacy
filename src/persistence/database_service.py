@@ -946,6 +946,22 @@ class DatabaseService:
             return bool(result.rowcount == 1)  # type: ignore[attr-defined]
 
 
+    def claim_game_start_announcement(self, game_id: int) -> bool:
+        """Claim the one start announcement of a game: ``True`` for exactly one
+        caller, ever. A single conditional UPDATE, so two requests that fill the
+        table at once (or a dummy and a join) cannot both win."""
+        with self.session_factory() as session:
+            result = session.execute(
+                text(
+                    "UPDATE games SET start_announced_at = :now "
+                    "WHERE id = :id AND start_announced_at IS NULL"
+                ),
+                {"now": utcnow_naive(), "id": game_id},
+            )
+            session.commit()
+            return bool(result.rowcount == 1)  # type: ignore[attr-defined]
+
+
     # --- Orders ---
 
     # --- Messages ---

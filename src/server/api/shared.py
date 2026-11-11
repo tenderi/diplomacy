@@ -1293,6 +1293,51 @@ def unseated_message(unseated: list[str]) -> str:
     return f"{count} {noun} unseated ({names}): seat players or mark them as dummies."
 
 
+def announce_game_started(game_id: str, numeric_game_id: int) -> bool:
+    """Tell the table the game has started (DF3): one DM per seated player naming
+    their power, the phase and the first deadline, with the Enter-orders button,
+    and a line in the group. Dummies have no player, so no DM.
+
+    Call it after any write that may have filled the table (the last seat taken,
+    the last unseated power made a dummy). It fires once per game: the decision is
+    ``claim_game_start_announcement``, one conditional UPDATE of the committed row,
+    so two requests filling the table at once cannot both announce, and a later
+    join, replace or dummy toggle never does. A game that has already run a turn
+    started long ago and is not announced. Returns whether it announced."""
+    if not seats_filled(game_id, numeric_game_id):
+        return False
+    meta = game_service.meta(game_id) or {}
+    if meta.get("current_turn", 0) > 0 or meta.get("status") == "completed":
+        return False
+    if not db_service.claim_game_start_announcement(numeric_game_id):
+        return False
+    # A weekly schedule arms the first deadline now the game has started.
+    first = arm_scheduled_deadline(game_id, numeric_game_id)
+    if first is None:
+        row = db_service.get_game_by_game_id(game_id)
+        first = getattr(row, "deadline", None)
+    phase = phase_label(str(meta.get("phase_code") or ""))
+    due = (
+        f" First deadline: {format_scheduled_deadline(first, game_schedule(game_id))}."
+        if first is not None
+        else ""
+    )
+    for telegram_id, powers in db_service.get_player_powers_by_telegram_id(numeric_game_id).items():
+        notify_user(
+            telegram_id,
+            f"Game {game_id} has started! You play {' and '.join(powers)}. "
+            f"It is {phase}: orders are due.{due}",
+            game_buttons(game_id),
+        )
+    post_to_game_group(
+        game_id,
+        f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.",
+        GroupPost.ROUTINE,
+        dm_start=f"orders_{game_id}",
+    )
+    return True
+
+
 def require_started(game_id: str) -> None:
     """409 until the game has started (BL1): orders, draw votes and concessions
     wait for the full table -- every power seated or a dummy. A power conceding
