@@ -467,6 +467,13 @@ describe('GameView — draw vote', () => {
     })
 
     fireEvent.click(within(container).getByRole('button', { name: /vote for draw/i }))
+    // One tap only opens the confirmation; nothing is posted until it is confirmed.
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText('Vote for a draw as FRANCE?')).toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(([u, i]) => String(u).endsWith('/draw_vote') && (i as RequestInit)?.method === 'POST')
+    ).toBe(false)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Vote for draw' }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -1366,11 +1373,9 @@ describe('GameView — results panel (E4)', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/games/10/map/orders'))).toBe(true)
 
     fireEvent.click(within(container).getByRole('button', { name: 'Last resolution' }))
-    await waitFor(() => {
-      expect((container.querySelector('[data-testid="map-inline"]') as HTMLImageElement).src).toContain(
-        '/games/10/map/resolution?'
-      )
-    })
+    // Nothing has been resolved in this fixture, so there is no resolution image to show.
+    expect(await within(container).findByText('No turn has been resolved yet.')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="map-inline"]')).toBeNull()
   })
 
   it('offers the pending-orders map only to a player seated in the game', async () => {
@@ -2387,5 +2392,57 @@ describe('GameView — finished game', () => {
 
   it('says nobody won when no power is left', async () => {
     expect(await line([])).toBe('Game over — no winner')
+  })
+})
+
+describe('GameView — DG1 page states', () => {
+  function renderAt(id: string) {
+    return render(
+      <MemoryRouter initialEntries={[`/games/${id}`]}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+  }
+
+  it('a finished game has no phase line, order form or submit button, but keeps messaging', async () => {
+    const units = [{ kind: 'A', power: 'FRANCE', location: 'PAR' }]
+    const state = {
+      ...activeMovementState,
+      game_id: '10',
+      status: 'COMPLETED',
+      winners: ['FRANCE'],
+      units,
+    }
+    vi.stubGlobal('fetch', stubFetchActive(state, francePlayers))
+    const { container } = renderAt('10')
+    expect(await within(container).findByTestId('game-end-line')).toHaveTextContent('Game over — France wins')
+    expect(within(container).queryByText(/Spring 1901 · S1901M/)).not.toBeInTheDocument()
+    expect(within(container).queryByRole('heading', { name: 'Orders' })).not.toBeInTheDocument()
+    expect(within(container).queryByRole('button', { name: /submit orders/i })).not.toBeInTheDocument()
+    expect(within(container).queryByRole('button', { name: /vote for draw/i })).not.toBeInTheDocument()
+    expect(within(container).getByRole('heading', { name: 'Messages' })).toBeInTheDocument()
+  })
+
+  it('says no turn has been resolved on the Last resolution tab before any turn', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+    const { container } = renderAt('10')
+    fireEvent.click(await within(container).findByRole('button', { name: 'Last resolution' }))
+    expect(await within(container).findByText('No turn has been resolved yet.')).toBeInTheDocument()
+  })
+
+  it('opens the resolve-turn dialog without a ref warning', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const state = { ...activeMovementState, created_by_user_id: 1 }
+    vi.stubGlobal('fetch', stubFetchActive(state, francePlayers))
+    renderAt('10')
+    fireEvent.click(await screen.findByRole('button', { name: /resolve orders and advance/i }))
+    await screen.findByRole('alertdialog')
+    const refWarnings = errors.mock.calls.filter((c) => String(c[0]).includes('cannot be given refs'))
+    errors.mockRestore()
+    expect(refWarnings).toEqual([])
   })
 })
