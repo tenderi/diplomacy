@@ -1063,6 +1063,28 @@ class DatabaseService:
         with self.session_factory() as session:
             return session.query(MapSnapshotModel).filter_by(game_id=game_id).all()
 
+    def get_game_board_trail(self, game_id: int) -> List[Dict[str, Any]]:
+        """The game's boards, oldest turn first, as plain dicts: each
+        ``map_snapshots`` row's ``turn``, ``phase_code``, ``centers`` (power ->
+        supply centres owned) and ``units`` (power -> units). No ORM rows leave."""
+        with self.session_factory() as session:
+            rows = (
+                session.query(MapSnapshotModel)
+                .filter_by(game_id=game_id)
+                .order_by(MapSnapshotModel.turn_number)
+                .all()
+            )
+            trail: List[Dict[str, Any]] = []
+            for row in rows:
+                centers: Dict[str, int] = {}
+                for owner in (row.supply_centers or {}).values():
+                    centers[owner] = centers.get(owner, 0) + 1
+                units: Dict[str, int] = {}
+                for unit in row.units or []:
+                    units[unit["power"]] = units.get(unit["power"], 0) + 1
+                trail.append({"turn": row.turn_number, "phase_code": row.phase_code, "centers": centers, "units": units})
+            return trail
+
     def get_game_snapshot_by_id(self, id: int, game_id: Optional[int] = None) -> Optional[MapSnapshotModel]:
         with self.session_factory() as session:
             q = session.query(MapSnapshotModel).filter_by(id=id)

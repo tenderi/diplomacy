@@ -39,6 +39,12 @@ flags, deadlines, quitting) on a local server, reading the `bot_outbox` texts.
       false for an eliminated power; setting a wait flag that is already set DMs the table
       again; the quit/replace DMs title-case the power ("Italy") where every other DM says
       "ITALY".
+- [x] **DF4** Channel timeline (`routes/channels.py`, `telegram_bot/channels.py`): the
+      `/channel/timeline` GET and POST pass only the current state, so the timeline never
+      reports an elimination or a swing of 2+ centres and always says "No major events
+      recorded yet"; and it was never a timeline, at most one heading for the current phase.
+      It now reads the game's `map_snapshots` trail and lists, per phase, eliminations,
+      swings of 2+ centres and a win, newest kept when over Telegram's limit.
 - [ ] **DF3** Nobody is told a game has started: when the last seat is filled or made a
       dummy, players get "X joined"/"X is now played by civil disorder", and the first
       "the game is live" signal is a turn-processed notice. Send one start DM per player

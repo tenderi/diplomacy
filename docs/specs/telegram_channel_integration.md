@@ -83,7 +83,9 @@ alone governs the turn map rows, whatever the level.
   sent by the bot: player DMs (`kind="dm"`) on turn processing, deadline reminders,
   broadcasts and game end, and group posts (`kind="channel_text"`,
   `"channel_create_thread"`) from the `/games/{id}/channel/*` routes. `telegram_bot/channels.py`
-  only *formats* those posts (timeline, player dashboard); nothing in the
+  only *formats* those posts (timeline, player dashboard); the timeline route reads the game's
+  `map_snapshots` trail (`DatabaseService.get_game_board_trail`) and the formatter lists, per phase,
+  eliminations, swings of 2+ centres and a win, keeping the newest phases under 4096 characters; nothing in the
   bot sends to a group except the outbox loop. All group posts use legacy
   `parse_mode='Markdown'`: bold is `*single*`.
 - **After every processed turn** the group gets the notification and two `kind="channel_map"`
