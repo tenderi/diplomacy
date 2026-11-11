@@ -17,38 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-11.
-- **Open tracks:** DF (non-order play-through) and F (a human playing the game end to end, and host chores, which are
+- **Open tracks:** F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DF — play-through of messages, votes, quitting
-
-Found by an API play-through of the non-order features (messages, draw votes, concede, wait
-flags, deadlines, quitting) on a local server, reading the `bot_outbox` texts.
-
-- [x] **DF1** Messages (`routes/messages.py`): a NUL character in the text is a 500 (Postgres
-      refuses it) instead of a 400; a private message to a conceded/eliminated power
-      returns 200; a message to a dummy says "no player is assigned" instead of naming civil
-      disorder. An unregistered `telegram_id` gets a bare `401 Not authenticated` instead of
-      "send /start first". (Messages after the game ended stay accepted: post-mortem chat is
-      deliberate, BZ5.)
-- [x] **DF2** Seats and flags (`routes/games.py`): a conceded power who then quits makes
-      everyone get "Vacant: Italy … /replace 2 ITALY … its draw vote is still needed", all
-      false for an eliminated power; setting a wait flag that is already set DMs the table
-      again; the quit/replace DMs title-case the power ("Italy") where every other DM says
-      "ITALY".
-- [x] **DF4** Channel timeline (`routes/channels.py`, `telegram_bot/channels.py`): the
-      `/channel/timeline` GET and POST pass only the current state, so the timeline never
-      reports an elimination or a swing of 2+ centres and always says "No major events
-      recorded yet"; and it was never a timeline, at most one heading for the current phase.
-      It now reads the game's `map_snapshots` trail and lists, per phase, eliminations,
-      swings of 2+ centres and a win, newest kept when over Telegram's limit.
-- [x] **DF3** Nobody is told a game has started: when the last seat is filled or made a
-      dummy, players get "X joined"/"X is now played by civil disorder", and the first
-      "the game is live" signal is a turn-processed notice. Send one start DM per player
-      (their power, first deadline if any, the Enter-orders button).
 
 # Track F — Manual acceptance and host chores (maintainer)
 
