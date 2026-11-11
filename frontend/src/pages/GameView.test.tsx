@@ -1103,7 +1103,7 @@ describe('GameView — 409 conflict handling', () => {
 
 describe('GameView — processing a game with empty seats (BA6)', () => {
   it("shows the server's message naming the unseated powers", async () => {
-    const detail = '2 powers are unseated (Austria, Turkey): seat players or mark them as dummies.'
+    const detail = '2 powers are unseated (AUSTRIA, TURKEY): seat players or mark them as dummies.'
     vi.stubGlobal(
       'fetch',
       stubFetchActive({ ...activeMovementState, created_by_user_id: 1 }, francePlayers, {
