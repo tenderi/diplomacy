@@ -215,3 +215,36 @@ def test_the_start_is_announced_once_even_when_two_requests_claim_it(client: Tes
     game_id = int(_create(client, _register_and_login(client, "dmy"), []))
     assert db_service.claim_game_start_announcement(game_id) is True
     assert db_service.claim_game_start_announcement(game_id) is False
+
+
+def test_the_migration_backfill_marks_started_games_and_leaves_the_lobby_null(client: TestClient) -> None:
+    """DF3: a game seated before the column existed must not announce a start
+    mid-phase when a seat is later replaced; an unfilled lobby game still must."""
+    import importlib.util
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    path = next(Path("alembic/versions").glob("a5c1d2e3f4a5_*.py"))
+    spec = importlib.util.spec_from_file_location("df3_migration", path)
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+
+    creator = _register_and_login(client, "dmy")
+    full = _create(client, creator, ["AUSTRIA", "GERMANY", "ITALY", "RUSSIA", "TURKEY"])
+    a, b = _telegram_user(client, "a"), _telegram_user(client, "b")
+    for tg, power in ((a, "ENGLAND"), (b, "FRANCE")):
+        assert client.post(f"/games/{full}/join", json=_as(tg, power=power)).status_code == 200
+    lobby = _create(client, creator, ["AUSTRIA"])
+    ids = {"a": int(full), "b": int(lobby)}
+    with db_service.session_factory() as session:
+        session.execute(text("UPDATE games SET start_announced_at = NULL WHERE id IN (:a, :b)"), ids)
+        session.commit()
+        session.execute(text(module.BACKFILL_STARTED))
+        session.commit()
+        rows = dict(
+            session.execute(
+                text("SELECT id, start_announced_at IS NOT NULL FROM games WHERE id IN (:a, :b)"), ids
+            ).all()
+        )
+    assert rows == {int(full): True, int(lobby): False}
