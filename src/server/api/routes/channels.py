@@ -25,6 +25,12 @@ from ...response_cache import invalidate_cache
 _ALL_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
 
 
+def _board_history(game_id: str) -> list[Dict[str, Any]]:
+    """The game's boards, oldest first, for the timeline (empty if the game is unknown)."""
+    row = db_service.get_game_by_game_id(str(game_id))
+    return db_service.get_game_board_trail(int(row.id)) if row is not None else []
+
+
 def _legacy_state_dict(game_id: str) -> Optional[Dict[str, Any]]:
     """Build the channel-posting game_state dict from the new engine's view.
 
@@ -473,7 +479,7 @@ def get_timeline(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
     # Format timeline
-    timeline_text = format_historical_timeline(game_state_dict)
+    timeline_text = format_historical_timeline(game_state_dict, _board_history(game_id))
         
     return {
         "status": "ok",
@@ -496,7 +502,7 @@ def post_timeline_update(game_id: str) -> Dict[str, Any]:
     if game_state_dict is None:
         raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-    formatted = format_historical_timeline(game_state_dict)
+    formatted = format_historical_timeline(game_state_dict, _board_history(game_id))
     outbox_id = db_service.enqueue_bot_notification(
         channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
     )
