@@ -34,7 +34,7 @@ six dummies). No horizontal overflow anywhere; these are what a player would not
       "Last resolution" tab before any turn is processed shows the plain board with no
       "nothing resolved yet" text; React logs "Function components cannot be given refs"
       (`AlertDialog`/`Slot`) when the resolve-turn dialog opens.
-- [ ] **DG2** Auto-process: with every human's orders in and auto-process on, the page said
+- [x] **DG2** Auto-process: with every human's orders in and auto-process on, the page said
       "processed automatically once all orders are in" but the turn stayed S1901M for 30+ s
       until "Resolve orders" was pressed. Find out whether dummies' orders, the scheduler
       interval or the status text is wrong, and fix whichever it is.

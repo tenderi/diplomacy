@@ -611,7 +611,12 @@ An empty stored list (what a submission whose every order was refused leaves) is
 `missing`, not submitted. `incomplete` is the part of `submitted` that has not yet ordered
 everything that must act. `nothing_to_do` lists every other non-dummy power still in the
 game (a unit or a centre): no order is due from it, so it is neither submitted nor waited
-on. The bot's `/status` and the web turn-status card show the three groups separately.
+on. The bot's `/status` and the web turn-status card show the three groups separately; the
+card also names the `incomplete` powers, since auto-processing waits for them. The web
+order panel, which tells the player "a unit with no order holds" (in a retreat phase, "is
+disbanded"), sends that default explicitly for every unit left blank (`A PAR H`,
+`D A PAR`), so a power submitting from the panel is never `incomplete`; orders typed into
+the text fallback are sent as written.
 The route adds `unseated`: the powers with neither a seat nor dummy status, while which no
 turn is processed (empty for the DAIDE listener's game, `games.daide`).
 

@@ -1618,6 +1618,82 @@ describe('GameView — player actions', () => {
     ).toBeInTheDocument()
   })
 
+  // DG2: the panel says "a unit with no order holds", and the server auto-processes only
+  // once every unit has an explicit order -- so the panel sends the hold itself.
+  it('sends an explicit hold for a unit left without an order', async () => {
+    const units = [
+      { kind: 'A', power: 'FRANCE', location: 'PAR' },
+      { kind: 'F', power: 'FRANCE', location: 'BRE' },
+    ]
+    const state = { ...activeMovementState, units, units_by_power: { FRANCE: units } }
+    const legalOrders = {
+      phase: 'S1901M',
+      phase_type: 'MOVEMENT',
+      power: 'FRANCE',
+      orders_by_unit: { 'A PAR': ['A PAR H', 'A PAR - BUR'], 'F BRE': ['F BRE H', 'F BRE - MAO'] },
+      orders: ['A PAR H', 'A PAR - BUR', 'F BRE H', 'F BRE - MAO'],
+    }
+    const { posts, fetchMock } = recordingPosts(
+      stubFetchActive(state, francePlayers, { legalOrders, savedOrders: ['A PAR - BUR'] }),
+      () => ({ results: [] })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    await within(container).findByText('F BRE')
+    // The stored move has reached the panel (its target shows) before Submit.
+    await within(container).findByText(/BUR/)
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0].body.orders).toEqual(['A PAR - BUR', 'F BRE H'])
+  })
+
+  it('sends a disband for a dislodged unit left without a retreat order', async () => {
+    const state = {
+      ...activeMovementState,
+      phase: 'S1901R',
+      phase_type: 'RETREAT',
+      dislodged: [
+        { unit: { kind: 'A', power: 'FRANCE', location: 'PAR' }, attacker_origin: 'BUR', retreats: ['PIC'] },
+      ],
+      units: [],
+      units_by_power: { FRANCE: [] },
+    }
+    const legalOrders = {
+      phase: 'S1901R',
+      phase_type: 'RETREAT',
+      power: 'FRANCE',
+      orders_by_unit: { 'A PAR': ['A PAR R PIC', 'D A PAR'] },
+      orders: ['A PAR R PIC', 'D A PAR'],
+    }
+    const { posts, fetchMock } = recordingPosts(
+      stubFetchActive(state, francePlayers, { legalOrders }),
+      () => ({ results: [] })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    await within(container).findByText('A PAR')
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0].body.orders).toEqual(['D A PAR'])
+  })
+
+  it('says which powers still have units without an order', async () => {
+    const ordersStatus = {
+      phase: 'S1901M', active_powers: ['FRANCE'], submitted: ['FRANCE'], missing: [],
+      incomplete: ['FRANCE'], auto_process: true, waiting: [],
+    }
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { ordersStatus }))
+    const { container } = renderGame10()
+    expect(
+      await within(container).findByText(
+        '1/1 powers have submitted orders this phase. FRANCE still has units without an order.'
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(container).getByText('The turn is processed automatically once every unit has an order.')
+    ).toBeInTheDocument()
+  })
+
   it.each([
     ['Quit (step away)', /^quit$/i, '/games/10/quit'],
     ['Concede', /^concede$/i, '/games/10/concede'],
