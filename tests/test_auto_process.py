@@ -224,3 +224,27 @@ def test_the_last_power_awaited_conceding_processes_the_turn(client: TestClient)
     resp = client.post(f"/games/{game_id}/concede", json=_as(f, power="FRANCE"))
     assert resp.status_code == 200 and resp.json()["auto_processed"] == 1
     assert _phase(client, game_id) == "F1901M"
+
+
+def test_one_human_and_six_dummies_waits_only_for_every_unit_ordered(client: TestClient) -> None:
+    """DG2: with six dummies the lone human's orders are all the turn waits for -- but
+    every unit's, holds included. A partial set is "submitted" and ``incomplete``, so
+    the turn stays; ordering the last unit processes it on that request."""
+    resp = client.post(
+        "/games/create",
+        json={
+            "map_name": "standard",
+            "dummy_powers": ["ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"],
+            "auto_process": True,
+        },
+        headers=_register_and_login(client, "dg2"),
+    )
+    game_id = str(resp.json()["game_id"])
+    a = _telegram_user(client, "aus")
+    assert client.post(f"/games/{game_id}/join", json=_as(a, power="AUSTRIA")).status_code == 200
+    assert _order(client, game_id, a, "AUSTRIA", ["A VIE - GAL", "A BUD - SER"])["auto_processed"] == 0
+    status = client.get(f"/games/{game_id}/orders_status").json()
+    assert (status["submitted"], status["missing"], status["incomplete"]) == (["AUSTRIA"], [], ["AUSTRIA"])
+    assert _phase(client, game_id) == "S1901M"
+    assert _order(client, game_id, a, "AUSTRIA", ["A VIE - GAL", "A BUD - SER", "F TRI H"])["auto_processed"] == 1
+    assert _phase(client, game_id) == "F1901M"
