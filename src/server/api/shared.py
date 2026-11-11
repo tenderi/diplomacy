@@ -1223,7 +1223,7 @@ def vacant_voters(game_id: str, numeric_game_id: int, needed: Iterable[str]) -> 
 
 
 def vacant_held_line(game_id: str, numeric_game_id: int, processed_turn: Optional[int] = None) -> str:
-    """For a processed movement turn, "Italy's seat is vacant: its units held." for
+    """For a processed movement turn, "ITALY's seat is vacant: its units held." for
     each power whose seat is vacant (a player row whose user quit; not a dummy,
     which civil disorder plays) and which still has units (BL5). A power that submitted orders before quitting is
     left out (``/quit`` keeps pending orders): only one with none in the processed
@@ -1243,8 +1243,8 @@ def vacant_held_line(game_id: str, numeric_game_id: int, processed_turn: Optiona
     if not powers:
         return ""
     if len(powers) == 1:
-        return f"{powers[0].title()}'s seat is vacant: its units held."
-    return f"{_join_names([p.title() for p in powers])} have vacant seats: their units held."
+        return f"{powers[0]}'s seat is vacant: its units held."
+    return f"{_join_names(powers)} have vacant seats: their units held."
 
 
 def unordered_held_line(
@@ -1289,7 +1289,7 @@ def unseated_message(unseated: list[str]) -> str:
     """Why a turn of a game that is not full cannot be processed (BA6)."""
     count = len(unseated)
     noun = "power is" if count == 1 else "powers are"
-    names = ", ".join(p.title() for p in unseated)
+    names = ", ".join(str(p).upper() for p in unseated)
     return f"{count} {noun} unseated ({names}): seat players or mark them as dummies."
 
 

@@ -64,7 +64,7 @@ def _game(client: TestClient, powers: list[str], **create: object) -> tuple[str,
 def _not_started(game_id: str) -> str:
     return (
         f"Game {game_id} hasn't started: 6 powers are unseated "
-        f"(Austria, England, Germany, Italy, Russia, Turkey): seat players or mark them as dummies."
+        f"(AUSTRIA, ENGLAND, GERMANY, ITALY, RUSSIA, TURKEY): seat players or mark them as dummies."
     )
 
 
@@ -118,7 +118,7 @@ class TestNothingHappensBeforeTheGameStarts:
         r = client.post("/games/set_orders", json=_as(seats["FRANCE"], game_id=game_id, power="FRANCE", orders=["A PAR H"]))
         assert r.status_code == 409
         assert r.json()["detail"] == (
-            f"Game {game_id} hasn't started: 1 power is unseated (Russia): seat players or mark them as dummies."
+            f"Game {game_id} hasn't started: 1 power is unseated (RUSSIA): seat players or mark them as dummies."
         )
         stored = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": seats["FRANCE"]}, headers={"X-Bot-Secret": BOT_SECRET})
         assert stored.json()["orders"] == ["A PAR - BUR"]
