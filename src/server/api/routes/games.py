@@ -495,6 +495,10 @@ def set_dummy_power(
         else f"{power} in game {game_id} is open again -- /join {game_id} to take it.",
     )
     if req.dummy:
+        try:  # the last unseated power made a dummy may complete the table (DF3)
+            api_shared.announce_game_started(game_id, int(game_id))
+        except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+            scheduler_logger.exception("Failed to notify game start")
         # The new dummy may have been the only power the phase needed (BX1),
         # or the last one being waited on (W10).
         api_shared.process_if_phase_needs_nobody(game_id, int(game_id))
@@ -1146,20 +1150,9 @@ def join_game(
     try:
         game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
         # Dummies fill their seats too (W9): 5 humans + 2 dummies is a full game.
-        # Only a *new* seat can complete the table: taking over a vacated one
-        # (its row already counted) is a replacement mid-game, and used to
-        # re-announce "the game has started" to everyone. Nor does it need a
-        # deadline armed: a vacated seat never stopped the one running (BY1).
-        if game is not None and taken is None and api_shared.seats_filled(str(game_id), int(game.id)):
-            # A weekly schedule arms the first deadline now the game has started.
-            first = api_shared.arm_scheduled_deadline(str(game_id), int(game.id))
-            due = (
-                f" First deadline: {api_shared.format_scheduled_deadline(first, api_shared.game_schedule(str(game_id)))}."
-                if first is not None
-                else ""
-            )
-            notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.{due}", buttons=game_buttons(game_id))  # type: ignore
-            post_to_game_group(game_id, f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.", GroupPost.ROUTINE, dm_start=f"orders_{game_id}")
+        # The start is announced once per game, whichever write completed the table.
+        if game is not None:
+            api_shared.announce_game_started(str(game_id), int(game.id))
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify game start")
     invalidate_cache(f"games/{str(game_id)}")

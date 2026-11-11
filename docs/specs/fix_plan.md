@@ -45,7 +45,7 @@ flags, deadlines, quitting) on a local server, reading the `bot_outbox` texts.
       recorded yet"; and it was never a timeline, at most one heading for the current phase.
       It now reads the game's `map_snapshots` trail and lists, per phase, eliminations,
       swings of 2+ centres and a win, newest kept when over Telegram's limit.
-- [ ] **DF3** Nobody is told a game has started: when the last seat is filled or made a
+- [x] **DF3** Nobody is told a game has started: when the last seat is filled or made a
       dummy, players get "X joined"/"X is now played by civil disorder", and the first
       "the game is live" signal is a turn-processed notice. Send one start DM per player
       (their power, first deadline if any, the Enter-orders button).
