@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-11-11.
+- **Last updated:** 2026-11-12.
 - **Open tracks:** DH (the maintainer's bug reports #404–#408), then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
@@ -32,8 +32,8 @@ the suggested direction.
       stands a third unit off there (rulebook IX.7). Prevent strength must be 0 whenever
       the unit at the destination moves into the origin and the move fails, convoyed or
       not; `adjudication.md` §5 and the `contested` rule updated.
-- [ ] DH2 (#408): `@cached_response` stores a response read before a write but put after
-      its `invalidate_cache`. Per-path generation counter; exact-path invalidation; note
+- [x] DH2 (#408): `@cached_response` stores a response read before a write but put after
+      its `invalidate_cache`. Generation counter (one, process-wide); exact-path invalidation; note
       that the cache is per process.
 - [ ] DH3 (#406): the deadline scheduler can process the phase after the one whose
       deadline fell due, because the phase change and spending the deadline are two
