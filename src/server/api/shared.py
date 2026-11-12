@@ -2075,7 +2075,10 @@ def maybe_auto_process(game_id: str) -> int:
     deadline or by hand (whose next phase may need nothing from anyone). Two last orders arriving
     together both see "ready"; ``expected_phase_code`` in ``save_state`` lets
     exactly one process it and the other gets ``StaleGameError``, which here just
-    means "someone else did it".
+    means "someone else did it". A wait flag raised after the readiness check is
+    seen on the locked row (``honour_wait_flags``, DH4): ``WaitFlagRaisedError``,
+    also a ``StaleGameError``, means "not ready after all" -- nothing was
+    written, so the orders, the deadline and the flag stand, and nobody is told.
     """
     processed = 0
     row = db_service.get_game_by_game_id(game_id)
@@ -2089,7 +2092,7 @@ def maybe_auto_process(game_id: str) -> int:
         if not game_service.ready_to_auto_process(game_id):
             break
         try:
-            result = game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
+            result = game_service.process_turn(game_id, expected_phase_code=prev_phase_code, honour_wait_flags=True)
         except (StaleGameError, GameOverError):
             break
         processed += 1
