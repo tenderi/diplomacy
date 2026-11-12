@@ -307,7 +307,7 @@ place the full picture exists.
 | Event | Telegram DM | Channel post | Web client | Where |
 |---|---|---|---|---|
 | **Turn processed** (deadline) | all players, but a power that is out (eliminated or conceded) is owed no "Orders are due" and its player gets no turn DM; the power a turn eliminates (`resolution.eliminated`, so never a concession) is announced once, in that turn's DM to every player ("Your power ITALY has been eliminated …" to its own player, "ITALY has been eliminated from game N: it has no units or supply centres left." to the rest) and in the group post | notification (opening "The turn has been processed because its deadline passed.", where a manual or auto-processed turn reads "The turn has been processed.") + orders map + result map | next poll | `notify_turn_processed(trigger="deadline")` |
-| **Turn processed** (manual, or auto-processed) | all players **except the caller**, unless the caller owes orders in a new retreat or adjustment phase | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
+| **Turn processed** (manual, or auto-processed) | all players **except the caller**, unless the caller owes orders in a new retreat or adjustment phase | notification + orders map + result map (a turn followed by phases nobody orders in posts once for the chain: see BV2 below) | next poll | `notify_turn_processed(trigger="manual")` |
 | **Game ended by a turn** (a solo: 18 centres; or the turn left one power or none) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory."; the winner reads "Game N has ended: you have won with a solo victory." A turn that eliminated the last opponent reads "Game N has ended: FRANCE is the last power standing and wins." (the winner: "you are the last power standing and win"), one that left nobody "Game N has ended: no power is left, so nobody wins.", one that left only dummies "Game N has ended: only civil-disorder powers are left, so nobody wins." (`GameService.ending` tells them apart). The message is the turn's own DM minus the "Orders are due" and deadline lines and with the ending sentence last: "The turn has been processed for game N[ because its deadline passed].", then that player's results block, centre changes, eliminations and vacant/unordered lines as in any turn DM, then the ending; the buttons are the ended-game ones. Every player's cached game list is invalidated | "🔔 Turn Processed - Game N" + "The turn has been processed[ because its deadline passed]." + the group's turn lines (disorder, eliminations, vacant/unordered) + "Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
 | Empty phase could not be processed (BX2: processing a phase that needs nobody raised) | all players: "⚠️ Game N: nobody has anything to order in Spring 1901 retreats, but it could not be processed automatically. The game's creator can move it on with ⚙️ Process turn now in the game menu (or Process turn on the web game page)." and then "Otherwise it is processed at its deadline, …" or "No deadline is set, so until then the game waits." (no fallback deadline is armed); the error is logged at ERROR, which DMs the maintainer (`install_admin_alerts`). One notice per failure: only a processed turn or a player's change reaches it, never a timer | the same text | next poll | `api.shared.empty_phase_failed` |
 | Deadline reminder (10 min out) | only the players of powers still owing orders (`orders_status.missing`; nobody, and so no post, when all have ordered), once per deadline (`games.reminded_deadline`, claimed by a conditional update, so neither a restart nor a second worker repeats it) | DM "Reminder: orders for Fall 1903 movement in game N are due in 7 minutes." (the real time left, rounded, at least 1 minute); group "⏰ Game N: orders for Fall 1903 movement are due in 7 minutes (still to come: FRANCE, ITALY; in a public game each power carries its nickname, "ITALY (Zed)"). Orders go to me in private." | — | `check_and_send_reminders` / `_send_deadline_reminder` |
@@ -367,13 +367,21 @@ disband (`GameService.phase_needs_nobody`: a retreat or adjustment phase whose
 through `api.shared.after_turn_processed`, which calls `finish_processed_turn` and then, while
 the new phase needs nobody and the table is full, processes it through the same
 phase-checked `process_turn(expected_phase_code=…)`, whatever `auto_process` says (a
-`StaleGameError` means another worker did it). Each processed phase gets its snapshot and
-its group post ("Spring 1901 retreats: nobody has anything to order."), but no player DM:
-what that DM would have said about the turn before it (the results block, a trapped unit's
-"has nowhere to retreat" notice, units removed) is folded into the DM for the phase that
-needs them, after its first line. The deadline is armed or cleared once, for that phase. If
-the empty phase cannot be processed here (another worker got there first, or processing it
-raised), the folded lines go out on their own; on an error the game stays in the empty phase,
+`StaleGameError` means another worker did it). Each processed phase gets its snapshot, but
+no player DM and no group post of its own: what that DM would have said about the turn before
+it (the results block, a trapped unit's "has nowhere to retreat" notice, units removed) is
+folded into the DM for the phase that needs them, after its first line. The group, likewise,
+gets one post for the whole chain, as for any turn (`FoldCarry`): one text naming the phase
+that needs orders ("Fall 1901 movement: new orders are due …"), carrying the folded phases'
+group lines (each unit disbanded for want of a retreat — "FRANCE: A BEL was dislodged and had
+nowhere to retreat: it was disbanded." — the turn's disorder, eliminations, vacant/unordered
+lines), then two maps: the orders map of the turn the players ordered, and the board after
+the last folded phase (`/map/history/{last turn + 1}`), both captioned with the ordered phase
+("Spring 1901 movement: the result"), since the folded phases had nothing to order. The
+deadline is armed or cleared once, for that phase. If the empty phase cannot be processed
+here (another worker got there first, or processing it raised), the folded lines go out on
+their own, and so does the group post the fold held back ("Spring 1901 retreats: nobody has
+anything to order." with its lines and maps); on an error the game stays in the empty phase,
 which gets the deadline any new phase gets (the schedule's next slot, or none), and the turn
 before it stands: the route still answers 200 with that turn's resolution, and the scheduler
 goes on to the next game. `POST /games/{id}/process_turn` answers with the phase the game

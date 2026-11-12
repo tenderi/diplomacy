@@ -12,6 +12,7 @@ import os
 import pytz
 from datetime import datetime, timezone, timedelta
 import re
+from dataclasses import dataclass, field
 from enum import Enum
 from fastapi import HTTPException
 from typing import Callable, Coroutine, Dict, Any, Iterable, Optional, TYPE_CHECKING
@@ -463,8 +464,14 @@ def _post_turn_to_channel(
     message: str,
     processed_turn: Optional[int] = None,
     processed_phase: Optional[str] = None,
+    result_turn: Optional[int] = None,
 ) -> None:
     """Queue a turn-start notification and a fresh map for a linked channel.
+
+    ``result_turn`` is the last turn processed when phases nobody had to order
+    were folded in after ``processed_turn`` (BV2, ``FoldCarry``): the orders map
+    is still ``processed_turn``'s, the one the players ordered, and the result
+    map is the board after ``result_turn``. Unset, both are ``processed_turn``'s.
 
     Best-effort by design: a Telegram outage must never fail a turn that is
     already committed to Postgres. A cheap no-op for the common case (no
@@ -506,6 +513,9 @@ def _post_turn_to_channel(
             # on, and the board they produced. Each is fetched by turn number, not
             # "the current map", so a post the bot delivers late -- it was down, or
             # the next turn ran first -- still shows the turn it announces.
+            # A fold (BV2) shows the board after the folded phases, still captioned with
+            # the phase the players ordered: the folded ones had nothing to order.
+            last_turn = processed_turn if result_turn is None else result_turn
             label = phase_label(processed_phase) if processed_phase else f"turn {processed_turn}"
             if game_service.resolution_history(game_id).get(str(processed_turn), {}).get("results"):
                 db_service.enqueue_bot_notification(
@@ -518,7 +528,7 @@ def _post_turn_to_channel(
                 channel_id,
                 f"🗺️ Game {game_id} · {label}: the result",
                 kind="channel_map",
-                payload={"game_id": game_id, "path": f"/games/{game_id}/map/history/{processed_turn + 1}"},
+                payload={"game_id": game_id, "path": f"/games/{game_id}/map/history/{last_turn + 1}"},
             )
     except Exception:  # noqa: BLE001 -- boundary: a post-commit side effect must not fail the turn
         scheduler_logger.exception("Channel integration check failed for game %s", game_id)
@@ -699,6 +709,29 @@ def _turn_ending_texts(game_id: str, winners: list[str], how: str) -> tuple[str,
     return ended, ""
 
 
+@dataclass
+class FoldCarry:
+    """What a folded call of ``notify_turn_processed`` (BV2) leaves for the next
+    one, which notifies for the whole chain: each player's DM lines, keyed by
+    Telegram id, and the group post the folded call held back -- its news lines,
+    the turn (and phase) whose orders map the group gets, the one the players
+    ordered, and the last turn processed, whose result map it gets. ``message``
+    is the group text the folded call would have posted itself, for
+    ``send_carried`` when no later call will post."""
+
+    dms: dict[str, list[str]] = field(default_factory=dict)
+    group: list[str] = field(default_factory=list)
+    turn: Optional[int] = None
+    phase: Optional[str] = None
+    last_turn: Optional[int] = None
+    message: str = ""
+
+    @property
+    def started(self) -> bool:
+        """Whether a folded call has filled this in."""
+        return self.last_turn is not None
+
+
 def notify_turn_processed(
     game_id: str,
     numeric_game_id: int,
@@ -711,9 +744,9 @@ def notify_turn_processed(
     next_deadline_text: Optional[str] = None,
     deadline_cleared: bool = False,
     fold: bool = False,
-    carried: Optional[dict[str, list[str]]] = None,
+    carried: Optional[FoldCarry] = None,
     caller_lines: Optional[list[str]] = None,
-) -> dict[str, list[str]]:
+) -> FoldCarry:
     """The single fan-out for "a turn was processed". Used by **both** trigger paths.
 
     ``fold`` means the new phase needs nobody and is about to be processed too
@@ -722,7 +755,11 @@ def notify_turn_processed(
     a trapped unit's disband notice, units removed -- is returned instead,
     keyed by Telegram id, and the next call takes it as ``carried`` and puts it
     in that player's DM, after the line naming the phase that needs them. The
-    group post goes out either way. Returns ``{}`` unless ``fold``.
+    group post is held back the same way (#414): the last call posts once for
+    the whole chain -- one text naming the phase that needs orders, carrying the
+    folded phases' news (a trapped unit's disband among it), then the orders map
+    of the turn the players ordered and the board after the last folded phase.
+    Returns an empty ``FoldCarry`` unless ``fold``.
 
     ``next_deadline_text`` names the new phase's deadline when the game's weekly
     schedule armed one, and is appended to the DM and the channel post.
@@ -762,7 +799,7 @@ def notify_turn_processed(
     best-effort and logged.
     """
     due = f" Next deadline: {next_deadline_text}." if next_deadline_text and not game_ended else ""
-    carried = carried or {}
+    carried = carried or FoldCarry()
 
     ending_sentence = ""  # the ending's line for everyone (no full stop)
     own_ending = ""  # the sole winner's own line
@@ -770,7 +807,7 @@ def notify_turn_processed(
     if game_ended:
         # An empty phase that ended the game (its disbands left one power or
         # none): what the turn before it did still reaches its players.
-        send_carried(game_id, carried)
+        send_carried(game_id, carried, group=False)
         # A processed turn ends a game by a solo victory, or by leaving one
         # power standing or none (BL6, ``GameService.ending``); a draw ends it
         # without a turn and is announced by ``notify_game_drawn``. The turn's
@@ -846,10 +883,10 @@ def notify_turn_processed(
             newly = game_service.eliminated_in_turn(game_id, processed_turn)
     except SQLAlchemyError as e:
         scheduler_logger.error(f"Failed to read the eliminations of game {game_id}: {e}")
-    folded: dict[str, list[str]] = {}
+    folded = FoldCarry()
     try:
         for telegram_id, powers in db_service.get_player_powers_by_telegram_id(numeric_game_id).items():
-            earlier = carried.get(str(telegram_id), [])
+            earlier = carried.dms.get(str(telegram_id), [])
             live = [p for p in powers if p not in eliminated]
             mine = [p for p in live if p in duties]
             out_lines = [
@@ -918,7 +955,7 @@ def notify_turn_processed(
                     + ([my_vacant_line] if my_vacant_line else [])
                 )
                 if news:
-                    folded[str(telegram_id)] = news
+                    folded.dms[str(telegram_id)] = news
                 continue
             if game_ended:
                 sole = own_ending if len(winners) == 1 and winners[0] in powers else ""
@@ -964,9 +1001,32 @@ def notify_turn_processed(
     group_text = "\n".join(x for x in (vacant_line, unordered_line) if x)
     if group_text:
         group_lines.append(group_text)
+    if fold:
+        # The group, too, gets one post for the chain (#414), so it is told here what
+        # the folded phase does on its own: each unit it disbands for want of a retreat.
+        group_lines += [
+            f"{power_label(game_id, p)}: {unit} was dislodged and had nowhere to retreat: it was disbanded."
+            for p, units in sorted(forced.items())
+            for unit in units
+        ]
+        folded.group = carried.group + group_lines
+        folded.turn = carried.turn if carried.started else processed_turn
+        folded.phase = carried.phase if carried.started else processed_phase
+        folded.last_turn = processed_turn
+        folded.message = "\n".join([channel_text, *folded.group]) + due
+        return folded
     if game_ended:
         group_lines.append(f"{ending_sentence}.")
-    _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
+    if carried.started:
+        _post_turn_to_channel(
+            game_id,
+            "\n".join([channel_text, *carried.group, *group_lines]) + due,
+            carried.turn,
+            carried.phase,
+            processed_turn,
+        )
+    else:
+        _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
     return folded
 
 
@@ -980,11 +1040,16 @@ def _turn_news_lines(waived: dict[str, tuple[int, bool]]) -> list[str]:
     ]
 
 
-def send_carried(game_id: str, carried: dict[str, list[str]]) -> None:
+def send_carried(game_id: str, carried: FoldCarry, *, group: bool = True) -> None:
     """DM the lines a folded turn left for each player (BV2) on their own, when
-    no next-phase DM will carry them: the empty phase ended the game, or another
-    worker processed it first. Best-effort."""
-    for telegram_id, lines in carried.items():
+    no next-phase DM will carry them: the empty phase ended the game, another
+    worker processed it first, or processing it raised. Unless ``group`` is off
+    (the call that ended the game posts for the chain itself), the group post
+    the folded calls held back goes out too, as the last of them would have
+    posted it. Best-effort."""
+    if group and carried.started:
+        _post_turn_to_channel(game_id, carried.message, carried.turn, carried.phase, carried.last_turn)
+    for telegram_id, lines in carried.dms.items():
         notify_user(
             telegram_id,
             "\n".join([f"The turn has been processed for game {game_id}.", *lines]),
@@ -1758,9 +1823,9 @@ def finish_processed_turn(
     trigger: str,
     exclude_telegram_id: Optional[str] = None,
     fold: bool = False,
-    carried: Optional[dict[str, list[str]]] = None,
+    carried: Optional[FoldCarry] = None,
     caller_lines: Optional[list[str]] = None,
-) -> dict[str, list[str]]:
+) -> FoldCarry:
     """Everything that follows a successful ``GameService.process_turn``, for
     **every** trigger: the manual route, the deadline scheduler, and W10's
     auto-processing. Callers reach it through ``after_turn_processed``.
@@ -1839,8 +1904,8 @@ def after_turn_processed(
 
     Each runs through the same phase-checked ``process_turn`` as any turn; a
     ``StaleGameError`` means another worker processed it first, and that
-    worker finishes it. Every processed phase gets its snapshot and group post,
-    but the players get one DM, for the phase that needs them: the earlier
+    worker finishes it. Every processed phase gets its snapshot, but the players
+    get one DM and the group one post, for the phase that needs them: the earlier
     phases' lines (results, a trapped unit's disband notice) are folded into it.
     The deadline is armed or cleared once, for that last phase.
 
@@ -1849,7 +1914,7 @@ def after_turn_processed(
 
     ``caller_lines``, if given, collects the results lines of the caller
     (``exclude_telegram_id``), who gets no DM: the manual route returns them."""
-    carried: dict[str, list[str]] = {}
+    carried = FoldCarry()
     processed = 0
     while True:
         # The phase is read before it is checked, and that phase is the one

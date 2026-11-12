@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from engine.serialization import resolution_from_dict
 from engine.types import PhaseType, Season
 from persistence.game_repo import StaleGameError
-from server.api import app
+from server.api import ADMIN_TOKEN, app
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
 from server.daide import tokens as t
@@ -92,10 +92,11 @@ def test_a_trapped_retreat_phase_runs_straight_after_the_movement(
             "Your A BEL was dislodged and has nowhere to retreat: it is disbanded, no order needed."
         ],
     }
-    # The group sees both phases go by.
+    # The group, too, gets one post, for the phase that needs orders, telling it what
+    # the folded retreat phase did (#414).
     assert posted == [
-        "The turn has been processed. Spring 1901 retreats: nobody has anything to order.",
-        "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.",
+        "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.\n"
+        "FRANCE: A BEL was dislodged and had nowhere to retreat: it was disbanded.",
     ]
 
 
@@ -314,3 +315,119 @@ def test_daide_ord_carries_the_movement_results_not_the_empty_retreat_s(
     # late, both batches were the retreat phase's.
     assert (len(movement.results), len(retreat.results)) == (7, 1)
     assert [list(m) for m in session.sent if m[0] == t.ORD] == expected
+
+
+GROUP = "-1004414"
+
+
+def _link_group(client: TestClient, game_id: str) -> None:
+    link = {"channel_id": GROUP}
+    resp = client.post(f"/games/{game_id}/channel/link", json=link, headers={**BOT, "X-Admin-Token": ADMIN_TOKEN})
+    assert resp.status_code == 200, resp.text
+
+
+def _group_rows(probe: OutboxProbe) -> list[tuple[str, str, str | None]]:
+    return [
+        (r["kind"], r["message"], (r["payload"] or {}).get("path"))
+        for r in probe.rows()
+        if str(r["telegram_id"]) == GROUP
+    ]
+
+
+def test_the_group_gets_one_post_for_the_fold(client: TestClient) -> None:
+    """#414: a movement that dislodged a unit with no retreat posted the group two
+    texts and four maps, three of them alike, and neither text said the unit was
+    lost. The fold is one post, as any turn is: the text for the phase that needs
+    orders, carrying the disband, the orders map of the movement the players
+    ordered, then the board after the folded retreat phase."""
+    game_id, e, f = _table(client, auto=False)
+    _trap_board(game_id)
+    _dislodge(client, game_id, e, f)
+    _link_group(client, game_id)
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/process_turn", headers=BOT).json()["phase"] == "F1901M"
+    assert _group_rows(probe) == [
+        (
+            "channel_text",
+            f"🔔 Turn Processed - Game {game_id}\n"
+            "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.\n"
+            "FRANCE: A BEL was dislodged and had nowhere to retreat: it was disbanded.",
+            None,
+        ),
+        (
+            "channel_map",
+            f"📝 Game {game_id} · Spring 1901 movement: orders and results",
+            f"/games/{game_id}/map/turn/0/orders",
+        ),
+        # Turn 1 was the folded retreat phase: this is the board Fall 1901 starts on.
+        ("channel_map", f"🗺️ Game {game_id} · Spring 1901 movement: the result", f"/games/{game_id}/map/history/2"),
+    ]
+
+
+def test_a_fold_another_worker_finished_still_posts_what_it_held_back(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The empty phase was processed elsewhere, and that worker's post knows nothing
+    of the movement: the post the fold held back goes out as it stood."""
+    game_id, e, f = _table(client, auto=False)
+    _trap_board(game_id)
+    _dislodge(client, game_id, e, f)
+    _link_group(client, game_id)
+    real = game_service.process_turn
+
+    def once(gid: str, expected_phase_code: str | None = None) -> dict[str, Any]:
+        if expected_phase_code == "S1901R":
+            raise StaleGameError(f"game {gid} is no longer in {expected_phase_code}")
+        return real(gid, expected_phase_code)
+
+    monkeypatch.setattr(game_service, "process_turn", once)
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/process_turn", headers=BOT).json()["phase"] == "S1901R"
+    assert _group_rows(probe) == [
+        (
+            "channel_text",
+            f"🔔 Turn Processed - Game {game_id}\n"
+            "The turn has been processed. Spring 1901 retreats: nobody has anything to order.\n"
+            "FRANCE: A BEL was dislodged and had nowhere to retreat: it was disbanded.",
+            None,
+        ),
+        (
+            "channel_map",
+            f"📝 Game {game_id} · Spring 1901 movement: orders and results",
+            f"/games/{game_id}/map/turn/0/orders",
+        ),
+        ("channel_map", f"🗺️ Game {game_id} · Spring 1901 movement: the result", f"/games/{game_id}/map/history/1"),
+    ]
+
+
+def test_a_folded_adjustment_is_one_post_too(client: TestClient) -> None:
+    """An adjustment only a dummy owes (Italy, one unit over its centres) runs at once
+    after the Fall movement: one post, whose text names the spring and carries the
+    dummy's civil-disorder disband, and whose maps are the Fall orders and the board
+    after the winter."""
+    game_id, e, f = _table(client, auto=False)
+    board = game_service.state_json(game_id)
+    assert board is not None
+    board["season"] = "FALL"
+    board["units"].append(_unit("A", "ITALY", "TUS"))
+    game_service.restore_snapshot(game_id, board, "F1901M")
+    _order(client, game_id, e, "ENGLAND", ["F LON H"])
+    _order(client, game_id, f, "FRANCE", ["A PAR H"])
+    _link_group(client, game_id)
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/process_turn", headers=BOT).json()["phase"] == "S1902M"
+    rows = _group_rows(probe)
+    assert [kind for kind, _m, _p in rows] == ["channel_text", "channel_map", "channel_map"]
+    assert rows[0][1] == (
+        f"🔔 Turn Processed - Game {game_id}\n"
+        "The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
+        "ITALY was 1 disband short, so A TUS was disbanded (civil disorder)."
+    )
+    assert rows[1:] == [
+        (
+            "channel_map",
+            f"📝 Game {game_id} · Fall 1901 movement: orders and results",
+            f"/games/{game_id}/map/turn/0/orders",
+        ),
+        ("channel_map", f"🗺️ Game {game_id} · Fall 1901 movement: the result", f"/games/{game_id}/map/history/2"),
+    ]
