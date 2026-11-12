@@ -10,19 +10,35 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DI**.
+>   history. Track letters run in sequence; the next free one is **DJ**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-12.
-- **Open tracks:** DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Open tracks:** DI (renderer tests that catch geometry mistakes, #411), then DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DI — Renderer tests that catch geometry mistakes (#411)
+
+A mutation pass over `src/rendering/` left 49 of 90 mutants alive; #411 lists them, the
+eight that survive the whole suite, and what to test. Done = those mutants die, each new
+test fails under its mutant.
+
+- [ ] DI1: an autouse fixture gives the test session its own `tmp_path` map cache (no
+      stale `/tmp/diplomacy_map_cache` PNG can pass a test); `arrows.py` primitive
+      geometry (`bar_segment`, `catmull_rom`, `trim`, `path_length`, `draw_cross`,
+      `draw_ring`, `draw_arrow` head and casing via an `ImageDraw` spy); `tokens.text_colour_on`
+      exact values for the seven powers.
+- [ ] DI2: pixel tests for `overlays.py`'s small marks (build badge, support dot, dashed
+      ring, burst); the legend rendered alone, each symbol's ink inside its own row;
+      `svg_paths.py` path parsing (`_extract_polygon_points_from_path`, `cubic_bezier_point`)
+      tested, or its dead branches deleted.
 
 # Track DH — Maintainer bug reports from differential fuzzing and race review
 
