@@ -45,6 +45,13 @@ def test_polygon_points_negative_offset_and_decimals() -> None:
     assert pts == [(11.5, 22.5), (13.25, 24.75), (9.0, 18.0), (11.5, 22.5)]
 
 
+def test_polygon_close_adds_the_start_when_only_one_coordinate_differs() -> None:
+    pts = _extract_polygon_points_from_path("M 0 0 L 4 0 L 4 4 L 0 4 z", 1, 1)
+    assert pts == [(-1.0, -1.0), (3.0, -1.0), (3.0, 3.0), (-1.0, 3.0), (-1.0, -1.0)]
+    pts = _extract_polygon_points_from_path("M 0 0 L 0 4 L 4 4 L 4 0 Z", 0, 0)
+    assert pts[-1] == (0.0, 0.0) and len(pts) == 5
+
+
 def test_polygon_closing_a_closed_path_adds_nothing() -> None:
     pts = _extract_polygon_points_from_path("M 0 0 L 4 0 L 4 4 L 0 0 z", 0, 0)
     assert pts == [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 0.0)]
@@ -137,6 +144,13 @@ def test_ocean_hatch_at_zero_degrees_is_horizontal_rows() -> None:
         assert _alpha(img, 10, y) == 0 and _alpha(img, 90, y) == 0  # clipped sideways
     for y in (35, 45, 55, 65, 75):  # between rows
         assert all(_alpha(img, x, y) == 0 for x in (30, 50, 70))
+
+
+def test_ocean_hatch_with_spacing_wider_than_the_polygon_is_the_centre_line() -> None:
+    img = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    _draw_ocean_pattern(img, [(20, 20), (80, 20), (80, 80), (20, 80)], RGBA, spacing=100, angle=45, line_width=3)
+    assert _alpha(img, 50, 50) > 100 and _alpha(img, 30, 30) > 100 and _alpha(img, 70, 70) > 100
+    assert _alpha(img, 30, 70) == 0 and _alpha(img, 70, 30) == 0 and _alpha(img, 40, 60) == 0
 
 
 def test_ocean_hatch_needs_three_points() -> None:
