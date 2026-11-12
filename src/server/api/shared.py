@@ -1825,15 +1825,20 @@ def finish_processed_turn(
     fold: bool = False,
     carried: Optional[FoldCarry] = None,
     caller_lines: Optional[list[str]] = None,
+    had_deadline: bool = False,
 ) -> FoldCarry:
     """Everything that follows a successful ``GameService.process_turn``, for
     **every** trigger: the manual route, the deadline scheduler, and W10's
     auto-processing. Callers reach it through ``after_turn_processed``.
 
-    ``fold`` (the new phase needs nobody and runs next, BV2) leaves the
-    deadline alone -- the phase after the empty one arms or clears it, and says
-    so -- and returns the players' DM lines instead of sending them; ``carried``
+    ``fold`` (the new phase needs nobody and runs next, BV2) arms no
+    deadline -- the phase after the empty one arms one or says there is none --
+    and returns the players' DM lines instead of sending them; ``carried``
     is what the previous, folded call returned (``notify_turn_processed``).
+
+    ``had_deadline`` is whether the processed phase had a deadline
+    (``process_turn``'s ``deadline_spent``): ``save_state`` spent it with the
+    phase change (DH3), so the row no longer says.
 
     Each of these steps was once done by only one trigger -- the cache
     invalidation, the notification fan-out (G3) -- and the deadline
@@ -1846,8 +1851,9 @@ def finish_processed_turn(
     meta = game_service.meta(game_id) or {}
     # The new board's map_snapshots row was written with the turn itself
     # (``GameRepo.save_state``, DE4), not here under a re-read turn number.
-    # A deadline is scoped to the phase it was set for (Track N): spent now.
-    # Only a weekly schedule the players set arms the next one.
+    # A deadline is scoped to the phase it was set for (Track N): save_state
+    # spent it with the phase (DH3). Only a weekly schedule the players set
+    # arms the next one.
     game_ended = view is not None and view["status"] == "COMPLETED"
     # Each player's cached game list shows the game's phase, turn and status.
     try:
@@ -1856,9 +1862,9 @@ def finish_processed_turn(
     except SQLAlchemyError as e:
         scheduler_logger.error(f"Failed to read the players of game {game_id} after its turn: {e}")
     next_deadline_at = None if game_ended or fold else scheduled_deadline(game_id)
-    previous = db_service.get_game_by_id(numeric_game_id)
-    had_deadline = previous is not None and previous.deadline is not None
-    if not fold:
+    if next_deadline_at is not None:
+        # Nothing to clear otherwise: writing None would wipe a deadline set
+        # for the new phase since save_state.
         db_service.update_game_deadline(numeric_game_id, next_deadline_at)
     # Wait flags ("don't process *this* phase yet", W10) were cleared with the
     # phase by ``save_state``; clearing them again here wiped flags already
@@ -1893,6 +1899,7 @@ def after_turn_processed(
     trigger: str,
     exclude_telegram_id: Optional[str] = None,
     caller_lines: Optional[list[str]] = None,
+    had_deadline: bool = False,
 ) -> int:
     """Finish a turn ``GameService.process_turn`` just processed
     (``finish_processed_turn``), then process at once every phase after it that
@@ -1907,7 +1914,9 @@ def after_turn_processed(
     worker finishes it. Every processed phase gets its snapshot, but the players
     get one DM and the group one post, for the phase that needs them: the earlier
     phases' lines (results, a trapped unit's disband notice) are folded into it.
-    The deadline is armed or cleared once, for that last phase.
+    The deadline is armed once, for that last phase, and the "No deadline is
+    set" notice goes with it when the phase the players ordered had one
+    (``had_deadline``, ``process_turn``'s ``deadline_spent``).
 
     The one helper the manual route, the deadline scheduler and auto-processing
     all finish a turn through.
@@ -1935,12 +1944,13 @@ def after_turn_processed(
             fold=empty,
             carried=carried,
             caller_lines=caller_lines,
+            had_deadline=had_deadline,
         )
         if not empty:
             return processed
         prev_phase_code = checked_phase
         try:
-            game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
+            result = game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
         except (StaleGameError, GameOverError):
             # Someone else processed it (or ended the game): their DM will not
             # carry these lines, so they go out on their own.
@@ -1948,13 +1958,17 @@ def after_turn_processed(
             return processed
         except Exception:  # noqa: BLE001 -- boundary: the turn before is committed and must still be finished
             # The game stays in the empty phase. It gets the deadline a phase
-            # gets (the folded call left the spent one armed), and the lines
-            # the turn before it produced still reach its players.
-            db_service.update_game_deadline(numeric_game_id, scheduled_deadline(game_id))
+            # gets (save_state spent the one before and the folded call armed
+            # none), and the lines the turn before it produced still reach its
+            # players. Only a schedule arms one: writing None would wipe a
+            # deadline a player set for the empty phase meanwhile.
+            if (next_deadline := scheduled_deadline(game_id)) is not None:
+                db_service.update_game_deadline(numeric_game_id, next_deadline)
             invalidate_cache(f"games/{game_id}")
             send_carried(game_id, carried)
             empty_phase_failed(game_id, numeric_game_id, prev_phase_code)
             return processed
+        had_deadline = had_deadline or bool(result.get("deadline_spent"))
         processed += 1
 
 
@@ -2034,13 +2048,19 @@ def process_if_phase_needs_nobody(game_id: str, numeric_game_id: int) -> int:
     if not (game_service.phase_needs_nobody(game_id) and seats_filled(game_id, numeric_game_id)):
         return 0
     try:
-        game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
+        result = game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
     except (StaleGameError, GameOverError):
         return 0
     except Exception:  # noqa: BLE001 -- boundary: the change that emptied the phase is committed
         empty_phase_failed(game_id, numeric_game_id, prev_phase_code)
         return 0
-    return 1 + after_turn_processed(game_id, numeric_game_id, prev_phase_code=prev_phase_code, trigger="auto")
+    return 1 + after_turn_processed(
+        game_id,
+        numeric_game_id,
+        prev_phase_code=prev_phase_code,
+        trigger="auto",
+        had_deadline=bool(result.get("deadline_spent")),
+    )
 
 
 def maybe_auto_process(game_id: str) -> int:
@@ -2069,14 +2089,20 @@ def maybe_auto_process(game_id: str) -> int:
         if not game_service.ready_to_auto_process(game_id):
             break
         try:
-            game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
+            result = game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
         except (StaleGameError, GameOverError):
             break
         processed += 1
         row = db_service.get_game_by_game_id(game_id)
         if row is None:  # deleted between the two calls
             break
-        processed += after_turn_processed(game_id, int(row.id), prev_phase_code=prev_phase_code, trigger="auto")
+        processed += after_turn_processed(
+            game_id,
+            int(row.id),
+            prev_phase_code=prev_phase_code,
+            trigger="auto",
+            had_deadline=bool(result.get("deadline_spent")),
+        )
     return processed
 
 
@@ -2187,7 +2213,7 @@ def process_due_deadlines(now: datetime) -> None:
                     try:
                         # The phase whose deadline fell due, not whatever phase
                         # is stored by the time process_turn loads it.
-                        game_service.process_turn(game_id_str, expected_phase_code=seen_phase)
+                        result = game_service.process_turn(game_id_str, expected_phase_code=seen_phase)
                     except StaleGameError:
                         scheduler_logger.warning(
                             "PROCESS_TURN for game %s already processed concurrently, skipping.",
@@ -2205,6 +2231,7 @@ def process_due_deadlines(now: datetime) -> None:
                             int(game_id_val),
                             prev_phase_code=prev_phase_code,
                             trigger="deadline",
+                            had_deadline=bool(result.get("deadline_spent")),
                         )
                         # The new phase may already be complete (only dummies
                         # retreat or build); with auto-process on it runs now,
