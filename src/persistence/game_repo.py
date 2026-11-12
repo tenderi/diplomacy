@@ -15,7 +15,7 @@ from typing import Any, Callable, Optional
 
 from persistence.database import GameModel, MapSnapshotModel, PlayerModel, upsert_map_snapshot, utcnow_naive
 
-__all__ = ["GameRepo", "PhaseInputsChangedError", "StaleGameError"]
+__all__ = ["GameRepo", "PhaseInputsChangedError", "StaleGameError", "WaitFlagRaisedError"]
 
 
 def _stamp_phase_start(row: GameModel, new_phase_code: str) -> None:
@@ -63,6 +63,13 @@ class PhaseInputsChangedError(StaleGameError):
     used, and one changed before the write: an order arrived, or a power
     conceded, mid-adjudication. The phase has not moved, so the caller should
     adjudicate again rather than drop the change."""
+
+
+class WaitFlagRaisedError(StaleGameError):
+    """``save_state(refuse_if_waiting=True)`` found a wait flag up on the
+    locked row: a player asked the table to wait after the auto-process
+    readiness check (DH4). Nothing was written; the turn is not ready after
+    all, and waits for the flag to be lowered or for the deadline."""
 
 
 def _turns_before(history: Optional[dict[str, Any]], turn: int) -> dict[str, Any]:
@@ -379,6 +386,7 @@ class GameRepo:
         order_history_entry: Optional[dict[str, list[str]]] = None,
         resolution_history_entry: Optional[dict[str, Any]] = None,
         refuse_completed: bool = False,
+        refuse_if_waiting: bool = False,
         board: Optional[dict[str, Any]] = None,
     ) -> bool:
         """Persist the next ``GameState`` and bump the phase counter. When given, the
@@ -412,6 +420,11 @@ class GameRepo:
         and the phase code (which a draw keeps) cannot tell the second one that the
         first already ended the game.
 
+        ``refuse_if_waiting`` refuses (``WaitFlagRaisedError``) while any wait
+        flag is up, checked on the locked row: only auto-processing honours wait
+        flags, and a flag raised after its readiness check must still hold the
+        turn (DH4). A deadline and the manual process leave it off.
+
         ``board``, the view-shaped ``units`` and ``supply_centers`` of
         ``state_json``, is recorded in the same transaction as the
         ``map_snapshots`` row of the turn number this write produces (the board
@@ -424,6 +437,7 @@ class GameRepo:
             or expected_pending_orders is not None
             or expected_state_json is not None
             or expected_dummy_powers is not None
+            or refuse_if_waiting
         )
         with self._session_factory() as session:
             row = self._row(session, game_id, lock=guarded)
@@ -446,6 +460,8 @@ class GameRepo:
                 raise PhaseInputsChangedError(
                     f"game {game_id}: the civil-disorder powers changed while the turn was being adjudicated"
                 )
+            if refuse_if_waiting and any((row.wait_flags or {}).values()):
+                raise WaitFlagRaisedError(f"game {game_id}: a wait flag was raised while the turn was being adjudicated")
             spent_deadline = row.deadline is not None
             _write_state(
                 row,

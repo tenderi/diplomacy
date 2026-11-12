@@ -17,7 +17,8 @@
 ## Status
 
 - **Last updated:** 2026-11-12.
-- **Open tracks:** DH (the maintainer's bug reports #404–#408), then F (a human playing the game end to end, and host chores, which are
+- **Open tracks:** DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+  wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -38,7 +39,7 @@ the suggested direction.
 - [x] DH3 (#406): the deadline scheduler can process the phase after the one whose
       deadline fell due, because the phase change and spending the deadline are two
       commits. Make them one write.
-- [ ] DH4 (#407): auto-process ignores a wait flag raised between its readiness check and
+- [x] DH4 (#407): auto-process ignores a wait flag raised between its readiness check and
       the turn's write. Re-check the flags on the locked row, from the auto-process caller
       only.
 - [ ] DH5 (#405): an adjacent move with only a partial chain of convoy orders fails

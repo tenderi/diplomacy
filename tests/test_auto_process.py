@@ -8,6 +8,8 @@ Every trigger -- manual, deadline, auto -- finishes a turn through
 ``api.shared.finish_processed_turn``.
 """
 from datetime import datetime, timedelta, timezone
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -93,6 +95,38 @@ def test_a_wait_flag_holds_it_and_lowering_it_processes(client: TestClient) -> N
     assert _phase(client, game_id) == "F1901M"
     # The phase is gone, and so is every flag raised during it.
     assert client.get(f"/games/{game_id}/orders_status").json()["waiting"] == []
+
+
+def test_a_flag_raised_after_the_readiness_check_still_holds_the_turn(client: TestClient) -> None:
+    """DH4 (#407): a flag that lands between ``maybe_auto_process``'s readiness
+    check and the turn's write is seen on the locked row. Nothing is written --
+    the orders and the deadline stand -- and nobody is told of a turn."""
+    game_id, e, f = _table(client, auto=True)
+    deadline = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0)
+    db_service.update_game_deadline(int(game_id), deadline)
+    _order(client, game_id, e, "ENGLAND", ENG_HOLD)
+    real = game_service.process_turn
+    raised: list[int] = []
+
+    def process_turn(gid: str, **kwargs: Any) -> Any:
+        if not raised:  # ENGLAND's /wait lands after the readiness check, before the write
+            resp = client.post(f"/games/{game_id}/wait", json=_as(e, power="ENGLAND"))
+            raised.append(resp.status_code)
+            assert resp.json()["waiting"] == ["ENGLAND"]
+        return real(gid, **kwargs)
+
+    with OutboxProbe() as probe, patch.object(game_service, "process_turn", process_turn):
+        result = _order(client, game_id, f, "FRANCE", FRA_HOLD)
+    assert raised == [200]  # the player was told the table would wait
+    assert result["auto_processed"] == 0
+    assert _phase(client, game_id) == "S1901M"
+    status = client.get(f"/games/{game_id}/orders_status").json()
+    assert status["missing"] == [] and status["waiting"] == ["ENGLAND"]
+    assert game_service.pending_orders_view(game_id) == {"ENGLAND": ENG_HOLD, "FRANCE": FRA_HOLD}
+    row = db_service.get_game_by_game_id(game_id)
+    assert row is not None and row.deadline == deadline.replace(tzinfo=None)
+    # The only notice is the wait flag's own, to the other player: no turn.
+    assert [m.split(" asks ")[0] for m in probe.messages()] == ["ENGLAND"]
 
 
 def test_a_wait_flag_never_stops_a_deadline(client: TestClient) -> None:
