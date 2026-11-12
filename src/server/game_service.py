@@ -535,7 +535,7 @@ class GameService:
             if unit is not None and (r["order"]["power"], unit.split("/")[0]) not in ordered:
                 r["unordered"] = True
         resolution_dict["centres"] = _centre_changes(game.state.ownership, next_game.state.ownership)
-        self._repo.save_state(
+        deadline_spent = self._repo.save_state(
             game_id,
             state_to_dict(next_game.state),
             phase_code=next_game.state.phase_name,
@@ -562,6 +562,8 @@ class GameService:
             "phase": next_game.state.phase_name,
             "status": next_game.state.status.value,
             "resolution": resolution_dict,
+            # The phase had a deadline, which save_state spent with the phase.
+            "deadline_spent": deadline_spent,
         }
 
     # -- draw / concede -----------------------------------------------------

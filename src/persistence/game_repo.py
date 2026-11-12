@@ -85,7 +85,11 @@ def _write_state(
 ) -> None:
     """``save_state``'s write, on a row the caller has locked and checked: the
     next board, its phase and status, the counters, and the per-phase columns
-    cleared (a phase transition, or the game ending, ends them all).
+    cleared (a phase transition, or the game ending, ends them all). The
+    deadline and its reminder are per-phase too: spent here, under the same
+    lock as the phase change, or the deadline scheduler could read the new
+    phase with the old phase's deadline past due and process it (DH3). The
+    caller arms the new phase's deadline, if it gets one.
 
     ``turn_processed=False`` (a game ended by a draw, a concession or a seat
     made a dummy -- ``end_game_if``) leaves ``current_turn`` alone: no turn was
@@ -94,6 +98,8 @@ def _write_state(
     row.pending_orders = {}
     row.draw_votes = {}
     row.wait_flags = {}
+    row.deadline = None
+    row.reminded_deadline = None
     row.state_json = state_json
     _stamp_phase_start(row, phase_code)
     row.phase_code = phase_code
@@ -374,7 +380,7 @@ class GameRepo:
         resolution_history_entry: Optional[dict[str, Any]] = None,
         refuse_completed: bool = False,
         board: Optional[dict[str, Any]] = None,
-    ) -> None:
+    ) -> bool:
         """Persist the next ``GameState`` and bump the phase counter. When given, the
         adjudication ``last_resolution`` is stored for later resolution-map rendering,
         and ``order_history_entry`` (the just-adjudicated ``{power: [order_str]}``) is
@@ -397,7 +403,9 @@ class GameRepo:
         A phase transition ends everything scoped to the old phase, so
         ``pending_orders``, ``draw_votes`` and ``wait_flags`` are cleared in this same
         transaction -- clearing them in a later one wiped orders already
-        submitted for the *new* phase in between.
+        submitted for the *new* phase in between. So are ``deadline`` and
+        ``reminded_deadline`` (DH3); returns whether a deadline was spent, for
+        the turn notice's "No deadline is set for ..." (BE1).
 
         ``refuse_completed`` refuses (``StaleGameError``) to write over a game that has
         already ended: two deciding draw votes cast together both reach quorum,
@@ -438,6 +446,7 @@ class GameRepo:
                 raise PhaseInputsChangedError(
                     f"game {game_id}: the civil-disorder powers changed while the turn was being adjudicated"
                 )
+            spent_deadline = row.deadline is not None
             _write_state(
                 row,
                 state_json,
@@ -458,6 +467,7 @@ class GameRepo:
                     state_json=state_json,
                 )
             session.commit()
+            return spent_deadline
 
     def end_game_if(
         self,

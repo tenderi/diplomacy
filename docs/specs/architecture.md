@@ -378,7 +378,9 @@ nowhere to retreat: it was disbanded." — the turn's disorder, eliminations, va
 lines), then two maps: the orders map of the turn the players ordered, and the board after
 the last folded phase (`/map/history/{last turn + 1}`), both captioned with the ordered phase
 ("Spring 1901 movement: the result"), since the folded phases had nothing to order. The
-deadline is armed or cleared once, for that phase. If the empty phase cannot be processed
+ordered phase's deadline is spent with it; the next one is armed once, for the phase that
+needs orders, and "No deadline is set for …" goes with it when the ordered phase had one
+(`process_turn`'s `deadline_spent`). If the empty phase cannot be processed
 here (another worker got there first, or processing it raised), the folded lines go out on
 their own, and so does the group post the fold held back ("Spring 1901 retreats: nobody has
 anything to order." with its lines and maps); on an error the game stays in the empty phase,
@@ -615,8 +617,12 @@ is left to the service, which answers with how it ended.
 **Deadlines are never imposed by the server.** A game has a deadline only when a player
 chose one: set explicitly via `POST /games/{id}/deadline` (the bot's `/deadline <game_id>
 <hours|clear>`, or a majority vote through `deadline/propose`), or armed from the game's
-**weekly schedule**. A deadline is scoped to its phase: every processing path spends it once
-the phase is adjudicated (`finish_processed_turn`), and an admin restore to a snapshot
+**weekly schedule**. A deadline is scoped to its phase: the write that adjudicates the phase
+spends it (`GameRepo.save_state` clears `deadline` and `reminded_deadline` on the locked row,
+in the same transaction as the phase change, so the deadline scheduler never sees the new
+phase with the old phase's deadline past due), `finish_processed_turn` then arms the new
+phase's deadline if a weekly schedule gives it one (and leaves alone one set for the new
+phase in between), and an admin restore to a snapshot
 (`POST /games/{id}/restore/{snapshot_id}`) drops the discarded phase's deadline and gives the
 restored phase the one a newly entered phase gets. `games.deadline` is stored as naive UTC; every API field that
 carries a deadline (`GET`/`POST /deadline`, `POST /deadline/schedule`, an accepted proposal,

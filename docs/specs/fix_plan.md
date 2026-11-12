@@ -35,7 +35,7 @@ the suggested direction.
 - [x] DH2 (#408): `@cached_response` stores a response read before a write but put after
       its `invalidate_cache`. Generation counter (one, process-wide); exact-path invalidation; note
       that the cache is per process.
-- [ ] DH3 (#406): the deadline scheduler can process the phase after the one whose
+- [x] DH3 (#406): the deadline scheduler can process the phase after the one whose
       deadline fell due, because the phase change and spending the deadline are two
       commits. Make them one write.
 - [ ] DH4 (#407): auto-process ignores a wait flag raised between its readiness check and
