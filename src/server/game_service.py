@@ -451,7 +451,9 @@ class GameService:
 
     # -- turn processing --------------------------------------------------
 
-    def process_turn(self, game_id: str, expected_phase_code: Optional[str] = None) -> dict[str, Any]:
+    def process_turn(
+        self, game_id: str, expected_phase_code: Optional[str] = None, *, honour_wait_flags: bool = False
+    ) -> dict[str, Any]:
         """Adjudicate all pending orders, advance the phase, persist, clear orders.
 
         Raises ``StaleGameError`` if another process already advanced this game's
@@ -465,10 +467,15 @@ class GameService:
         If the stored phase is already another one, the game moved on after the
         caller looked, and this raises ``StaleGameError`` instead of
         adjudicating a phase nobody has had a chance to order for.
+
+        ``honour_wait_flags`` (auto-processing only) refuses the write with
+        ``WaitFlagRaisedError``, a ``StaleGameError``, if a wait flag is up on
+        the locked row: one raised after the caller's readiness check (DH4).
+        Nothing is written. A deadline and the manual process ignore flags.
         """
         for attempt in range(_ADJUDICATION_ATTEMPTS):
             try:
-                return self._process_turn_once(game_id, expected_phase_code)
+                return self._process_turn_once(game_id, expected_phase_code, honour_wait_flags)
             except PhaseInputsChangedError:
                 # An order or a concession landed mid-adjudication; the phase is
                 # still ours to process, so adjudicate it again with them.
@@ -476,7 +483,9 @@ class GameService:
                     raise
         raise AssertionError("unreachable")  # pragma: no cover
 
-    def _process_turn_once(self, game_id: str, expected_phase_code: Optional[str] = None) -> dict[str, Any]:
+    def _process_turn_once(
+        self, game_id: str, expected_phase_code: Optional[str] = None, honour_wait_flags: bool = False
+    ) -> dict[str, Any]:
         sj = self._repo.get_state_json(game_id)
         if sj is None:
             raise OrderError(f"game {game_id} not found")
@@ -548,6 +557,7 @@ class GameService:
             # A seat made a dummy meanwhile may leave only dummies after this
             # turn; its own end check ran on the board before it (CB1).
             expected_dummy_powers=dummies,
+            refuse_if_waiting=honour_wait_flags,
             last_resolution=resolution_dict,
             order_history_entry=history_entry,
             # Same dict as ``last_resolution``, but kept per turn so it survives
