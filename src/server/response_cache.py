@@ -9,6 +9,15 @@ Features:
 - Cache invalidation strategies
 - Cache statistics and monitoring
 - Configurable cache policies per endpoint
+
+The cache is **per process**. It is safe with the single uvicorn worker that
+``docker/api-entrypoint.sh`` runs; a second worker would keep its own copy, and
+an ``invalidate_cache`` in one worker would not reach the other, so every cached
+route could serve a stale answer for up to its TTL.
+
+A read that straddles a write must not be cached: the cache keeps a generation
+counter that every invalidation bumps, and ``cached_response`` drops the ``put``
+of a response whose read began under an older generation.
 """
 
 import time
@@ -41,7 +50,8 @@ class ResponseCache:
         self.hit_count = 0
         self.miss_count = 0
         self.lock = threading.RLock()
-        
+        self._generation = 0  # bumped by every invalidation; guarded by self.lock
+
         logger.info(f"📦 Response cache initialized: TTL={default_ttl}s, MaxSize={max_size}")
     
     def _generate_key(self, endpoint: str, params: Dict[str, Any] = None) -> str:
@@ -99,9 +109,28 @@ class ResponseCache:
             logger.debug(f"✅ Cache hit for {endpoint}")
             return cached_data["data"]
     
-    def put(self, endpoint: str, data: Any, ttl: Optional[int] = None, params: Dict[str, Any] = None) -> None:
-        """Cache response data with TTL."""
+    def generation(self) -> int:
+        """Current invalidation generation; read it before computing a response."""
         with self.lock:
+            return self._generation
+
+    def put(
+        self,
+        endpoint: str,
+        data: Any,
+        ttl: Optional[int] = None,
+        params: Dict[str, Any] = None,
+        expected_generation: Optional[int] = None,
+    ) -> None:
+        """Cache response data with TTL.
+
+        When ``expected_generation`` is given and an invalidation has happened since,
+        the response may predate a write, so it is not stored.
+        """
+        with self.lock:
+            if expected_generation is not None and expected_generation != self._generation:
+                logger.debug(f"🚫 Not caching {endpoint}: invalidated while it was being computed")
+                return
             # If TTL is 0 or negative, don't cache
             if ttl is not None and ttl <= 0:
                 logger.debug(f"🚫 Not caching {endpoint} (TTL: {ttl}s)")
@@ -140,10 +169,12 @@ class ResponseCache:
         
         Pattern can match:
         - Endpoint name (e.g., 'server.api.routes.users.get_user_games')
-        - Route path (e.g., 'users/12345' matches endpoints under users/ routes)
+        - Route path, matched on whole path segments: 'games/1' drops 'games/1' and
+          anything below it ('games/1/x'), never 'games/10'; 'games' drops every game
         - Partial endpoint name
         """
         with self.lock:
+            self._generation += 1
             keys_to_remove = []
             for key, cached_data in self.cache.items():
                 endpoint = cached_data.get("endpoint", "")
@@ -152,10 +183,8 @@ class ResponseCache:
                 # Check if pattern matches endpoint name
                 if pattern in endpoint:
                     keys_to_remove.append(key)
-                # Check if pattern matches route path (exact match or prefix)
-                elif route_path and pattern in route_path:
-                    keys_to_remove.append(key)
-                elif route_path and route_path.startswith(pattern):
+                # Route path: the same path, or a parent path of it (segment-wise)
+                elif route_path and (route_path == pattern or route_path.startswith(pattern.rstrip("/") + "/")):
                     keys_to_remove.append(key)
             
             for key in keys_to_remove:
@@ -170,6 +199,7 @@ class ResponseCache:
     def clear(self) -> None:
         """Clear all cached responses."""
         with self.lock:
+            self._generation += 1
             self.cache.clear()
             self.cache_params.clear()
             self.access_times.clear()
@@ -265,10 +295,11 @@ def cached_response(ttl: int = None, key_params: list = None):
                 return cached_result
             
             # Cache miss - execute function
+            generation = _response_cache.generation()
             result = func(*args, **kwargs)
             
             # Cache the result
-            _response_cache.put(endpoint, result, ttl, cache_params)
+            _response_cache.put(endpoint, result, ttl, cache_params, expected_generation=generation)
             
             return result
         
