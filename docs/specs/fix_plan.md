@@ -61,6 +61,10 @@ coherent* to use.
       (capped at the free home centres) with real home-centre options, and a power with
       nothing owed shows none. Submit a build, process — the unit appears on the map.
 - [ ] In a Telegram group game, each processed turn posts the orders map and the result map.
+- [x] A turn followed by a phase nobody orders in (a trapped retreat, a dummy-only winter)
+      posts the group once, not once per phase (issue #414): one text naming the phase that
+      needs orders, carrying the folded phase's news (a trapped unit's disband), then the
+      ordered turn's orders map and the board after the folded phase.
 - [ ] **Done when:** every box above is checked. A defect found becomes a new track here.
 
 ## F2 — Judgement pass on the web game screen
