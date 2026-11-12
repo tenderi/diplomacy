@@ -409,3 +409,21 @@ def _forget_current_games():
 pytestmark = [
     pytest.mark.unit,  # Default to unit tests
 ]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_map_cache(tmp_path_factory: pytest.TempPathFactory) -> Generator[None, None, None]:
+    """Give the session its own empty map cache.
+
+    ``MapCache`` otherwise writes to the fixed ``/tmp/diplomacy_map_cache``, so a
+    renderer test can pass against a PNG an earlier run of different code left
+    there. The module-level cache is repointed (and emptied) for the session and
+    restored afterwards."""
+    from rendering import cache as map_cache_module
+
+    cache = map_cache_module._map_cache
+    saved = (cache.cache_dir, cache.cache, cache.access_times)
+    cache.cache_dir = str(tmp_path_factory.mktemp("map_cache"))
+    cache.cache, cache.access_times = {}, {}
+    yield
+    cache.cache_dir, cache.cache, cache.access_times = saved
