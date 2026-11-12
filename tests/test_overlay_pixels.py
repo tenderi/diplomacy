@@ -132,7 +132,7 @@ def test_plus_badge_geometry(fn: Callable[[DrawTarget, tuple[float, float]], Non
     # The white plus: arms reach about 0.55 * radius (4.4 px, plus the stroke) from the centre.
     for dx, dy in ((3, 0), (-3, 0), (0, 3), (0, -3), (0, 0)):
         assert near(at(img, 160 + dx, 150 + dy), WHITE, 30), (dx, dy)
-    for dx, dy in ((5, 0), (-6, 0), (0, 5), (0, -6), (3.5, 3.5), (-3.5, 3.5), (3.5, -3.5), (-3.5, -3.5)):
+    for dx, dy in ((5, 0), (-6, 0), (0, 5), (0, -6), (3, 3), (-4, -4), (3, -4), (-4, 3)):
         assert near(at(img, 160 + dx, 150 + dy), colour("build"), 35), (dx, dy)
     assert near(at(img, 160 + br + 4, 150), BG, 20)
 
