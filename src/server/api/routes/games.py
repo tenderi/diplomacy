@@ -725,6 +725,7 @@ async def process_turn(
             trigger="manual",
             exclude_telegram_id=caller_telegram_id,
             caller_lines=own_results,
+            had_deadline=bool(turn_result.get("deadline_spent")),
         )
         # A next phase with nothing for a human to order runs now under
         # auto-process (W10) -- nothing else would trigger it.
