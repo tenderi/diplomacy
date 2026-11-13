@@ -30,7 +30,7 @@ A mutation pass over `src/rendering/` left 49 of 90 mutants alive; #411 lists th
 eight that survive the whole suite, and what to test. Done = those mutants die, each new
 test fails under its mutant.
 
-- [ ] DI1: an autouse fixture gives the test session its own `tmp_path` map cache (no
+- [x] DI1: an autouse fixture gives the test session its own `tmp_path` map cache (no
       stale `/tmp/diplomacy_map_cache` PNG can pass a test); `arrows.py` primitive
       geometry (`bar_segment`, `catmull_rom`, `trim`, `path_length`, `draw_cross`,
       `draw_ring`, `draw_arrow` head and casing via an `ImageDraw` spy); `tokens.text_colour_on`
