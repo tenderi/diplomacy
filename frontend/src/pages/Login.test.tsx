@@ -56,6 +56,11 @@ describe('Login', () => {
     fireEvent.click(within(container).getByRole('button', { name: /login/i }))
     await waitFor(() => {
       expect(within(container).getByRole('alert')).toHaveTextContent(/invalid credentials/i)
+      const alert = within(container).getByRole('alert')
+      expect(alert).toHaveClass('text-destructive', 'border-destructive')
+      expect(within(alert).getByText(/invalid credentials/i)).toHaveClass(
+        'group-data-[variant=destructive]/alert:text-destructive',
+      )
     })
   })
 
