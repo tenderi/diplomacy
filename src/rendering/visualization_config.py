@@ -82,6 +82,8 @@ class VisualizationConfig:
             "sea_hatch_alpha": 200,
             "sea_hatch_width": 4,
             "sea_hatch_spacing": 14,
+            "supply_centre_radius": 5,
+            "supply_centre_outline": 1.5,
         },
         "footer": {
             "padding": 12,
