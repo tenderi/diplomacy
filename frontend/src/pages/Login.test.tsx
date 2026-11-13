@@ -136,4 +136,17 @@ describe('Login', () => {
     })
     expect(container.querySelector('#email')).toBeNull()
   })
+
+  it('gives the auth links a 44px phone hit area', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <AuthProvider>
+          <Login />
+        </AuthProvider>
+      </MemoryRouter>
+    )
+    for (const name of ['Forgot password?', 'Register']) {
+      expect(within(container).getByRole('link', { name }).className).toContain('min-h-11')
+    }
+  })
 })

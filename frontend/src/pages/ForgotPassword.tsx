@@ -1,3 +1,4 @@
+import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { apiJson } from '@/api/client'
@@ -52,11 +53,11 @@ export default function ForgotPassword() {
         )}
         {resetLink && (
           <p className="break-all mt-4">
-            <a href={resetLink} className="text-primary underline underline-offset-2">{resetLink}</a>
+            <a href={resetLink} className={TAP_LINK}>{resetLink}</a>
           </p>
         )}
         <p className="mt-4">
-          <Link to="/login" className="text-primary underline underline-offset-2">Back to login</Link>
+          <Link to="/login" className={TAP_LINK}>Back to login</Link>
         </p>
       </div>
     )
@@ -91,7 +92,7 @@ export default function ForgotPassword() {
         </Button>
       </form>
       <p className="mt-4 text-sm text-muted-foreground">
-        <Link to="/login" className="text-primary underline underline-offset-2">Back to login</Link>
+        <Link to="/login" className={TAP_LINK}>Back to login</Link>
       </p>
     </div>
   )

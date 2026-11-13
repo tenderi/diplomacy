@@ -9,6 +9,7 @@
  * history of resolved phases live only in this component, so leaving the page ends
  * the session.
  */
+import { TAP_LINK } from '@/lib/touch'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { apiFetch, apiJson } from '@/api/client'
@@ -308,7 +309,7 @@ export default function Sandbox() {
 
   const exitTo = sourceGameId ? `/games/${sourceGameId}` : '/games'
   const exitLink = (
-    <Link to={exitTo} className="text-primary underline underline-offset-2">
+    <Link to={exitTo} className={TAP_LINK}>
       {sourceGameId ? `Exit sandbox (back to game ${sourceGameId})` : 'Exit sandbox'}
     </Link>
   )

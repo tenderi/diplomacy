@@ -1,3 +1,4 @@
+import { TAP_LINK, TAP_ROW } from '@/lib/touch'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -85,7 +86,7 @@ export default function GameList() {
     <div className="max-w-3xl mx-auto">
       <h1 className="text-2xl font-semibold mb-4">Games</h1>
       <p className="mb-4">
-        <Link to="/" className="text-primary underline underline-offset-2">Home</Link>
+        <Link to="/" className={TAP_LINK}>Home</Link>
       </p>
       {error && (
         <Alert variant="destructive" className="mb-4">
@@ -100,7 +101,7 @@ export default function GameList() {
           </legend>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {POWERS.map((p) => (
-              <label key={p} className="flex items-center gap-1 text-sm">
+              <label key={p} className={`flex items-center gap-1 text-sm ${TAP_ROW}`}>
                 <input
                   type="checkbox"
                   checked={dummies.includes(p)}
@@ -114,11 +115,11 @@ export default function GameList() {
             ))}
           </div>
         </fieldset>
-        <label className="flex items-center gap-2 text-sm">
+        <label className={`flex items-center gap-2 text-sm ${TAP_ROW}`}>
           <input type="checkbox" checked={autoProcess} onChange={(e) => setAutoProcess(e.target.checked)} />
           Process each turn as soon as all orders are in (players can ask to wait)
         </label>
-        <label className="flex items-center gap-2 text-sm">
+        <label className={`flex items-center gap-2 text-sm ${TAP_ROW}`}>
           <input type="checkbox" checked={randomPowers} onChange={(e) => setRandomPowers(e.target.checked)} />
           Assign powers at random — players join without choosing one (can't be changed later)
         </label>
@@ -127,17 +128,17 @@ export default function GameList() {
             Player names (can't be changed once the game exists):
           </legend>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <label className="flex items-center gap-1 text-sm">
+            <label className={`flex items-center gap-1 text-sm ${TAP_ROW}`}>
               <input type="radio" name="naming" checked={!anonymous} onChange={() => setAnonymous(false)} />
               Public — nicknames are shown next to powers
             </label>
-            <label className="flex items-center gap-1 text-sm">
+            <label className={`flex items-center gap-1 text-sm ${TAP_ROW}`}>
               <input type="radio" name="naming" checked={anonymous} onChange={() => setAnonymous(true)} />
               Anonymous — players are known only by their power
             </label>
           </div>
         </fieldset>
-        <label className="flex flex-wrap items-center gap-2 text-sm">
+        <label className={`flex flex-wrap items-center gap-2 text-sm ${TAP_ROW}`}>
           Private game password (optional, 4–64 characters):
           <input
             type="password"
@@ -162,7 +163,7 @@ export default function GameList() {
               <Card className="hover:bg-muted/50 transition-colors">
                 <CardHeader className="py-2">
                   <CardTitle className="text-sm font-medium">
-                    <Link to={`/games/${g.game_id}`} className="text-primary underline underline-offset-2">
+                    <Link to={`/games/${g.game_id}`} className={TAP_LINK}>
                       Game {g.game_id} — {g.power} — turn {g.current_turn}
                     </Link>
                   </CardTitle>
@@ -179,7 +180,7 @@ export default function GameList() {
             <Card className="hover:bg-muted/50 transition-colors">
               <CardHeader className="py-2">
                 <CardTitle className="text-sm font-medium">
-                  <Link to={`/games/${g.id}`} className="text-primary underline underline-offset-2">
+                  <Link to={`/games/${g.id}`} className={TAP_LINK}>
                     {g.private ? '🔒 ' : ''}{g.anonymous ? '🕶️ ' : ''}{g.random_powers ? '🎲 ' : ''}Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
                   </Link>
                 </CardTitle>
