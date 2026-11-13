@@ -670,6 +670,7 @@ describe('GameView — process turn: the creator only, and confirmed', () => {
     )
 
     const trigger = await screen.findByRole('button', { name: /resolve orders and advance/i })
+    expect(trigger.getAttribute('data-variant')).toBe('destructive')
     fireEvent.click(trigger)
     // Opening the confirmation dialog must not itself call process_turn.
     expect(onProcessTurn).not.toHaveBeenCalled()
@@ -2126,6 +2127,18 @@ describe('GameView — turn status stays current (BQ3)', () => {
     panel.scrollIntoView = spy
     fireEvent.click(status)
     expect(spy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+  })
+
+  it('names the jump in the status button and focuses the Orders heading', async () => {
+    const { fetchMock } = mutableStub(pending)
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    const status = await within(container).findByRole('button', {
+      name: 'You still need to submit orders for FRANCE — enter orders ↓',
+    })
+    ;(container.querySelector('#orders-panel') as HTMLElement).scrollIntoView = vi.fn()
+    fireEvent.click(status)
+    expect(document.activeElement).toBe(container.querySelector('#orders-heading'))
   })
 
   it('gives the status button and the page links a 44px phone hit area', async () => {

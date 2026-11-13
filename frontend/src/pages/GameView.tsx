@@ -1071,13 +1071,13 @@ export default function GameView() {
                       <button
                         type="button"
                         className="underline underline-offset-2 text-left min-h-11 sm:min-h-0"
-                        onClick={() =>
-                          document
-                            .getElementById('orders-panel')
-                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                        }
+                        onClick={() => {
+                          const panel = document.getElementById('orders-panel')
+                          panel?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          document.getElementById('orders-heading')?.focus({ preventScroll: true })
+                        }}
                       >
-                        {`You still need to submit orders for ${myPower}.`}
+                        {`You still need to submit orders for ${myPower} — enter orders ↓`}
                       </button>
                     )}
               </p>
@@ -1249,7 +1249,9 @@ export default function GameView() {
           <p className="font-medium mb-4">Your power: {myPower}</p>
           {state.status === 'ACTIVE' && (
           <section id="orders-panel" className="mb-6 scroll-mt-4">
-            <h2 className="text-lg font-medium mb-2">Orders</h2>
+            <h2 id="orders-heading" tabIndex={-1} className="text-lg font-medium mb-2 outline-none">
+              Orders
+            </h2>
             {useOrdersFallback ? (
               <>
                 <p className="text-sm text-muted-foreground mb-2">
