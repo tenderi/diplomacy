@@ -32,7 +32,7 @@ Done = each fixed, with a Vitest test that fails without the fix where one can.
 - [x] DJ1: zoom-bar buttons (−, +, Fit, 1:1, ↗, ×) are now 44 px on touch. The 55% opening
       zoom of the enlarged map on phones is kept on purpose (v3.0.276: Fit is ~21% there, no
       bigger than the inline map); the walkthrough's crop is the intended pan.
-- [ ] DJ2: the login error ("Invalid email or password", `Login.tsx`; check
+- [x] DJ2: the login error ("Invalid email or password", `Login.tsx`; check
       `Register.tsx` and the password pages) renders grey in a bordered box like an input.
       Use the destructive alert style used elsewhere, with `role="alert"`.
 - [ ] DJ3: tap targets under 44 px: the "Back to games" / sandbox / "Home" / login and
