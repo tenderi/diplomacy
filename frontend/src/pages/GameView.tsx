@@ -1,3 +1,4 @@
+import { TAP_LINK, TAP_ROW } from '@/lib/touch'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router'
 import { toast } from 'sonner'
@@ -962,7 +963,7 @@ export default function GameView() {
         <Alert variant="destructive" className="mb-4">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
-        <p><Link to="/games" className="text-primary underline underline-offset-2">Back to games</Link></p>
+        <p><Link to="/games" className={TAP_LINK}>Back to games</Link></p>
       </div>
     )
   }
@@ -971,10 +972,10 @@ export default function GameView() {
   return (
     <div className="max-w-4xl mx-auto">
       <p className="mb-4 flex flex-wrap gap-x-4 gap-y-1">
-        <Link to="/games" className="text-primary underline underline-offset-2">Back to games</Link>
+        <Link to="/games" className={TAP_LINK}>Back to games</Link>
         <Link
           to={`/sandbox?game=${encodeURIComponent(gameId ?? '')}`}
-          className="text-primary underline underline-offset-2"
+          className={TAP_LINK}
         >
           Try orders in the sandbox
         </Link>
@@ -1069,7 +1070,7 @@ export default function GameView() {
                     : (
                       <button
                         type="button"
-                        className="underline underline-offset-2 text-left"
+                        className="underline underline-offset-2 text-left min-h-11 sm:min-h-0"
                         onClick={() =>
                           document
                             .getElementById('orders-panel')
@@ -1333,13 +1334,13 @@ export default function GameView() {
         </ul>
         {!iAmOut && (
         <div className="mt-2 space-y-2">
-          <Label className="flex items-center gap-2">
+          <Label className={`flex items-center gap-2 ${TAP_ROW}`}>
             <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
             Broadcast to all
           </Label>
           {broadcast && (
             <div className="pl-6">
-              <Label className="flex items-start gap-2 leading-snug">
+              <Label className={`flex items-start gap-2 leading-snug ${TAP_ROW}`}>
                 <input
                   type="checkbox"
                   className="mt-0.5 shrink-0"

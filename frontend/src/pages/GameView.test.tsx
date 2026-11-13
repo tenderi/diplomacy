@@ -2128,6 +2128,16 @@ describe('GameView — turn status stays current (BQ3)', () => {
     expect(spy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
   })
 
+  it('gives the status button and the page links a 44px phone hit area', async () => {
+    const { fetchMock } = mutableStub(pending)
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    const status = await within(container).findByText(/You still need to submit orders for FRANCE/)
+    expect(status.className).toContain('min-h-11')
+    expect(within(container).getByRole('link', { name: 'Back to games' }).className).toContain('min-h-11')
+    expect(within(container).getByRole('link', { name: /sandbox/i }).className).toContain('min-h-11')
+  })
+
   it('refreshes the status card right after a submission', async () => {
     const { box, fetchMock } = mutableStub(pending)
     vi.stubGlobal('fetch', fetchMock)
