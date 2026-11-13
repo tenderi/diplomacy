@@ -10,19 +10,44 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DJ**.
+>   history. Track letters run in sequence; the next free one is **DK**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-13.
-- **Open tracks:** DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Open tracks:** DJ (the web UI on a phone; next: DJ1). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DJ — The web UI on a phone
+
+A Playwright walkthrough at 390×844 (2026-11-13) found these, each seen in a screenshot.
+Done = each fixed, with a Vitest test that fails without the fix where one can.
+
+- [ ] DJ1: the enlarged map (`MapViewer.tsx`) opens at 55% zoom centred on central
+      Europe, cropping England, Iberia, Russia and the legend. Open it fitted to the
+      screen width; zoom-bar buttons (−, +, Fit, 1:1, ↗, ×, now ~32×22 px) at least 44 px.
+- [ ] DJ2: the login error ("Invalid email or password", `Login.tsx`; check
+      `Register.tsx` and the password pages) renders grey in a bordered box like an input.
+      Use the destructive alert style used elsewhere, with `role="alert"`.
+- [ ] DJ3: tap targets under 44 px: the "Back to games" / sandbox / "Home" / login and
+      register text links, the orange "You still need to submit orders" button (20 px),
+      the game-creation checkboxes and radios.
+- [ ] DJ4: on `GameView.tsx` the orders form sits below the map on a ~2,700 px page, the
+      "You still need to submit orders" button doesn't say it jumps there, and "Resolve
+      orders and advance the game" is a bare red link at the very bottom. Make the status
+      button jump to the orders and say so; give the resolve action a real destructive
+      button.
+- [ ] DJ5: the build phase (`OrderEntry.tsx`) warns "2 builds left unused — they will be
+      waived" before the player has chosen anything, and the empty slot's "Build"
+      placeholder doesn't read as a picker.
+- [ ] DJ6: opening the confirm dialog logs "Function components cannot be given refs …
+      AlertDialog"; fix the `alert-dialog` / `Button` ref forwarding.
 
 # Track DH — Maintainer bug reports from differential fuzzing and race review
 
