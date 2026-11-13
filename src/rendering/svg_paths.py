@@ -178,73 +178,52 @@ def _color_provinces_by_power_with_transparency(
         # Fallback: continue without province coloring
 
 
+def cubic_bezier_point(
+    p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float], p3: tuple[float, float], t: float,
+) -> tuple[float, float]:
+    """Calculate point on cubic Bezier curve at parameter t (0 to 1)."""
+    mt = 1 - t
+    return (
+        mt**3 * p0[0] + 3*mt**2*t * p1[0] + 3*mt*t**2 * p2[0] + t**3 * p3[0],
+        mt**3 * p0[1] + 3*mt**2*t * p1[1] + 3*mt*t**2 * p2[1] + t**3 * p3[1]
+    )
+
+
+#: Parameters along each cubic Bezier at which a polygon point is sampled.
+_BEZIER_SAMPLES = (0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0)
+
+
 def _extract_polygon_points_from_path(
     path_data: str, offset_x: float, offset_y: float
 ) -> list[tuple[float, float]] | None:
     """Extract polygon points from SVG path data with coordinate transform.
 
-    Handles M (moveto), L (lineto), C (cubic Bezier), and Z (close) commands.
-    Bezier curves are sampled at multiple points for accurate boundary representation.
+    Handles the commands ``maps/standard.svg`` uses: absolute M (moveto), L (lineto),
+    C (cubic Bezier) and Z/z (close). Bezier curves are sampled at 8 points for an
+    accurate boundary. Any other command (relative, H, V, S, Q, T, A) is ignored.
 
     Returns:
-        List of (x, y) tuples, or None if parsing fails
+        List of (x, y) tuples, or None if there are fewer than three points or a
+        command has too few coordinates
     """
-    def cubic_bezier_point(p0, p1, p2, p3, t):
-        """Calculate point on cubic Bezier curve at parameter t (0 to 1)."""
-        mt = 1 - t
-        return (
-            mt**3 * p0[0] + 3*mt**2*t * p1[0] + 3*mt*t**2 * p2[0] + t**3 * p3[0],
-            mt**3 * p0[1] + 3*mt**2*t * p1[1] + 3*mt*t**2 * p2[1] + t**3 * p3[1]
-        )
-
     try:
-        points = []
-        current_x, current_y = 0, 0
-        start_x, start_y = 0, 0
+        points: list[tuple[float, float]] = []
+        current_x, current_y = 0.0, 0.0
+        start_x, start_y = 0.0, 0.0
 
         # Split path data into commands
         path_commands = re.findall(r'([MLHVCSQTAZmlhvcsqtaz])\s*([^MLHVCSQTAZmlhvcsqtaz]*)', path_data)
 
         for cmd, params in path_commands:
-            coords = re.findall(r'(-?\d+\.?\d*)', params)
-            coords = [float(c) for c in coords]
+            coords = [float(c) for c in re.findall(r'(-?\d+\.?\d*)', params)]
 
             if cmd == 'M':  # Absolute moveto
-                if len(coords) >= 2:
-                    current_x, current_y = coords[0], coords[1]
-                    start_x, start_y = current_x, current_y
-                    points.append((current_x - offset_x, current_y - offset_y))
-            elif cmd == 'm':  # Relative moveto
-                if len(coords) >= 2:
-                    current_x += coords[0]
-                    current_y += coords[1]
-                    start_x, start_y = current_x, current_y
-                    points.append((current_x - offset_x, current_y - offset_y))
+                current_x, current_y = coords[0], coords[1]
+                start_x, start_y = current_x, current_y
+                points.append((current_x - offset_x, current_y - offset_y))
             elif cmd == 'L':  # Absolute lineto
-                if len(coords) >= 2:
-                    current_x, current_y = coords[0], coords[1]
-                    points.append((current_x - offset_x, current_y - offset_y))
-            elif cmd == 'l':  # Relative lineto
-                if len(coords) >= 2:
-                    current_x += coords[0]
-                    current_y += coords[1]
-                    points.append((current_x - offset_x, current_y - offset_y))
-            elif cmd == 'H':  # Absolute horizontal lineto
-                if len(coords) >= 1:
-                    current_x = coords[0]
-                    points.append((current_x - offset_x, current_y - offset_y))
-            elif cmd == 'h':  # Relative horizontal lineto
-                if len(coords) >= 1:
-                    current_x += coords[0]
-                    points.append((current_x - offset_x, current_y - offset_y))
-            elif cmd == 'V':  # Absolute vertical lineto
-                if len(coords) >= 1:
-                    current_y = coords[0]
-                    points.append((current_x - offset_x, current_y - offset_y))
-            elif cmd == 'v':  # Relative vertical lineto
-                if len(coords) >= 1:
-                    current_y += coords[0]
-                    points.append((current_x - offset_x, current_y - offset_y))
+                current_x, current_y = coords[0], coords[1]
+                points.append((current_x - offset_x, current_y - offset_y))
             elif cmd == 'C':  # Absolute cubic Bezier
                 # Process all sets of 6 coordinates (multiple curves can be chained)
                 for i in range(0, len(coords) - 5, 6):
@@ -252,22 +231,11 @@ def _extract_polygon_points_from_path(
                     p1 = (coords[i], coords[i+1])
                     p2 = (coords[i+2], coords[i+3])
                     p3 = (coords[i+4], coords[i+5])
-                    # Sample 8 points along the curve for smooth approximation
-                    for t in [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]:
+                    for t in _BEZIER_SAMPLES:
                         bx, by = cubic_bezier_point(p0, p1, p2, p3, t)
                         points.append((bx - offset_x, by - offset_y))
                     current_x, current_y = p3[0], p3[1]
-            elif cmd == 'c':  # Relative cubic Bezier
-                for i in range(0, len(coords) - 5, 6):
-                    p0 = (current_x, current_y)
-                    p1 = (current_x + coords[i], current_y + coords[i+1])
-                    p2 = (current_x + coords[i+2], current_y + coords[i+3])
-                    p3 = (current_x + coords[i+4], current_y + coords[i+5])
-                    for t in [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]:
-                        bx, by = cubic_bezier_point(p0, p1, p2, p3, t)
-                        points.append((bx - offset_x, by - offset_y))
-                    current_x, current_y = p3[0], p3[1]
-            elif cmd in ['Z', 'z']:  # Close path
+            elif cmd in ('Z', 'z'):  # Close path
                 if start_x != current_x or start_y != current_y:
                     points.append((start_x - offset_x, start_y - offset_y))
 
