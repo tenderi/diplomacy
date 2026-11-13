@@ -1,3 +1,4 @@
+import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -60,7 +61,7 @@ export default function LinkTelegram() {
           </Alert>
         )}
         <p className="mt-4">
-          <Link to="/" className="text-primary underline underline-offset-2">Back to home</Link>
+          <Link to="/" className={TAP_LINK}>Back to home</Link>
         </p>
       </div>
     )
@@ -91,7 +92,7 @@ export default function LinkTelegram() {
         </Card>
       )}
       <p className="mt-4">
-        <Link to="/" className="text-primary underline underline-offset-2">Back to home</Link>
+        <Link to="/" className={TAP_LINK}>Back to home</Link>
       </p>
     </div>
   )

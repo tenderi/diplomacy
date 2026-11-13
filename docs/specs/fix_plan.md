@@ -42,7 +42,7 @@ Done = each fixed, with a Vitest test that fails without the fix where one can.
       (an opacity modifier on a bare `var()` colour), `outline-hidden`, `shadow-xs` and
       `field-sizing-content` in `button`, `select`, `textarea`, `card` and `alert-dialog`.
       Check each against the built CSS and rewrite in v3 terms. Focus rings matter most.
-- [ ] DJ3: tap targets under 44 px: the "Back to games" / sandbox / "Home" / login and
+- [x] DJ3: tap targets under 44 px: the "Back to games" / sandbox / "Home" / login and
       register text links, the orange "You still need to submit orders" button (20 px),
       the game-creation checkboxes and radios.
 - [ ] DJ4: on `GameView.tsx` the orders form sits below the map on a ~2,700 px page, the

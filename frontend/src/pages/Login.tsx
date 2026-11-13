@@ -1,3 +1,4 @@
+import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
 import { Link, Navigate } from 'react-router'
 import { useAuth } from '@/contexts/AuthContext'
@@ -56,10 +57,10 @@ export default function Login() {
         <Button type="submit">Login</Button>
       </form>
       <p className="mt-4 text-sm text-muted-foreground">
-        <Link to="/forgot-password" className="text-primary underline underline-offset-2">Forgot password?</Link>
+        <Link to="/forgot-password" className={TAP_LINK}>Forgot password?</Link>
       </p>
       <p className="mt-2 text-sm text-muted-foreground">
-        No account? <Link to="/register" className="text-primary underline underline-offset-2">Register</Link>
+        No account? <Link to="/register" className={TAP_LINK}>Register</Link>
       </p>
     </div>
   )
