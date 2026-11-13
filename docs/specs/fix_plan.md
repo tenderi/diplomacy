@@ -32,9 +32,16 @@ Done = each fixed, with a Vitest test that fails without the fix where one can.
 - [x] DJ1: zoom-bar buttons (−, +, Fit, 1:1, ↗, ×) are now 44 px on touch. The 55% opening
       zoom of the enlarged map on phones is kept on purpose (v3.0.276: Fit is ~21% there, no
       bigger than the inline map); the walkthrough's crop is the intended pan.
-- [ ] DJ2: the login error ("Invalid email or password", `Login.tsx`; check
+- [x] DJ2: the login error ("Invalid email or password", `Login.tsx`; check
       `Register.tsx` and the password pages) renders grey in a bordered box like an input.
       Use the destructive alert style used elsewhere, with `role="alert"`.
+- [ ] DJ7: the shadcn components in `frontend/src/components/ui/` were written for
+      Tailwind v4, but the project builds with Tailwind v3, which silently drops classes
+      it can't generate. DJ2 found the destructive Alert colour missing for this reason.
+      Still suspect: `focus-visible:ring-ring/50` and `aria-invalid:ring-destructive/20`
+      (an opacity modifier on a bare `var()` colour), `outline-hidden`, `shadow-xs` and
+      `field-sizing-content` in `button`, `select`, `textarea`, `card` and `alert-dialog`.
+      Check each against the built CSS and rewrite in v3 terms. Focus rings matter most.
 - [ ] DJ3: tap targets under 44 px: the "Back to games" / sandbox / "Home" / login and
       register text links, the orange "You still need to submit orders" button (20 px),
       the game-creation checkboxes and radios.
