@@ -57,7 +57,11 @@ export function describeAdjustmentOrder(order: string, names: ProvinceNames): st
 
 /** The empty-slot label: by what the power owes. */
 export function adjustmentSlotLabel(a?: AdjustmentInfo): string {
-  return a?.action === 'disband' ? 'Disband' : a?.action === 'build' ? 'Build' : 'Build / Disband'
+  return a?.action === 'disband'
+    ? 'Choose a unit to disband…'
+    : a?.action === 'build'
+      ? 'Choose a build…'
+      : 'Choose a build or disband…'
 }
 
 function adjustmentSummary(a?: AdjustmentInfo): string {
@@ -344,6 +348,14 @@ export function BuildOrdersSection({
     return buildOrderSlots.some((o, j) => j !== slot && !!o && provinceOf(o) === prov)
   }
   const unused = slots.filter((i) => !buildOrderSlots[i]).length
+  // Neutral guidance until the player has chosen something or tried to submit.
+  const [attempted, setAttempted] = useState(false)
+  const touched = attempted || slots.some((i) => !!buildOrderSlots[i])
+  const total = slots.length
+  const guidance =
+    adjustment?.action === 'disband'
+      ? `You must disband ${total} unit${total === 1 ? '' : 's'}. Unchosen disbands are removed for you (civil disorder).`
+      : `You may build ${total} unit${total === 1 ? '' : 's'}. Unused builds are waived.`
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
@@ -386,7 +398,12 @@ export function BuildOrdersSection({
           </li>
         ))}
       </ul>
-      {unused > 0 && (
+      {unused > 0 && !touched && (
+        <p className="mb-2 text-sm text-muted-foreground" data-testid="slots-guidance">
+          {guidance}
+        </p>
+      )}
+      {unused > 0 && touched && (
         <p className="mb-2 text-sm text-amber-700 dark:text-amber-400" data-testid="unused-slots-note">
           {adjustment?.action === 'disband'
             ? `${unused} disband${unused === 1 ? '' : 's'} left unchosen \u2014 civil disorder will remove ${unused === 1 ? 'a unit' : 'units'} for you.`
@@ -394,7 +411,13 @@ export function BuildOrdersSection({
         </p>
       )}
       {onSubmit && slots.length > 0 && (
-        <Button onClick={onSubmit} disabled={submitting}>
+        <Button
+          onClick={() => {
+            setAttempted(true)
+            onSubmit()
+          }}
+          disabled={submitting}
+        >
           {submitting ? 'Submitting...' : 'Submit orders'}
         </Button>
       )}
