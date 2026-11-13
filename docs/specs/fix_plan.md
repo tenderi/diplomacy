@@ -50,9 +50,10 @@ Done = each fixed, with a Vitest test that fails without the fix where one can.
       orders and advance the game" is a bare red link at the very bottom. Make the status
       button jump to the orders and say so; give the resolve action a real destructive
       button.
-- [ ] DJ5: the build phase (`OrderEntry.tsx`) warns "2 builds left unused — they will be
-      waived" before the player has chosen anything, and the empty slot's "Build"
-      placeholder doesn't read as a picker.
+- [x] DJ5: the build phase (`OrderEntry.tsx`) now shows neutral guidance ("You may build 2
+      units. Unused builds are waived.") until a slot is chosen or Submit is pressed, then the
+      amber "left unused" note; the empty slot reads "Choose a build…" / "Choose a unit to
+      disband…".
 - [x] DJ6: opening the confirm dialog logs "Function components cannot be given refs …
       AlertDialog"; fix the `alert-dialog` / `Button` ref forwarding.
 
