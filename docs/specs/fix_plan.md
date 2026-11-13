@@ -35,7 +35,7 @@ Done = each fixed, with a Vitest test that fails without the fix where one can.
 - [x] DJ2: the login error ("Invalid email or password", `Login.tsx`; check
       `Register.tsx` and the password pages) renders grey in a bordered box like an input.
       Use the destructive alert style used elsewhere, with `role="alert"`.
-- [ ] DJ7: the shadcn components in `frontend/src/components/ui/` were written for
+- [x] DJ7: the shadcn components in `frontend/src/components/ui/` were written for
       Tailwind v4, but the project builds with Tailwind v3, which silently drops classes
       it can't generate. DJ2 found the destructive Alert colour missing for this reason.
       Still suspect: `focus-visible:ring-ring/50` and `aria-invalid:ring-destructive/20`
@@ -53,7 +53,7 @@ Done = each fixed, with a Vitest test that fails without the fix where one can.
 - [ ] DJ5: the build phase (`OrderEntry.tsx`) warns "2 builds left unused — they will be
       waived" before the player has chosen anything, and the empty slot's "Build"
       placeholder doesn't read as a picker.
-- [ ] DJ6: opening the confirm dialog logs "Function components cannot be given refs …
+- [x] DJ6: opening the confirm dialog logs "Function components cannot be given refs …
       AlertDialog"; fix the `alert-dialog` / `Button` ref forwarding.
 
 # Track DH — Maintainer bug reports from differential fuzzing and race review
