@@ -17,44 +17,12 @@
 ## Status
 
 - **Last updated:** 2026-11-13.
-- **Open tracks:** DJ (the web UI on a phone; next: DJ1). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Open tracks:** DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DJ — The web UI on a phone
-
-A Playwright walkthrough at 390×844 (2026-11-13) found these, each seen in a screenshot.
-Done = each fixed, with a Vitest test that fails without the fix where one can.
-
-- [x] DJ1: zoom-bar buttons (−, +, Fit, 1:1, ↗, ×) are now 44 px on touch. The 55% opening
-      zoom of the enlarged map on phones is kept on purpose (v3.0.276: Fit is ~21% there, no
-      bigger than the inline map); the walkthrough's crop is the intended pan.
-- [x] DJ2: the login error ("Invalid email or password", `Login.tsx`; check
-      `Register.tsx` and the password pages) renders grey in a bordered box like an input.
-      Use the destructive alert style used elsewhere, with `role="alert"`.
-- [x] DJ7: the shadcn components in `frontend/src/components/ui/` were written for
-      Tailwind v4, but the project builds with Tailwind v3, which silently drops classes
-      it can't generate. DJ2 found the destructive Alert colour missing for this reason.
-      Still suspect: `focus-visible:ring-ring/50` and `aria-invalid:ring-destructive/20`
-      (an opacity modifier on a bare `var()` colour), `outline-hidden`, `shadow-xs` and
-      `field-sizing-content` in `button`, `select`, `textarea`, `card` and `alert-dialog`.
-      Check each against the built CSS and rewrite in v3 terms. Focus rings matter most.
-- [x] DJ3: tap targets under 44 px: the "Back to games" / sandbox / "Home" / login and
-      register text links, the orange "You still need to submit orders" button (20 px),
-      the game-creation checkboxes and radios.
-- [x] DJ4: on `GameView.tsx` the orders form sits below the map on a ~2,700 px page, the
-      "You still need to submit orders" button doesn't say it jumps there, and "Resolve
-      orders and advance the game" is a bare red link at the very bottom. Make the status
-      button jump to the orders and say so; give the resolve action a real destructive
-      button.
-- [ ] DJ5: the build phase (`OrderEntry.tsx`) warns "2 builds left unused — they will be
-      waived" before the player has chosen anything, and the empty slot's "Build"
-      placeholder doesn't read as a picker.
-- [x] DJ6: opening the confirm dialog logs "Function components cannot be given refs …
-      AlertDialog"; fix the `alert-dialog` / `Button` ref forwarding.
 
 # Track DH — Maintainer bug reports from differential fuzzing and race review
 

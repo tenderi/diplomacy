@@ -227,6 +227,40 @@ describe('BuildOrdersSection', () => {
     expect(screen.queryByTestId('unused-slots-note')).toBeNull()
   })
 
+  it('shows neutral guidance, not the waive warning, before anything is chosen', () => {
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'build', delta: 2, slots: 2 } as never}
+        orders={['BUILD A MOS']}
+        buildOrderSlots={['', '']}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+        onSubmit={() => {}}
+      />
+    )
+    expect(screen.getByTestId('slots-guidance').textContent).toBe(
+      'You may build 2 units. Unused builds are waived.'
+    )
+    expect(screen.queryByTestId('unused-slots-note')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Submit orders' }))
+    expect(screen.getByTestId('unused-slots-note').textContent).toBe('2 builds left unused \u2014 they will be waived.')
+    expect(screen.queryByTestId('slots-guidance')).toBeNull()
+  })
+
+  it('words the disband requirement firmly but neutrally before interaction', () => {
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'disband', delta: -2, slots: 2 } as never}
+        orders={['D A MUN']}
+        buildOrderSlots={['', '']}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+      />
+    )
+    expect(screen.getByTestId('slots-guidance').textContent).toMatch(/^You must disband 2 units\./)
+    expect(screen.queryByTestId('unused-slots-note')).toBeNull()
+  })
+
   it('offers no submit button when the power owes nothing', () => {
     render(
       <BuildOrdersSection
@@ -336,8 +370,8 @@ describe('BuildOrdersSection', () => {
 
 describe('adjustmentSlotLabel', () => {
   it('labels an empty slot by what the power owes', () => {
-    expect(adjustmentSlotLabel({ action: 'disband', delta: -1, slots: 1 })).toBe('Disband')
-    expect(adjustmentSlotLabel({ action: 'build', delta: 1, slots: 1 })).toBe('Build')
+    expect(adjustmentSlotLabel({ action: 'disband', delta: -1, slots: 1 })).toBe('Choose a unit to disband…')
+    expect(adjustmentSlotLabel({ action: 'build', delta: 1, slots: 1 })).toBe('Choose a build…')
   })
   it('shows it as the select placeholder', () => {
     render(
@@ -350,6 +384,6 @@ describe('adjustmentSlotLabel', () => {
         loading={false}
       />
     )
-    expect(screen.getByRole('combobox').textContent).toBe('Disband')
+    expect(screen.getByRole('combobox').textContent).toBe('Choose a unit to disband…')
   })
 })
