@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 
 import pytest
-from PIL import Image, ImageColor, ImageDraw
+from PIL import Image, ImageChops, ImageColor, ImageDraw
 
 from rendering import legend
 from rendering.antialias import antialiased_overlay
@@ -78,7 +78,7 @@ EXPECTED_X = {
     "retreat": (0, SYM_W),
     "bounce": (0, SYM_W - 2),
     "cut": (0, SYM_W),
-    "void": (0, SYM_W),
+    "void": (0, SYM_W - 1),  # the last dash is cut at the end of the line
     "failed": (0, SYM_W),
     "retreat_option": (0, SYM_W + 2),
 }
@@ -103,14 +103,14 @@ def test_drawn_symbols_sit_on_the_row_centre_line(key: str) -> None:
 @pytest.mark.parametrize("key", ["hold", "convoy", "standoff", "dislodged", "no_retreat"])
 def test_centred_symbols_are_centred_in_the_symbol_column(key: str) -> None:
     x0, _, x1, _ = lone_symbol_bbox(key)
-    assert abs((x0 + x1) / 2 - (PAD + SYM_W / 2)) <= 2, (key, x0, x1)
+    assert abs((x0 + x1) / 2 - (PAD + SYM_W / 2)) <= 1, (key, x0, x1)
 
 
 @pytest.mark.parametrize("key", sorted(EXPECTED_X))
 def test_line_symbols_span_the_symbol_column(key: str) -> None:
     x0, _, x1, _ = lone_symbol_bbox(key)
     lo, hi = EXPECTED_X[key]
-    assert abs(x0 - (PAD + lo)) <= 3 and abs(x1 - (PAD + hi)) <= 3, (key, x0, x1)
+    assert abs(x0 - (PAD + lo)) <= 1 and abs(x1 - (PAD + hi)) <= 1, (key, x0, x1)
 
 
 @pytest.mark.parametrize("key", ["build", "disband", "dislodged_unit"])
@@ -279,3 +279,56 @@ def test_footer_wraps_at_the_right_margin() -> None:
     assert fits.height == one_row
     wraps = add_footer(blank(int(right_edge + PAD) - 1), None, {"move", "hold"}, [])
     assert wraps.height == one_row + ROW_H
+
+
+def test_disband_cross_spans_three_quarters_of_the_token_radius() -> None:
+    strip = Image.new("RGBA", (100, 60), FOOTER_BG + (255,))
+    with antialiased_overlay(strip) as d:
+        legend._token_marks(d, "disband", 20, 30, 34)
+    red = ImageColor.getrgb(_cfg.get_color("failure"))[:3]
+    pts = [(x, y) for y in range(60) for x in range(100)
+           if all(abs(a - b) <= 25 for a, b in zip(strip.getpixel((x, y))[:3], red))]  # type: ignore[arg-type]
+    arm = token_radius() * 0.75  # the cross reaches arm from the centre along each diagonal
+    width = max(x for x, _ in pts) - min(x for x, _ in pts)
+    assert abs(width - 2 * arm) <= 2.5, (width, arm)  # a 0.6 radius cross is 3px narrower
+
+
+def test_footer_tokens_are_centred_on_their_column_and_are_the_right_kind() -> None:
+    from rendering.tokens import paste_token
+
+    out = add_footer(blank(1200), None, {"move"}, ["england"])
+    mid = BOARD[1] + PAD + ROW_H / 2
+    f = font(SPEC["item_font_size"], bold=False)
+    measure = ImageDraw.Draw(out)
+    cols = [PAD]
+    for label in ("Move", "Army", "Fleet"):
+        cols.append(cols[-1] + measure.textlength(label, font=f) + SYM_W + 8 + SPEC["item_gap"])
+    want = {1: ("A", _cfg.get_color("void")), 2: ("F", _cfg.get_color("void")), 3: ("", _cfg.get_power_color("england"))}
+    for i, (kind, fill) in want.items():
+        ref = Image.new("RGBA", out.size, FOOTER_BG + (255,))
+        paste_token(ref, (cols[i] + SYM_W / 2, mid), kind, fill)
+        box = (int(cols[i]) - 2, BOARD[1] + PAD, int(cols[i]) + SYM_W + 2, BOARD[1] + PAD + ROW_H)
+        diff = max(ImageChops.difference(out.crop(box).convert("RGB"), ref.crop(box).convert("RGB")).getextrema(), key=lambda e: e[1])[1]
+        assert diff <= 12, (i, kind, diff)
+
+
+def test_footer_title_is_followed_by_one_and_a_half_gaps() -> None:
+    title = "Orders"
+    out = add_footer(blank(900), None, {"hold"}, [], title_prefix=title)
+    mid = BOARD[1] + PAD + ROW_H / 2
+    width = ImageDraw.Draw(out).textlength(title, font=font(SPEC["title_font_size"]))
+    col = PAD + width + SPEC["item_gap"] * 1.5
+    box = ink_bbox(out, (int(col) - 3, BOARD[1] + PAD, int(col) + SYM_W + 3, BOARD[1] + PAD + ROW_H))
+    assert box is not None
+    assert abs((box[0] + box[2]) / 2 - (col + SYM_W / 2)) <= 1, (box, col)  # the hold ring is centred on its column
+    assert box[1] < mid < box[3]
+
+
+def test_cut_symbol_has_its_cross_mid_line() -> None:
+    strip = Image.new("RGBA", (100, 60), FOOTER_BG + (255,))
+    with antialiased_overlay(strip) as d:
+        legend._sym_cut(d, 20, 30, 34)
+    red = ImageColor.getrgb(_cfg.get_color("failure"))[:3]
+    xs = [x for y in range(60) for x in range(100)
+          if all(abs(a - b) <= 25 for a, b in zip(strip.getpixel((x, y))[:3], red))]  # type: ignore[arg-type]
+    assert abs((min(xs) + max(xs)) / 2 - 37) <= 0.5, (min(xs), max(xs))  # centred on x + w / 2

@@ -157,3 +157,10 @@ def test_ocean_hatch_needs_three_points() -> None:
     img = Image.new("RGBA", (50, 50), (0, 0, 0, 0))
     _draw_ocean_pattern(img, [(0, 0), (40, 40)], RGBA)
     assert img.getbbox() is None
+
+
+def test_ocean_hatch_reaches_the_polygon_corners() -> None:
+    img = _hatch(45)
+    # The lines four spacings either side of the centre one cut the (20, 80) and (80, 20) corners.
+    assert _alpha(img, 21, 77) > 100 and _alpha(img, 79, 23) > 100
+    assert _alpha(img, 25, 77) == 0 and _alpha(img, 75, 23) == 0  # between lines
