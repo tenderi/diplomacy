@@ -3,7 +3,10 @@
 A picture is built in layers, bottom to top, so that order lines can run *under*
 the unit tokens and status markers sit *over* them (``rendering.overlays``):
 
-1. ``render_base`` -- the SVG rasterized, provinces tinted by owner/occupant.
+1. ``render_base`` -- the SVG rasterized, provinces tinted by owner/occupant, then
+   the province names and the supply-centre markers *over* the tint: both are left
+   out of the main raster, so the tint never washes a name out or turns a centre's
+   dot into a ghost of a unit token.
 2. (overlay lines, drawn by the caller)
 3. ``draw_units`` -- a token per unit; dislodged units on top at their own spot.
 4. (overlay markers, drawn by the caller)
@@ -17,19 +20,21 @@ dislodged one -- see ``maps/place_dislodged_anchors.py``).
 """
 from __future__ import annotations
 
+import copy
 import logging
+import math
 import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from io import BytesIO
 
 import cairosvg  # type: ignore
-from PIL import Image, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from engine.map_loader import MapData, load_standard_map
 from engine.types import ProvinceType
 
-from .antialias import antialiased_overlay
+from .antialias import SUPERSAMPLE, antialiased_overlay
 from .cache import _map_cache
 from .tokens import font, paste_token, rgb, token_radius
 from .visualization_config import get_config
@@ -221,31 +226,105 @@ def draw_retreat_options(
 # --------------------------------------------------------------------------
 
 
+#: SVG layers drawn over the tint rather than under it (see ``render_base``).
+_LABEL_LAYER = "BriefLabelLayer"
+_SC_LAYER = "SupplyCenterLayer"
+#: An invisible hit-test layer, left out of every raster.
+_MOUSE_LAYER = "MouseLayer"
+_label_cache: dict[str, Image.Image] = {}
+
+
+def _strip_layers(svg_path: str, drop: frozenset[str], keep_only: str | None = None) -> bytes:
+    """The SVG as bytes without the top-level layers in ``drop`` (or, with
+    ``keep_only``, with that one layer and the shared ``<defs>`` alone)."""
+    root = copy.deepcopy(_get_cached_svg_data(svg_path)[0].getroot())
+    for child in list(root):
+        layer = child.attrib.get("id", "")
+        tag = child.tag.rsplit("}", 1)[-1]
+        if layer in drop or layer == _MOUSE_LAYER or (keep_only and tag != "defs" and layer != keep_only):
+            root.remove(child)
+    return ET.tostring(root)
+
+
+def _rasterize(data: bytes) -> Image.Image:
+    png = cairosvg.svg2png(bytestring=data, output_width=MAP_WIDTH, output_height=MAP_HEIGHT)  # type: ignore
+    if png is None:
+        raise ValueError("cairosvg.svg2png returned None")
+    return Image.open(BytesIO(png)).convert("RGBA")  # type: ignore
+
+
+def _label_raster(svg_path: str) -> Image.Image:
+    """The province names alone on a transparent canvas (constant, so cached)."""
+    if svg_path not in _label_cache:
+        _label_cache[svg_path] = _rasterize(_strip_layers(svg_path, frozenset(), keep_only=_LABEL_LAYER))
+    return _label_cache[svg_path]
+
+
+def supply_centre_positions(svg_path: str) -> dict[str, tuple[float, float]]:
+    """``{province: (x, y)}`` of the centre of every supply-centre marker."""
+    root = _get_cached_svg_data(svg_path)[0].getroot()
+    found: dict[str, tuple[float, float]] = {}
+    for layer in root:
+        if layer.attrib.get("id") != _SC_LAYER:
+            continue
+        for use in layer:
+            ident = use.attrib.get("id", "")
+            if ident.startswith("sc_"):
+                found[ident[3:].upper()] = (
+                    float(use.attrib["x"]) + float(use.attrib.get("width", "20")) / 2,
+                    float(use.attrib["y"]) + float(use.attrib.get("height", "20")) / 2,
+                )
+    return found
+
+
+def draw_supply_centres(image: Image.Image, svg_path: str, supply_center_control: dict | None) -> None:
+    """A small crisp marker per supply centre, over the tint: the owner's colour
+    with a dark outline, or plain dark while nobody owns it. Drawn on a
+    supersampled layer so the edge is smooth."""
+    spec = _viz_config.get_marker_specs()
+    owners = {prov.upper(): str(power).upper() for prov, power in (supply_center_control or {}).items()}
+    colours = _get_power_colors_dict()
+    casing = _viz_config.get_color("casing")
+    k = SUPERSAMPLE
+    radius, outline = spec["supply_centre_radius"], spec["supply_centre_outline"]
+    reach = math.ceil(radius + outline) + 2  # tile half-side, in output pixels
+    for prov, (cx, cy) in supply_centre_positions(svg_path).items():
+        fill = colours.get(owners.get(prov, ""), casing)
+        # A tile on the integer pixel grid, the marker offset inside it by the fraction.
+        left, top = int(cx) - reach, int(cy) - reach
+        tile = Image.new("RGBA", (2 * reach * k, 2 * reach * k), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(tile)
+        mx, my = (cx - left) * k, (cy - top) * k
+        for r, colour in (((radius + outline) * k, casing), (radius * k, fill)):
+            draw.ellipse([mx - r, my - r, mx + r, my + r], fill=colour)
+        small = tile.resize((2 * reach, 2 * reach), Image.Resampling.LANCZOS)
+        image.alpha_composite(small, (left, top))
+
+
 def render_base(
     svg_path: str,
     units: dict[str, list[str]],
     supply_center_control: dict | None = None,
     color_only_supply_centers: bool = False,
 ) -> Image.Image:
-    """Layer 1: the rasterized map with provinces tinted by owner and occupant."""
+    """Layer 1: the rasterized map with provinces tinted by owner and occupant,
+    then the province names and supply-centre markers drawn over the tint."""
     from .svg_paths import _color_provinces_by_power_with_transparency
 
     svg_path = _resolve_existing_svg(svg_path)
-    png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=MAP_WIDTH, output_height=MAP_HEIGHT)  # type: ignore
-    if png_bytes is None:
-        raise ValueError("cairosvg.svg2png returned None")
-    raster = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
     # The raster is transparent along every province border (~60k pixels). Flatten it
     # onto white, so the borders look the same in every viewer -- a transparent
     # PNG shows them black on a dark Telegram theme.
-    bg = Image.new("RGBA", raster.size, (255, 255, 255, 255))
-    bg.alpha_composite(raster)
+    bg = Image.new("RGBA", (MAP_WIDTH, MAP_HEIGHT), (255, 255, 255, 255))
+    bg.alpha_composite(_rasterize(_strip_layers(svg_path, frozenset({_LABEL_LAYER, _SC_LAYER}))))
     if units or supply_center_control:
         supply_centers_set = set(_engine_map().supply_centers) if color_only_supply_centers else None
         _color_provinces_by_power_with_transparency(
             bg, units, _get_power_colors_dict(), svg_path, supply_center_control, None,
             color_only_supply_centers, supply_centers_set,
         )
+    bg.alpha_composite(_label_raster(svg_path))
+    draw_supply_centres(bg, svg_path, supply_center_control)
     return bg
 
 

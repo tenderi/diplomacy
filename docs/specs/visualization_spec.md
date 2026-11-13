@@ -60,6 +60,12 @@ attacker's arrow, not on the defender; a dislodgement is marked on the unit disl
 - **Provinces** are tinted with the owner's colour; an occupied province shows the
   occupant's. Seas are hatched instead of filled: bold diagonal stripes (`sea_hatch_width` 4 px, `sea_hatch_spacing` 14 px, `sea_hatch_alpha` 200), so the stripes read at a glance and never look like a land fill. Ownership is recomputed only after Fall
   settles, matching the engine.
+- **Province names and supply centres sit over the tint.** `render_base` rasterizes the SVG
+  without `BriefLabelLayer` and `SupplyCenterLayer`, tints it, then composites the names
+  (their own cached raster) and draws each centre as a small supersampled disc: radius
+  `supply_centre_radius` (5 px) plus a `supply_centre_outline` (1.5 px) in the `casing`
+  colour, filled with the owner's colour, or with the casing colour while neutral. A token is 30 px across, so a
+  marker cannot pass for a unit, and it stays inside the 10 px the unit anchors keep clear.
 - **Power colours** (`colors.power_colors`): Austria red, England purple, France blue,
   Germany charcoal, Italy green, Russia teal, Turkey yellow — seven hues no two of which are
   close, and none of which is an outcome colour.
@@ -111,7 +117,7 @@ per power on the board, wrapping onto more rows when needed.
 - **Format:** PNG; the SVG is rasterized at its native 1835×1360 and flattened onto white
   (the raster is transparent along every border, which a dark viewer showed as black), then
   the footer is appended below.
-- **Layers:** base map and tints → order lines → unit tokens → build tokens → markers →
+- **Layers:** base map and tints → province names and supply-centre markers → order lines → unit tokens → build tokens → markers →
   footer. Overlays are drawn on a 3× supersampled layer and downscaled (`antialias.py`).
 - **Caching:** in memory and on disk at `/tmp/diplomacy_map_cache`, keyed by everything that
   changes the picture, plus `cache.RENDERER_VERSION`. **Bump `RENDERER_VERSION` whenever the
