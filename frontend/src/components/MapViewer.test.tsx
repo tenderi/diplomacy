@@ -303,6 +303,16 @@ describe('MapViewer', () => {
     expect(tokens).not.toContain('group-hover:opacity-100')
   })
 
+  it('gives every toolbar control a 44px minimum tap target on touch', () => {
+    open()
+    const dialog = screen.getByRole('dialog')
+    for (const name of ['Zoom out', 'Zoom in', 'Fit map to screen', 'Show map at full size', 'Open PNG', 'Close map viewer']) {
+      const tokens = within(dialog).getByRole(name === 'Open PNG' ? 'link' : 'button', { name }).className.split(/\s+/)
+      expect(tokens).toContain('min-h-11')
+      expect(tokens).toContain('min-w-11')
+    }
+  })
+
   it('keeps the toolbar on one row with an opaque backdrop', () => {
     open()
     const dialog = screen.getByRole('dialog')

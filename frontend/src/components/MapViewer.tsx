@@ -19,6 +19,10 @@ const MAX_SCALE = 6
 /** Multiplier per zoom-button press / wheel notch. */
 const ZOOM_STEP = 1.25
 
+/** Toolbar button: 44x44 minimum tap target on touch, compact from `sm` up. */
+const BTN =
+  'min-h-11 min-w-11 rounded border border-white/25 px-2 py-1 text-xs leading-none hover:bg-white/15 sm:min-h-8 sm:min-w-8'
+
 type Transform = { scale: number; x: number; y: number }
 
 const IDENTITY: Transform = { scale: 1, x: 0, y: 0 }
@@ -278,7 +282,7 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
           rel="noreferrer"
           aria-label="Open PNG"
           title="Open PNG"
-          className="min-w-8 rounded border border-white/25 px-2 py-1 text-center text-xs leading-none hover:bg-white/15"
+          className={cn(BTN, 'flex items-center justify-center text-center')}
         >
           <span aria-hidden="true">&#8599;</span>
           <span className="sr-only">Open PNG</span>
@@ -339,7 +343,7 @@ function ViewerButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="min-w-8 shrink-0 rounded border border-white/25 px-2 py-1 text-xs leading-none hover:bg-white/15"
+      className={cn(BTN, 'shrink-0')}
     >
       {children}
     </button>
