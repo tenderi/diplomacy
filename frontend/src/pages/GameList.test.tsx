@@ -249,4 +249,20 @@ describe('GameList', () => {
       expect(JSON.parse(String(call![1]!.body)).dummy_powers).toEqual(['TURKEY', 'ITALY'])
     })
   })
+
+  it('has 44px tap targets for Home and the create-form rows', async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth}>
+          <GameList />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    const box = await within(container).findByRole('checkbox', { name: /assign powers at random/i })
+    expect(within(container).getByRole('link', { name: 'Home' }).className).toContain('min-h-11')
+    expect(box.closest('label')?.className).toContain('min-h-11')
+    expect(within(container).getByRole('radio', { name: /anonymous/i }).closest('label')?.className).toContain('min-h-11')
+    fireEvent.click(within(container).getByText(/assign powers at random/i))
+    expect(box).toBeChecked()
+  })
 })

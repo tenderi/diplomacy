@@ -1,3 +1,4 @@
+import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router'
 import { apiJson } from '@/api/client'
@@ -52,7 +53,7 @@ export default function ResetPassword() {
         <h1 className="text-2xl font-semibold mb-4">Password reset</h1>
         <p className="text-muted-foreground mb-4">Your password has been reset. Redirecting to login…</p>
         <p className="mt-4">
-          <Link to="/login" className="text-primary underline underline-offset-2">Go to login</Link>
+          <Link to="/login" className={TAP_LINK}>Go to login</Link>
         </p>
       </div>
     )
@@ -64,9 +65,9 @@ export default function ResetPassword() {
         <h1 className="text-2xl font-semibold mb-4">Invalid reset link</h1>
         <p className="text-muted-foreground mb-4">This link is invalid or has expired. Request a new one from the login page.</p>
         <p className="mt-4 text-sm">
-          <Link to="/forgot-password" className="text-primary underline underline-offset-2">Forgot password</Link>
+          <Link to="/forgot-password" className={TAP_LINK}>Forgot password</Link>
           {' · '}
-          <Link to="/login" className="text-primary underline underline-offset-2">Login</Link>
+          <Link to="/login" className={TAP_LINK}>Login</Link>
         </p>
       </div>
     )
@@ -108,7 +109,7 @@ export default function ResetPassword() {
         </Button>
       </form>
       <p className="mt-4 text-sm text-muted-foreground">
-        <Link to="/login" className="text-primary underline underline-offset-2">Back to login</Link>
+        <Link to="/login" className={TAP_LINK}>Back to login</Link>
       </p>
     </div>
   )

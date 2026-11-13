@@ -1,3 +1,4 @@
+import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
 import { Link, Navigate } from 'react-router'
 import { useAuth } from '@/contexts/AuthContext'
@@ -75,7 +76,7 @@ export default function Register() {
         <Button type="submit">Register</Button>
       </form>
       <p className="mt-4 text-sm text-muted-foreground">
-        Already have an account? <Link to="/login" className="text-primary underline underline-offset-2">Login</Link>
+        Already have an account? <Link to="/login" className={TAP_LINK}>Login</Link>
       </p>
     </div>
   )
