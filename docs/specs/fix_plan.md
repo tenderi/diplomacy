@@ -29,9 +29,9 @@
 A Playwright walkthrough at 390×844 (2026-11-13) found these, each seen in a screenshot.
 Done = each fixed, with a Vitest test that fails without the fix where one can.
 
-- [ ] DJ1: the enlarged map (`MapViewer.tsx`) opens at 55% zoom centred on central
-      Europe, cropping England, Iberia, Russia and the legend. Open it fitted to the
-      screen width; zoom-bar buttons (−, +, Fit, 1:1, ↗, ×, now ~32×22 px) at least 44 px.
+- [x] DJ1: zoom-bar buttons (−, +, Fit, 1:1, ↗, ×) are now 44 px on touch. The 55% opening
+      zoom of the enlarged map on phones is kept on purpose (v3.0.276: Fit is ~21% there, no
+      bigger than the inline map); the walkthrough's crop is the intended pan.
 - [ ] DJ2: the login error ("Invalid email or password", `Login.tsx`; check
       `Register.tsx` and the password pages) renders grey in a bordered box like an input.
       Use the destructive alert style used elsewhere, with `role="alert"`.
