@@ -45,7 +45,7 @@ Done = each fixed, with a Vitest test that fails without the fix where one can.
 - [x] DJ3: tap targets under 44 px: the "Back to games" / sandbox / "Home" / login and
       register text links, the orange "You still need to submit orders" button (20 px),
       the game-creation checkboxes and radios.
-- [ ] DJ4: on `GameView.tsx` the orders form sits below the map on a ~2,700 px page, the
+- [x] DJ4: on `GameView.tsx` the orders form sits below the map on a ~2,700 px page, the
       "You still need to submit orders" button doesn't say it jumps there, and "Resolve
       orders and advance the game" is a bare red link at the very bottom. Make the status
       button jump to the orders and say so; give the resolve action a real destructive
