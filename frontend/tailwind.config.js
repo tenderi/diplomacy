@@ -1,3 +1,17 @@
+/**
+ * A colour held in a CSS variable (an oklch() value), usable with Tailwind's
+ * opacity modifier (`bg-destructive/10`, `ring-ring/50`). Tailwind v3 cannot
+ * apply an alpha to a bare `var()`, so it silently drops those classes; with an
+ * alpha we mix the variable with transparent instead.
+ */
+const v = (name, fallback) => {
+  const colour = fallback ? `var(${name}, ${fallback})` : `var(${name})`
+  return ({ opacityValue }) =>
+    opacityValue === undefined || opacityValue.startsWith("var(")
+      ? colour
+      : `color-mix(in oklch, ${colour} ${Number(opacityValue) * 100}%, transparent)`
+}
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
@@ -8,42 +22,42 @@ export default {
   theme: {
     extend: {
       colors: {
-        border: "var(--border)",
-        input: "var(--input)",
-        ring: "var(--ring)",
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        border: v("--border"),
+        input: v("--input"),
+        ring: v("--ring"),
+        background: v("--background"),
+        foreground: v("--foreground"),
         primary: {
-          DEFAULT: "var(--primary)",
-          foreground: "var(--primary-foreground)",
+          DEFAULT: v("--primary"),
+          foreground: v("--primary-foreground"),
         },
         secondary: {
-          DEFAULT: "var(--secondary)",
-          foreground: "var(--secondary-foreground)",
+          DEFAULT: v("--secondary"),
+          foreground: v("--secondary-foreground"),
         },
         destructive: {
-          DEFAULT: "var(--destructive)",
-          foreground: "var(--destructive-foreground, var(--foreground))",
+          DEFAULT: v("--destructive"),
+          foreground: v("--destructive-foreground", "var(--foreground)"),
         },
         muted: {
-          DEFAULT: "var(--muted)",
-          foreground: "var(--muted-foreground)",
+          DEFAULT: v("--muted"),
+          foreground: v("--muted-foreground"),
         },
         accent: {
-          DEFAULT: "var(--accent)",
-          foreground: "var(--accent-foreground)",
+          DEFAULT: v("--accent"),
+          foreground: v("--accent-foreground"),
         },
         popover: {
-          DEFAULT: "var(--popover)",
-          foreground: "var(--popover-foreground)",
+          DEFAULT: v("--popover"),
+          foreground: v("--popover-foreground"),
         },
         card: {
-          DEFAULT: "var(--card)",
-          foreground: "var(--card-foreground)",
+          DEFAULT: v("--card"),
+          foreground: v("--card-foreground"),
         },
       },
       borderRadius: {
-        lg: "var(--radius)",
+        lg: v("--radius"),
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
