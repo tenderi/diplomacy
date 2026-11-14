@@ -313,10 +313,16 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
             text += "⏳ *Waiting on:* " + ", ".join(missing) + "\n"
         if idle:
             text += "💤 *Nothing to order this phase:* " + ", ".join(idle) + "\n"
+        adjusting = str(orders_status.get("phase") or "").upper().endswith("A")
         if orders_status.get("incomplete"):
-            text += "✏️ *Only some units ordered:* " + ", ".join(orders_status["incomplete"]) + "\n"
+            what = "Builds or disbands not all ordered" if adjusting else "Only some units ordered"
+            text += f"✏️ *{what}:* " + ", ".join(orders_status["incomplete"]) + "\n"
         if orders_status.get("auto_process"):
-            text += "⚡ Processes automatically once every unit has an order.\n"
+            text += (
+                "⚡ Processes automatically once every build is ordered or waived, and every disband ordered.\n"
+                if adjusting
+                else "⚡ Processes automatically once every unit has an order.\n"
+            )
         if orders_status.get("waiting"):
             text += "✋ *Asked to wait:* " + ", ".join(orders_status["waiting"]) + "\n"
 

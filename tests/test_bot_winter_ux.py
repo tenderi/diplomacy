@@ -113,3 +113,40 @@ def test_hub_text_says_what_is_owed() -> None:
          patch.object(hub, "api_get", side_effect=get):
         asyncio.run(hub.show_hub(send, "5", "7"))
     assert sent == ["HDR\nYou may build 2 units (free home centres: BER, KIE, MUN)."]
+
+
+def test_duty_line_counts_pending_orders() -> None:
+    data = {**ADJUSTMENT, "adjustment": {"delta": 2, "action": "build", "slots": 2},
+            "orders": ["BUILD A BER", "BUILD F KIE", "BUILD A MUN", "WAIVE"]}
+    assert adjustment_duty(data, ["BUILD A BER"]) == (
+        "Builds: 1 of 2 ordered (A BER); 1 more to order or waive (free home centres: KIE, MUN)."
+    )
+    assert adjustment_duty(data, ["BUILD A BER", "WAIVE"]) == "Builds: 2 of 2 ordered (A BER, WAIVE)."
+    assert adjustment_duty(DISBAND, ["D A BUD"]) == "Disbands: 1 of 1 ordered (A BUD); all ordered."
+    two = {**DISBAND, "adjustment": {"delta": -2, "action": "disband", "slots": 2}}
+    assert adjustment_duty(two, ["D A BUD"]) == (
+        "Disbands: 1 of 2 ordered (A BUD); 1 more to order; with no order, civil disorder picks which."
+    )
+
+
+def test_hub_duty_reflects_pending_orders() -> None:
+    sent: list[str] = []
+
+    async def send(text: str, reply_markup=None, **_kw) -> None:
+        sent.append(text)
+
+    def get(path: str, **_kw: Any) -> Any:
+        if path.endswith("/state"):
+            return {"phase_type": "ADJUSTMENT", "status": "ACTIVE"}
+        if "legal_orders" in path:
+            return ADJUSTMENT
+        if "/orders/" in path:
+            return {"orders": ["BUILD A MUN"]}
+        return None
+
+    with patch.object(hub, "resolve_game_and_power", return_value=("7", "GERMANY")), \
+         patch.object(hub, "fetch_user_games", return_value=[]), \
+         patch.object(hub, "status_text", return_value="HDR"), \
+         patch.object(hub, "api_get", side_effect=get):
+        asyncio.run(hub.show_hub(send, "5", "7"))
+    assert sent == ["HDR\nBuilds: 1 of 2 ordered (A MUN); 1 more to order or waive (free home centres: BER, KIE)."]

@@ -286,7 +286,7 @@ def unordered_note(game_id: str, power: str, user_id: str) -> str:
         if left <= 0:
             return ""
         if adj.get("action") == "build":
-            return f"{left} build{'s' if left != 1 else ''} not ordered yet: unordered builds are waived."
+            return f"{left} build{'s' if left != 1 else ''} not ordered yet: auto-processing waits until every build is ordered or waived (/order WAIVE); at a deadline the unordered ones are waived."
         if adj.get("action") == "disband":
             return (
                 f"{left} disband{'s' if left != 1 else ''} not ordered yet: if you send none, the server "
@@ -600,18 +600,33 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
-def adjustment_duty(data: dict[str, Any]) -> str:
+def adjustment_duty(data: dict[str, Any], pending: Optional[list[str]] = None) -> str:
     """What a power owes in an adjustment phase, from its ``legal_orders`` payload:
-    "You may build 2 units (free home centres: BRE, MAR)" -- the wording of the turn DM."""
+    "You may build 2 units (free home centres: BRE, MAR)" -- the wording of the turn DM.
+    With ``pending`` (its stored orders) and some already given, it says how many of the
+    slots are ordered and what is still open (DK3)."""
     adj = data.get("adjustment") or {}
     slots = int(adj.get("slots") or 0)
     if adj.get("action") in (None, "none") or slots <= 0:
         return "You have nothing to order this phase; wait for the other powers."
     units = f"{slots} unit{'' if slots == 1 else 's'}"
+    given = [o.strip() for o in pending or [] if o.strip()]
+    shown = ", ".join(o.removeprefix("BUILD ").removeprefix("D ") for o in given)
+    left = slots - len(given)
     if adj.get("action") == "disband":
-        return f"You must disband {units}. With no order, civil disorder picks which."
+        if not given:
+            return f"You must disband {units}. With no order, civil disorder picks which."
+        tail = "all ordered." if left <= 0 else f"{left} more to order; with no order, civil disorder picks which."
+        return f"Disbands: {min(len(given), slots)} of {slots} ordered ({shown}); {tail}"
     sites = list(dict.fromkeys(o.split()[-1].split("/")[0] for o in data.get("orders", []) if o.startswith("BUILD ")))
-    return f"You may build {units}" + (f" (free home centres: {', '.join(sites)})" if sites else "") + "."
+    if not given:
+        return f"You may build {units}" + (f" (free home centres: {', '.join(sites)})" if sites else "") + "."
+    taken = {o.split()[-1].split("/")[0] for o in given if o.startswith("BUILD ")}
+    free = [x for x in sites if x not in taken]
+    if left <= 0:
+        return f"Builds: {slots} of {slots} ordered ({shown})."
+    tail = f"{left} more to order or waive" + (f" (free home centres: {', '.join(free)})" if free else "")
+    return f"Builds: {len(given)} of {slots} ordered ({shown}); {tail}."
 
 
 def _owed_text(game_id: str, telegram_id: Optional[str]) -> str:

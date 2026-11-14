@@ -45,7 +45,7 @@ def test_adjustment_counts() -> None:
     build = {"phase_type": "ADJUSTMENT", "adjustment": {"action": "build", "slots": 2}}
     with _api(build, ["BUILD A PAR"]):
         assert bot_orders.unordered_note("1", "FRANCE", "5") == (
-            "1 build not ordered yet: unordered builds are waived."
+            "1 build not ordered yet: auto-processing waits until every build is ordered or waived (/order WAIVE); at a deadline the unordered ones are waived."
         )
     disband = {"phase_type": "ADJUSTMENT", "adjustment": {"action": "disband", "slots": 2}}
     with _api(disband, []):
