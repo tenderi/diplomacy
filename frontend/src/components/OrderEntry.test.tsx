@@ -222,7 +222,7 @@ describe('BuildOrdersSection', () => {
       loading: false,
     }
     const { rerender } = render(<BuildOrdersSection {...props} buildOrderSlots={['BUILD A MOS', '']} />)
-    expect(screen.getByTestId('unused-slots-note').textContent).toBe('1 build left unused \u2014 it will be waived.')
+    expect(screen.getByTestId('unused-slots-note').textContent).toBe('1 build left unused \u2014 it will be waived at a deadline; until then the turn waits (choose Waive to skip).')
     rerender(<BuildOrdersSection {...props} buildOrderSlots={['BUILD A MOS', 'WAIVE']} />)
     expect(screen.queryByTestId('unused-slots-note')).toBeNull()
   })
@@ -239,11 +239,11 @@ describe('BuildOrdersSection', () => {
       />
     )
     expect(screen.getByTestId('slots-guidance').textContent).toBe(
-      'You may build 2 units. Unused builds are waived.'
+      'You may build 2 units. The turn waits until every build is ordered or waived; at a deadline unused builds are waived.'
     )
     expect(screen.queryByTestId('unused-slots-note')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Submit orders' }))
-    expect(screen.getByTestId('unused-slots-note').textContent).toBe('2 builds left unused \u2014 they will be waived.')
+    expect(screen.getByTestId('unused-slots-note').textContent).toBe('2 builds left unused \u2014 they will be waived at a deadline; until then the turn waits (choose Waive to skip).')
     expect(screen.queryByTestId('slots-guidance')).toBeNull()
   })
 

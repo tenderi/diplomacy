@@ -35,12 +35,12 @@ builds, retreats, deadlines, votes). One PR per item unless noted.
       typed `BUILD A MOS` plus a walk for "Build 1 of 2" ended as one build, with MOS
       offered again. Start the walk from the stored orders (or count only the remaining
       slots and keep the existing ones on submit).
-- [ ] DK2: wrong "waived" wording. After 2 of 3 builds the bot says "unordered builds
+- [x] DK2: wrong "waived" wording. After 2 of 3 builds the bot says "unordered builds
       are waived" (`orders.py` ~289), but the turn waits until every build is ordered or
       waived (`game_service.py` readiness); the menu calls it "Only some units ordered"
       (`games.py` ~317) and "Processes automatically once every unit has an order" in
       winter. Say what the turn actually waits for.
-- [ ] DK3: the game menu's build/disband line (`hub.py` ~204, `adjustment_duty`) does not
+- [x] DK3: the game menu's build/disband line (`hub.py` ~204, `adjustment_duty`) does not
       account for pending orders: after `BUILD F BRE` it still says "You may build 1 unit
       (free home centres: BRE, …)".
 - [x] DK4: the group's turn-processed post says "To set one, use /deadline …"

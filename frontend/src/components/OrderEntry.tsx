@@ -355,7 +355,7 @@ export function BuildOrdersSection({
   const guidance =
     adjustment?.action === 'disband'
       ? `You must disband ${total} unit${total === 1 ? '' : 's'}. Unchosen disbands are removed for you (civil disorder).`
-      : `You may build ${total} unit${total === 1 ? '' : 's'}. Unused builds are waived.`
+      : `You may build ${total} unit${total === 1 ? '' : 's'}. The turn waits until every build is ordered or waived; at a deadline unused builds are waived.`
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
@@ -407,7 +407,7 @@ export function BuildOrdersSection({
         <p className="mb-2 text-sm text-amber-700 dark:text-amber-400" data-testid="unused-slots-note">
           {adjustment?.action === 'disband'
             ? `${unused} disband${unused === 1 ? '' : 's'} left unchosen \u2014 civil disorder will remove ${unused === 1 ? 'a unit' : 'units'} for you.`
-            : `${unused} build${unused === 1 ? '' : 's'} left unused \u2014 ${unused === 1 ? 'it' : 'they'} will be waived.`}
+            : `${unused} build${unused === 1 ? '' : 's'} left unused \u2014 ${unused === 1 ? 'it' : 'they'} will be waived at a deadline; until then the turn waits (choose Waive to skip).`}
         </p>
       )}
       {onSubmit && slots.length > 0 && (

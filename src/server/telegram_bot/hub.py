@@ -201,7 +201,11 @@ async def show_hub(send: Sender, user_id: str, game_id: str) -> None:
         except requests.RequestException:
             legal = None
         if legal and legal.get("phase_type") == "ADJUSTMENT":
-            text += f"\n{adjustment_duty(legal)}"
+            try:
+                mine = api_get(f"/games/{game_id}/orders/{power}", telegram_id=user_id) or {}
+            except requests.RequestException:
+                mine = {}
+            text += f"\n{adjustment_duty(legal, mine.get('orders') or [])}"
         elif legal and legal.get("phase_type") == "RETREAT" and retreat_duty(legal):
             text += "\n" + retreat_duty(legal)
         elif legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not orderable_units(legal):
