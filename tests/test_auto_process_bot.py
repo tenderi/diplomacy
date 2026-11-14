@@ -82,3 +82,25 @@ def test_status_shows_auto_processing_and_who_waits(mock_ctx_get, mock_get):
     asyncio.run(status(update, context))
     text = message.reply_text.call_args[0][0]
     assert "Processes automatically once every unit has an order." in text and "ENGLAND" in text
+
+
+@patch("server.telegram_bot.games.api_get")
+@patch("server.telegram_bot.game_context.api_get")
+def test_status_in_winter_says_what_the_turn_waits_for(mock_ctx_get, mock_get):
+    mock_ctx_get.return_value = _ONE_GAME
+
+    def fake_get(path, **_kw):
+        if path.endswith("/orders_status"):
+            return {"phase": "W1901A", "submitted": ["RUSSIA"], "missing": [], "incomplete": ["RUSSIA"],
+                    "auto_process": True}
+        if path.endswith("/state"):
+            return {"phase": "W1901A", "status": "ACTIVE", "players": {}, "units_by_power": {}}
+        return {}
+
+    mock_get.side_effect = fake_get
+    update, context, message = _update(["7"])
+    asyncio.run(status(update, context))
+    text = message.reply_text.call_args[0][0]
+    assert "✏️ *Builds or disbands not all ordered:* RUSSIA" in text
+    assert "⚡ Processes automatically once every build is ordered or waived, and every disband ordered." in text
+    assert "Only some units" not in text
