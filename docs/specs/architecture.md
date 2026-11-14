@@ -174,6 +174,17 @@ power, gets `OFF`, and ends the session. A reconnecting client sends `IAM (power
 `HLO` at any time. `HLO` comes only after `YES (MAP ...)` (or a client `HLO`), never straight after `NME`. `OBS` gets `REJ`:
 observers are out of scope. Every other command before a power is held gets `REJ`.
 
+**Retreat and adjustment replies follow the DAIDE message syntax.** In a retreat phase
+`NOW` lists each dislodged unit after the units on the board as `(power type province MRT
+(retreats))`, coasts bracketed (`(BUL ECS)`), and `MRT ()` when it has nowhere to go;
+`MIS` lists the dislodged units of the power that have no order yet in the same form. In
+an adjustment phase `MIS (n)` counts what is still owed after the orders already
+submitted: positive is disbands, negative is builds (a `WVE` counts as a build, since
+every unused build must be waived). When nothing is owed, in any phase, the reply is a
+bare `MIS`. An `ORD` for a unit that was dislodged carries `RET`: `(BNC RET)` for a
+bounced move, `(RET)` alone for a hold. A `SUB` for a unit of another power gets `THX
+(order) (NYU)` and stores nothing.
+
 **No client input escapes its session.** `DaideSession.run` answers every framing
 violation with the DCSP `ErrorMessage` for it and then closes the connection, logging a
 warning, never a traceback: a token outside the DAIDE vocabulary gets 0x0E, an unknown

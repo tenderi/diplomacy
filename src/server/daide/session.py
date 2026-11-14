@@ -89,7 +89,9 @@ from typing import Any, Optional
 from engine.map_loader import MapData
 from engine.orders.parser import format_order
 from engine.types import (
+    Build,
     Convoy,
+    Disband,
     GameState,
     Location,
     Move,
@@ -98,6 +100,7 @@ from engine.types import (
     Resolution,
     ResultCode,
     Season,
+    Waive,
 )
 from server.daide import clauses, wire
 from server.daide import tokens as t
@@ -589,13 +592,13 @@ def build_now_tokens(state: GameState, map: MapData) -> list[Token]:
 def build_mis_tokens(game_service: Any, map: MapData, game_id: str, power: str) -> list[Token]:
     """``MIS (unit) ...`` / ``MIS (unit MRT (...)) ...`` / ``MIS (number)`` --
     units (or dislodged units) for ``power`` with no order yet this phase, or
-    (adjustment) the outstanding build/disband delta.
+    (adjustment) the builds or disbands still owed.
 
-    Simplification: the adjustment-phase count is the raw
-    ``centers - units`` delta and does not subtract build/disband/waive
-    orders already submitted this phase (unlike `old_implementation`'s
-    running count) -- a bot polling `MIS` mid-submission will see the total
-    owed, not the remaining owed. Documented, not silently approximated.
+    The adjustment count follows the DAIDE message syntax: a positive number
+    is the disbands still to order, a negative one the builds still to order
+    (every unused build must be waived, so a ``WVE`` counts as one), each net
+    of the orders already submitted this phase. Nothing owed in any phase is a
+    bare ``MIS``.
     """
     game = game_service.load(game_id)
     if game is None:
@@ -626,8 +629,14 @@ def build_mis_tokens(game_service: Any, map: MapData, game_id: str, power: str) 
             out += [t.OPEN_PAREN, *inner, t.MRT, t.OPEN_PAREN, *retreat_tokens, t.CLOSE_PAREN, t.CLOSE_PAREN]
         return out
 
-    delta = len(state.centers_of(power)) - len(state.units_of(power))
-    return [t.MIS, t.OPEN_PAREN, Token.from_int(max(-8192, min(8191, delta))), t.CLOSE_PAREN]
+    surplus = len(state.units_of(power)) - len(state.centers_of(power))
+    if surplus > 0:
+        owed = max(0, surplus - sum(isinstance(o, Disband) for o in pending))
+    else:
+        owed = min(0, surplus + sum(isinstance(o, (Build, Waive)) for o in pending))
+    if owed == 0:
+        return [t.MIS]
+    return [t.MIS, t.OPEN_PAREN, Token.from_int(max(-8192, min(8191, owed))), t.CLOSE_PAREN]
 
 
 # ---------------------------------------------------------------------------
