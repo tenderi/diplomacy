@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-14.
-- **Open tracks:** DL (code-health findings, 2026-11-14): pick it first, DL1 onward.
+- **Open tracks:** DL (code-health findings, 2026-11-14): pick it first, DL2 onward.
   DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
@@ -30,11 +30,6 @@
 From a coverage sweep (3764 passed, 0 skipped, 89.9%): code a player or client depends on
 that no test runs. One PR per item.
 
-- [ ] DL1: `GET /games/{id}/map` (`api/routes/maps.py` ~144-158) never runs in a test;
-      every bot test stubs `api_get_bytes`. Add `@pytest.mark.map` tests that get a real
-      PNG for a movement and a retreat phase. Also delete the dead, unauthenticated
-      `GET /games/{id}/debug/unit_locations` (`routes/games.py` ~1820) and any reference
-      to it (route-authz matrix, docs).
 - [ ] DL2: DAIDE retreat/adjustment replies are untested (`daide/session.py` ~377,
       ~581-585, ~615-630): `NOW` with dislodged units and `MRT` lists, `MIS` in retreat and
       adjustment phases, the `RET` note on `ORD`. Also the `SUB` per-power rejection

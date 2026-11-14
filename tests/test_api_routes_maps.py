@@ -325,3 +325,62 @@ class TestGetGameMapHistoryPng:
         assert resp.headers["content-type"] == "image/png"
         assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
 
+
+
+
+@pytest.mark.map
+@pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+class TestGetGameMapPngLive:
+    """``GET /games/{id}/map`` through the real handler (the live map behind the
+    web MapViewer and the bot's map buttons; bot tests stub the fetch)."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_cache(self):
+        from rendering.map import Map
+        Map.clear_map_cache()
+        yield
+        Map.clear_map_cache()
+
+    def test_unknown_game_is_404(self, client):
+        resp = client.get("/games/no-such-game/map")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Game not found"
+
+    def test_movement_phase_returns_real_png(self, client):
+        game_id = _create_game(client, _register_and_login(client, "livemap"))
+        resp = client.get(f"/games/{game_id}/map")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content[:8] == _PNG_MAGIC
+        assert len(resp.content) > _NONTRIVIAL_PNG_BYTES
+
+    def test_retreat_phase_returns_png_that_differs_from_movement(self, client):
+        from engine.serialization import state_to_dict
+        from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
+        from server.api.shared import game_service
+
+        game_id = _create_game(client, _register_and_login(client, "liveretreat"))
+        state = GameState(
+            year=1901, season=Season.SPRING, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "FRANCE", Location("BUR")),
+                Unit(UnitKind.ARMY, "FRANCE", Location("RUH")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("BER")),
+            }),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY", "BER": "GERMANY"},
+        )
+        game_service.restore_snapshot(game_id, state_to_dict(state), phase_code="S1901M")
+        movement = client.get(f"/games/{game_id}/map")
+        assert movement.status_code == 200, movement.text
+
+        game_service.submit_orders(game_id, "FRANCE", ["A BUR - MUN", "A RUH S A BUR - MUN"])
+        game_service.submit_orders(game_id, "GERMANY", ["A MUN H", "A BER H"])
+        assert game_service.process_turn(game_id)["phase"] == "S1901R"
+
+        retreat = client.get(f"/games/{game_id}/map")
+        assert retreat.status_code == 200, retreat.text
+        assert retreat.headers["content-type"] == "image/png"
+        assert retreat.content[:8] == _PNG_MAGIC
+        assert len(retreat.content) > _NONTRIVIAL_PNG_BYTES
+        assert retreat.content != movement.content
