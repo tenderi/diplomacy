@@ -16,7 +16,8 @@ import uuid
 import pytest
 
 from engine.serialization import state_to_dict
-from engine.types import STANDARD_POWERS, GameState, Location, PhaseType, Season, Unit, UnitKind
+from engine.map_loader import load_standard_map
+from engine.types import STANDARD_POWERS, DislodgedUnit, GameState, Location, PhaseType, Season, Unit, UnitKind
 from persistence.game_repo import GameRepo
 from server.daide import tokens as t
 from server.daide.server import DaideServer
@@ -747,3 +748,140 @@ class TestParsePhaseCode:
     def test_rejects_a_malformed_code(self) -> None:
         with pytest.raises(ValueError):
             parse_phase_code("nonsense")
+
+
+# ---------------------------------------------------------------------------
+# Retreat and adjustment replies, checked token for token against the DAIDE
+# message syntax: NOW/MIS with ``(unit MRT (province list))`` entries,
+# ``MIS (n)`` (positive: disbands still owed; negative: builds still owed; no
+# parameters when nothing is owed), and the ``RET`` note on ``ORD``.
+# ---------------------------------------------------------------------------
+
+
+def _open(*inner: Token) -> list[Token]:
+    return [t.OPEN_PAREN, *inner, t.CLOSE_PAREN]
+
+
+def _dislodging_turn(service: GameService, gid: str) -> str:
+    """S1901M with Russia dislodging Austria's A BUD (held) and Turkey's F CON
+    (whose own move to BLA bounces); processes it and returns the resolved phase.
+
+    Retreats left: A BUD to SER/TRI/VIE (GAL is the attacker's origin, RUM is
+    occupied); F CON to AEG, both coasts of BUL and SMY (ANK is the attacker's
+    origin, BLA is occupied)."""
+    units = {
+        Unit(UnitKind.ARMY, "AUSTRIA", Location("BUD")),
+        Unit(UnitKind.ARMY, "RUSSIA", Location("GAL")),
+        Unit(UnitKind.ARMY, "RUSSIA", Location("RUM")),
+        Unit(UnitKind.ARMY, "RUSSIA", Location("ANK")),
+        Unit(UnitKind.FLEET, "RUSSIA", Location("BLA")),
+        Unit(UnitKind.FLEET, "TURKEY", Location("CON")),
+    }
+    st = GameState(1901, Season.SPRING, PhaseType.MOVEMENT, units=frozenset(units), ownership={})
+    service.restore_snapshot(gid, state_to_dict(st), phase_code=st.phase_name)
+    service.submit_orders(gid, "AUSTRIA", ["A BUD H"])
+    service.submit_orders(
+        gid, "RUSSIA", ["A GAL - BUD", "A RUM S A GAL - BUD", "A ANK - CON", "F BLA S A ANK - CON"]
+    )
+    service.submit_orders(gid, "TURKEY", ["F CON - BLA"])
+    service.process_turn(gid)
+    return st.phase_name
+
+
+_BUD_MRT = [t.AUS, t.AMY, t.BUD, t.MRT, *_open(t.SER, t.TRI, t.VIE)]
+_CON_MRT = [t.TUR, t.FLT, t.CON, t.MRT, *_open(t.AEG, *_open(t.BUL, t.ECS), *_open(t.BUL, t.SCS), t.SMY)]
+
+
+class TestRetreatAndAdjustmentReplies:
+    async def test_now_in_a_retreat_phase_lists_dislodged_units_with_their_retreats(
+        self, service: GameService
+    ) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _dislodging_turn(service, gid)
+        frames = await _dispatch(session, writer, t.NOW)
+        assert frames == [
+            [
+                t.NOW, *_open(t.SUM, Token.from_int(1901)),
+                *_open(t.RUS, t.FLT, t.BLA), *_open(t.RUS, t.AMY, t.BUD),
+                *_open(t.RUS, t.AMY, t.CON), *_open(t.RUS, t.AMY, t.RUM),
+                *_open(*_BUD_MRT), *_open(*_CON_MRT),
+            ]
+        ]
+
+    def test_now_lists_a_dislodged_unit_with_no_retreat_as_an_empty_mrt(self) -> None:
+        state = GameState(
+            1901, Season.SPRING, PhaseType.RETREAT,
+            units=frozenset({Unit(UnitKind.ARMY, "GERMANY", Location("MUN"))}), ownership={},
+            dislodged=(DislodgedUnit(Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")), "HEL", ()),),
+        )
+        assert build_now_tokens(state, load_standard_map()) == [
+            t.NOW, *_open(t.SUM, Token.from_int(1901)),
+            *_open(t.GER, t.AMY, t.MUN), *_open(t.ENG, t.FLT, t.NTH, t.MRT, t.OPEN_PAREN, t.CLOSE_PAREN),
+        ]
+
+    async def test_mis_in_a_retreat_phase_lists_the_unordered_dislodged_units(
+        self, service: GameService
+    ) -> None:
+        session, writer, _server, gid = _identified_session(service, power="TURKEY")
+        _dislodging_turn(service, gid)
+        assert await _dispatch(session, writer, t.MIS) == [[t.MIS, *_open(*_CON_MRT)]]
+        rto = _unit_order_clause(t.TUR, t.FLT, t.CON, t.RTO, t.SMY)
+        assert (await _dispatch(session, writer, t.SUB, *rto))[0][-2] == t.MBV
+        assert await _dispatch(session, writer, t.MIS) == [[t.MIS]]
+
+    async def test_ord_marks_a_dislodged_unit_with_ret(self, service: GameService) -> None:
+        _session, writer, server, gid = _identified_session(service)
+        resolved = _dislodging_turn(service, gid)
+        await server.notify_game_processed(gid, resolved_phase=resolved)
+        ords = [f for f in (_decode_frame(raw) for raw in writer.sent) if f[0] == t.ORD]
+        turn = _open(t.SPR, Token.from_int(1901))
+        assert [t.ORD, *turn, *_open(*_open(t.AUS, t.AMY, t.BUD), t.HLD), *_open(t.RET)] in ords
+        assert [
+            t.ORD, *turn, *_open(*_open(t.TUR, t.FLT, t.CON), t.MTO, t.BLA), *_open(t.BNC, t.RET)
+        ] in ords
+        assert [t.ORD, *turn, *_open(*_open(t.RUS, t.AMY, t.GAL), t.MTO, t.BUD), *_open(t.SUC)] in ords
+
+    @pytest.mark.parametrize(
+        ("centres", "owed"),
+        [(("VIE", "BUD", "TRI", "SER"), -1), (("VIE", "BUD", "TRI", "SER", "GRE"), -2), (("VIE", "BUD"), 1)],
+    )
+    async def test_mis_in_an_adjustment_phase_is_disbands_positive_builds_negative(
+        self, service: GameService, centres: tuple[str, ...], owed: int
+    ) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _adjustment_phase(service, gid, centres=centres)  # three units
+        assert await _dispatch(session, writer, t.MIS) == [[t.MIS, *_open(Token.from_int(owed))]]
+
+    async def test_mis_in_an_adjustment_phase_counts_only_the_builds_still_owed(
+        self, service: GameService
+    ) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _adjustment_phase(service, gid, centres=("VIE", "BUD", "TRI", "SER", "GRE"))  # two builds
+        build = _unit_order_clause(t.AUS, t.AMY, t.VIE, t.BLD)
+        assert (await _dispatch(session, writer, t.SUB, *build))[0][-2] == t.MBV
+        assert await _dispatch(session, writer, t.MIS) == [[t.MIS, *_open(Token.from_int(-1))]]
+        waive = _open(t.AUS, t.WVE)
+        assert (await _dispatch(session, writer, t.SUB, *waive))[0][-2] == t.MBV
+        assert await _dispatch(session, writer, t.MIS) == [[t.MIS]]
+
+    async def test_mis_in_an_adjustment_phase_counts_only_the_disbands_still_owed(
+        self, service: GameService
+    ) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _adjustment_phase(service, gid, centres=("VIE",))  # two disbands
+        remove = _unit_order_clause(t.AUS, t.AMY, t.GAL, t.REM)
+        assert (await _dispatch(session, writer, t.SUB, *remove))[0][-2] == t.MBV
+        assert await _dispatch(session, writer, t.MIS) == [[t.MIS, *_open(Token.from_int(1))]]
+
+    async def test_mis_in_a_balanced_adjustment_phase_is_bare(self, service: GameService) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _adjustment_phase(service, gid, centres=("VIE", "BUD", "TRI"))
+        assert await _dispatch(session, writer, t.MIS) == [[t.MIS]]
+
+    async def test_sub_for_another_powers_unit_is_nyu_and_stores_nothing(self, service: GameService) -> None:
+        session, writer, _server, gid = _identified_session(service, power="FRANCE")
+        hold = _unit_order_clause(t.AUS, t.AMY, t.BUD, t.HLD)
+        frames = await _dispatch(session, writer, t.SUB, *hold)
+        assert frames == [[t.THX, *hold, *_open(t.NYU)]]
+        assert service.pending_orders_view(gid).get("FRANCE", []) == []
+        assert service.pending_orders_view(gid).get("AUSTRIA", []) == []

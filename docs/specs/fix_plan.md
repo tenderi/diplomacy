@@ -35,7 +35,7 @@ that no test runs. One PR per item.
       PNG for a movement and a retreat phase. Also delete the dead, unauthenticated
       `GET /games/{id}/debug/unit_locations` (`routes/games.py` ~1820) and any reference
       to it (route-authz matrix, docs).
-- [ ] DL2: DAIDE retreat/adjustment replies are untested (`daide/session.py` ~377,
+- [x] DL2: DAIDE retreat/adjustment replies are untested (`daide/session.py` ~377,
       ~581-585, ~615-630): `NOW` with dislodged units and `MRT` lists, `MIS` in retreat and
       adjustment phases, the `RET` note on `ORD`. Also the `SUB` per-power rejection
       (~974-976): a client seated as FRANCE submitting an Austrian unit gets `NYU` and
