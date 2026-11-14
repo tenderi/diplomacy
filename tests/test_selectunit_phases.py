@@ -125,9 +125,8 @@ def test_selectunit_adjustment_phase(mock_ctx_get, mock_orders_get):
     message.reply_text.assert_called_once()
     text = message.reply_text.call_args[0][0]
     assert "Adjustment for GERMANY" in text
-    assert "Delta: 1" in text
-    assert "Action: build" in text
-    assert "Slots: 1" in text
+    assert "You may build 1 unit" in text
+    assert "Delta" not in text and "Slots" not in text
 
 
 @patch("server.telegram_bot.orders.api_get")

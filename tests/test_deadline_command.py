@@ -181,6 +181,9 @@ class TestDeadlineProposeVoteWithdraw:
         text = message.reply_text.call_args[0][0]
         assert "FRANCE" in text and "proposes: 24h\n" in text
         assert "1/2 needed" in text
+        # The proposer already voted: no "vote with the buttons".
+        assert text.endswith("You voted yes.")
+        assert "Vote with the buttons" not in text
 
     @patch('server.telegram_bot.games.api_post')
     @patch('server.telegram_bot.game_context.api_get')

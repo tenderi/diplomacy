@@ -490,7 +490,7 @@ class TestProcessTurnConfirmation:
         text = message.reply_text.call_args[0][0]
         assert text == (
             "✅ *Turn Processed!*\n📊 Now: Fall 1901 movement (F1901M)\n\n"
-            "🎮 France owes orders for 1 unit: /orderall 1. Game menu: /game 1."
+            "🎮 France owes orders for 1 unit."
         )
 
     @patch("server.telegram_bot.orders.api_post")

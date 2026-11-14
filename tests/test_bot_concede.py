@@ -42,7 +42,7 @@ def test_concede_command_asks_first_and_posts_nothing() -> None:
     args, kwargs = update.message.reply_text.call_args
     assert args[0] == (
         "Concede game 7 as FRANCE? Your units are removed from the board and you "
-        "FRANCE is out of the game; the others play on. This cannot be undone."
+        "are out of the game as FRANCE; the others play on. This cannot be undone."
     )
     buttons = [(b.text, b.callback_data) for row in kwargs["reply_markup"].inline_keyboard for b in row]
     assert buttons == [("🏳️ Yes, concede", "g|7|cdok"), ("No, keep playing", "g|7|hub")]

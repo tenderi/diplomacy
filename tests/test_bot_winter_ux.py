@@ -73,8 +73,12 @@ def test_process_turn_reply_carries_the_callers_own_results() -> None:
         asyncio.run(run_process_turn(send, "1", "5"))
     assert send.call_args[0][0] == (
         "✅ *Turn Processed!*\n📊 Now: Spring 1902 movement (S1902M)\n"
-        "\nYour results for Winter 1901 adjustment:\nF MAR was built.\n\n🎮 X. Game menu: /game 1."
+        "\nYour results for Winter 1901 adjustment:\nF MAR was built.\n\n🎮 X."
     )
+    markup = send.call_args[1]["reply_markup"]
+    assert [(b.text, b.callback_data) for row in markup.inline_keyboard for b in row] == [
+        ("📝 Enter orders", "g|1|all|n"), ("🗺 Map", "g|1|map|n"), ("🎮 Game menu", "g|1|hub|n"),
+    ]
 
 
 def _buttons(legal: dict[str, Any] | None) -> list[str]:
