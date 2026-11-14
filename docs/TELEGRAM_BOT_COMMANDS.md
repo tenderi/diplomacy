@@ -117,7 +117,7 @@ A MAR S A PAR - BUR    Marseilles supports Paris → Burgundy
 F BRE S A PAR          Brest supports Paris to hold
 F BRE S A PAR H        The same, with the hold written out
 F NTH C A LON - BEL    North Sea convoys London → Belgium
-A LON - BEL VIA        Move explicitly via convoy
+A LON - BEL VIA        Move explicitly via convoy  (the bot's button reads "(by convoy)")
 A MUN R TYR            Retreat (retreat phase)
 D A PAR                Disband
 BUILD A PAR            Build an army

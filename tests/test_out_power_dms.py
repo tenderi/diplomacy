@@ -55,7 +55,7 @@ def test_deadline_proposal_and_vote_skip_a_conceded_power() -> None:
     assert resp.status_code == 200, resp.text
     text = (
         f"FRANCE proposes a 24h deadline for game {game_id}, counted from when the proposal passes. "
-        f"Needs 4 yes votes (1/4 so far). Use /deadline {game_id} vote yes|no."
+        f"Needs 4 yes votes (1/4 so far). Vote with the buttons below."
     )
     assert _recipients(probe) == {tg: [text] for tg in others}
     g_headers, g_tg = users[POWERS.index("GERMANY")]

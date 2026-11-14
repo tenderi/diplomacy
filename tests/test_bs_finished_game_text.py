@@ -97,11 +97,11 @@ def test_deadline_view_of_a_finished_game_offers_no_proposals() -> None:
 
 @pytest.mark.parametrize(("legal", "expected"), [
     ({"phase_type": "MOVEMENT", "units": []}, "France has nothing to order this phase."),
-    ({"phase_type": "RETREAT", "units": [{}, {}]}, "France owes retreats for 2 units: /orderall 1."),
+    ({"phase_type": "RETREAT", "units": [{}, {}]}, "France owes retreats for 2 units."),
     ({"phase_type": "ADJUSTMENT", "units": [{}], "adjustment": {"action": "build", "slots": 1}},
-     "France owes 1 build: /orderall 1."),
+     "France owes 1 build."),
     ({"phase_type": "ADJUSTMENT", "units": [{}], "adjustment": {"action": "disband", "slots": 2}},
-     "France owes 2 disbands: /orderall 1."),
+     "France owes 2 disbands."),
     ({"phase_type": "ADJUSTMENT", "units": [{}], "adjustment": {"action": "none", "slots": 0}},
      "France has nothing to build or disband."),
 ])
