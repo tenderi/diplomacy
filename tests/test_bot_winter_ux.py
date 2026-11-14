@@ -9,7 +9,7 @@ import pytest
 
 from server.telegram_bot import hub, orders as bot_orders
 from server.telegram_bot.orders import adjustment_duty, run_process_turn
-from tests.test_order_all_flow import ADJUSTMENT, Chat, api  # noqa: F401  (api is a fixture)
+from tests.test_order_all_flow import ADJUSTMENT, Chat, _board, api  # noqa: F401  (api is a fixture)
 
 pytestmark = pytest.mark.unit
 
@@ -45,7 +45,7 @@ def test_duty_lines() -> None:
 
 
 def test_build_step_has_waive_but_no_skip_and_shows_the_duty(api) -> None:  # noqa: F811
-    api.get.side_effect = lambda path, **_kw: {"phase": "W1901A"} if path.endswith("/state") else ADJUSTMENT
+    api.get.side_effect = _board("W1901A", ADJUSTMENT)
     chat = Chat()
     chat.command([])
     assert "Build 1 of 2" in chat.text and "You may build 2 units (free home centres: BER, KIE, MUN)." in chat.text
@@ -54,7 +54,7 @@ def test_build_step_has_waive_but_no_skip_and_shows_the_duty(api) -> None:  # no
 
 
 def test_disband_step_keeps_skip_and_summary_names_only_disbands(api) -> None:  # noqa: F811
-    api.get.side_effect = lambda path, **_kw: {"phase": "W1901A"} if path.endswith("/state") else DISBAND
+    api.get.side_effect = _board("W1901A", DISBAND)
     chat = Chat()
     chat.command([])
     assert "✂️ *Disband 1 of 1*" in chat.text

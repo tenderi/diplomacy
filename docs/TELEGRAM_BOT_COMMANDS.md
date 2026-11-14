@@ -97,7 +97,7 @@ your units have orders.
 
 | Command | Description |
 |---|---|
-| `/orderall [game_id]` | **Order all your units** — the bot shows each unit that must act this phase in turn (or each build/disband slot), you pick from its legal orders, then review the list and submit it in one go. ⬅️ Back on every step, and ⏭ Skip on every step but a build (there, ⏭️ Waive build is the skip); a skipped unit keeps any earlier order, or holds. Same as 📝 Order all units / 📝 Enter orders. |
+| `/orderall [game_id]` | **Order all your units** — the bot shows each unit that must act this phase in turn (or each build/disband slot), you pick from its legal orders, then review the list and submit it in one go. ⬅️ Back on every step, and ⏭ Skip on every step but a build (there, ⏭️ Waive build is the skip); a skipped unit keeps any earlier order, or holds. In a winter adjustment phase the walk keeps the builds or disbands you already ordered (by `/order` or an earlier walk): it shows them, walks only the slots still free and offers only the sites still free, and adds your picks to them. With every slot already ordered it lists them and offers 🔄 Change them, a walk over every slot whose submit replaces them. Same as 📝 Order all units / 📝 Enter orders. |
 | `/selectunit [game_id]` | **Order a single unit** — pick a unit, then pick from its legal orders; it is sent at once. |
 | `/orders [game_id] <order>; <order>; …` | Type orders. They are **added** to the orders you already sent this phase; a new order for a unit replaces that unit's earlier one. `/order` is the same command. |
 | `/myorders [game_id]` | Show your submitted orders for the current phase. |
