@@ -1817,23 +1817,6 @@ def restore_game_snapshot(
         scheduler_logger.exception("Failed to notify restore for game %s", game_id)
     return {"status": "ok", "snapshot_id": snapshot_id, "phase_code": snapshot.phase_code}
 
-@router.get("/games/{game_id}/debug/unit_locations")
-def debug_unit_locations(game_id: str) -> Dict[str, Any]:
-    """Get all unit locations in text format for debugging"""
-    view = game_service.view(game_id)
-    if view is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    unit_locations: Dict[str, List[str]] = {}
-    for power, units in view["units_by_power"].items():
-        unit_locations[power] = [f"{u['kind']} {u['location']}" for u in units]
-    return {
-        "status": "ok",
-        "game_id": game_id,
-        "phase": view["phase"],
-        "unit_locations": unit_locations,
-    }
-
-
 def _require_power(power: str) -> str:
     """``power`` upper-cased, or a 400 naming the powers (as the messages routes do)."""
     name = power.strip().upper()
