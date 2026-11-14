@@ -80,6 +80,18 @@ class Chat:
         asyncio.run(bot_app.button_callback(update, self.context))
 
 
+def _board(phase: str, legal: dict, pending: list[str] | None = None):
+    """An ``api_get`` stand-in: the game's phase, the power's legal orders and
+    its stored pending orders (``/games/{id}/orders/{power}``)."""
+    def get(path: str, **_kw) -> dict:
+        if path.endswith("/state"):
+            return {"phase": phase}
+        if "/orders/" in path:
+            return {"orders": list(pending or [])}
+        return legal
+    return get
+
+
 def _delivered(orders_response: dict) -> SimpleNamespace:
     return SimpleNamespace(status="delivered", response=orders_response, error=None)
 
@@ -166,7 +178,7 @@ def test_cancel_ends_the_walk_without_sending(api) -> None:
 
 
 def test_adjustments_walk_the_build_slots(api) -> None:
-    api.get.side_effect = lambda path, **_kw: {"phase": "W1901A"} if path.endswith("/state") else ADJUSTMENT
+    api.get.side_effect = _board("W1901A", ADJUSTMENT)
     chat = Chat()
     chat.command([])
     assert "Build 1 of 2" in chat.text
@@ -183,13 +195,112 @@ def test_a_build_takes_its_province_for_the_later_slots(api) -> None:
     still offered BUILD F KIE -- both were submitted and the second was VOID,
     losing the slot."""
     two_at_kie = {**ADJUSTMENT, "orders": ["BUILD A KIE", "BUILD F KIE", "BUILD A MUN", "WAIVE"]}
-    api.get.side_effect = lambda path, **_kw: {"phase": "W1901A"} if path.endswith("/state") else two_at_kie
+    api.get.side_effect = _board("W1901A", two_at_kie)
     chat = Chat()
     chat.command([])
     chat.press("Build army KIE")
     assert "Build 2 of 2" in chat.text
     assert not any("KIE" in t for t, _ in chat.buttons)
     assert any("Build army MUN" in t for t, _ in chat.buttons)
+
+
+RUSSIA_BUILDS = {
+    "phase": "W1901A",
+    "phase_type": "ADJUSTMENT",
+    "adjustment": {"delta": 2, "action": "build", "slots": 2},
+    "orders": ["BUILD A MOS", "BUILD A SEV", "BUILD F SEV", "BUILD A STP", "BUILD F STP/NC", "WAIVE"],
+    "orders_by_unit": {},
+    "units": [],
+}
+
+
+def test_a_walk_after_a_typed_build_walks_only_the_free_slot(api) -> None:
+    """DK1: Russia (2 builds) typed ``/order BUILD A MOS``, then opened the
+    Builds walk. It said "Build 1 of 2", offered Moscow again, and its two new
+    picks were submitted as a merge past the count, so the server dropped
+    ``BUILD A MOS`` ("replaced BUILD A MOS (you may build 2)")."""
+    api.get.side_effect = _board("W1901A", RUSSIA_BUILDS, pending=["BUILD A MOS"])
+    chat = Chat()
+    chat.command([])
+    assert "Build 2 of 2" in chat.text and "Build 1 of 2" not in chat.text
+    assert "• `BUILD A MOS` (ordered earlier)" in chat.text
+    assert not any("MOS" in t for t, _ in chat.buttons)  # Moscow is taken
+    chat.press("Build army SEV")
+    assert "• `BUILD A MOS` (ordered earlier, kept)\n• `BUILD A SEV`" in chat.text
+    chat.press("Submit 1 order")
+    body = api.post.call_args[0][1]
+    assert body["orders"] == ["BUILD A SEV"]
+    assert body["merge"] is True  # added beside BUILD A MOS: 2 builds, nothing replaced
+
+
+def test_a_walk_with_every_build_ordered_offers_to_change_them(api) -> None:
+    api.get.side_effect = _board("W1901A", RUSSIA_BUILDS, pending=["BUILD A MOS", "BUILD F STP/NC"])
+    chat = Chat()
+    chat.command([])
+    assert chat.text == (
+        "✅ GERMANY has already ordered all 2 builds in game 1:\n• `BUILD A MOS`\n• `BUILD F STP/NC`\n\n"
+        "To change them, choose them all again: the new set replaces these."
+    )
+    api.post.assert_not_called()
+    chat.press("Change them")
+    assert "Build 1 of 2" in chat.text
+    assert any("Build army MOS" in t for t, _ in chat.buttons)  # every site is free again
+    chat.press("Build army SEV")
+    chat.press("Waive")
+    assert "Submitting replaces the builds or disbands you ordered earlier." in chat.text
+    chat.press("Submit 2 orders")
+    body = api.post.call_args[0][1]
+    assert body["orders"] == ["BUILD A SEV", "WAIVE"]
+    assert body["merge"] is False  # the new set replaces the stored one
+
+
+def test_a_disband_walk_keeps_the_disband_already_ordered(api) -> None:
+    disbands = {
+        "phase": "W1901A",
+        "phase_type": "ADJUSTMENT",
+        "adjustment": {"delta": -2, "action": "disband", "slots": 2},
+        "orders": ["D A BER", "D F KIE", "D A MUN"],
+        "orders_by_unit": {},
+        "units": [],
+    }
+    api.get.side_effect = _board("W1901A", disbands, pending=["D A BER"])
+    chat = Chat()
+    chat.command([])
+    assert "Disband 2 of 2" in chat.text
+    assert not any("BER" in t for t, _ in chat.buttons)
+    chat.press("MUN")
+    chat.press("Submit 1 order")
+    assert api.post.call_args[0][1]["orders"] == ["D A MUN"]
+    assert api.post.call_args[0][1]["merge"] is True
+
+
+def test_a_skipped_slot_in_a_change_walk_is_said_to_drop_its_earlier_order(api) -> None:
+    """In a "Change them" walk the submit replaces the stored set, so a
+    skipped slot keeps nothing; the summary must not imply otherwise."""
+    disbands = {
+        "phase": "W1901A",
+        "phase_type": "ADJUSTMENT",
+        "adjustment": {"delta": -2, "action": "disband", "slots": 2},
+        "orders": ["D A BER", "D F KIE", "D A MUN"],
+        "orders_by_unit": {},
+        "units": [],
+    }
+    api.get.side_effect = _board("W1901A", disbands, pending=["D A BER", "D F KIE"])
+    chat = Chat()
+    chat.command([])
+    chat.press("Change them")
+    chat.press("MUN")
+    chat.press("Skip")
+    assert chat.text.endswith(
+        "Skipped: 1. If you order too few disbands, the server chooses the rest by the civil-disorder rule "
+        "(farthest from home first).\n\n"
+        "Submitting replaces the builds or disbands you ordered earlier, and a skipped slot does not keep "
+        "its earlier order."
+    )
+    assert "keeps any order you sent earlier" not in chat.text
+    chat.press("Submit 1 order")
+    assert api.post.call_args[0][1]["orders"] == ["D A MUN"]
+    assert api.post.call_args[0][1]["merge"] is False
 
 
 def test_selectunit_still_sends_one_order_at_once(api) -> None:

@@ -30,7 +30,7 @@
 Found by driving the bot's handlers against a local API through Fall 1903 (four players,
 builds, retreats, deadlines, votes). One PR per item unless noted.
 
-- [ ] DK1: the 🏗️ Builds/Disbands walk (`telegram_bot/orders.py` `start_order_walk`)
+- [x] DK1: the 🏗️ Builds/Disbands walk (`telegram_bot/orders.py` `start_order_walk`)
       ignores adjustment orders already given and its submit replaces them: Russia's
       typed `BUILD A MOS` plus a walk for "Build 1 of 2" ended as one build, with MOS
       offered again. Start the walk from the stored orders (or count only the remaining
