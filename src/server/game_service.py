@@ -23,6 +23,7 @@ from engine.orders.parser import OrderParseError, format_order, parse_order
 from engine.orders.validation import legal_builds, validate
 from engine.simple_ai import generate_orders
 from engine.serialization import (
+    location_from_str,
     order_from_dict,
     resolution_to_dict,
     state_from_dict,
@@ -1981,12 +1982,14 @@ def result_reason(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[
             and _province(o["order"].get("dest")) == dest
             for o in results
         ):
-            return None  # void for want of the supported move, not for the own unit
+            return _unordered_support_reason(r, results)  # void for want of the supported move
         for o in results:
             moved_out = o["order"]["type"] == "MOVE" and o["result"] == "OK"
             if _province(o["order"].get("unit")) == dest and o["order"]["power"] == order["power"] and not moved_out:
                 return f"it would dislodge your own {_unit_text(o)}"
         return None
+    if order["type"] == "SUPPORT_HOLD" and code == "VOID":
+        return _unordered_support_reason(r, results)
     if code == "NO_CONVOY" and order["type"] in ("MOVE", "CONVOY"):
         origin = _province(order.get("unit") if order["type"] == "MOVE" else order.get("origin"))
         dest = _province(order.get("dest"))
@@ -2004,6 +2007,39 @@ def result_reason(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[
         if lost:
             names = lost[0] if len(lost) == 1 else f"{', '.join(lost[:-1])} and {lost[-1]}"
             return f"{names} {'was' if len(lost) == 1 else 'were'} dislodged"
+    return None
+
+
+def _supporter_reaches(r: dict[str, Any], target: str) -> bool:
+    """Whether the supporting unit borders ``target``: a support it cannot reach is
+    genuinely invalid, not merely unmatched by an order."""
+    game_map = load_standard_map()
+    here = location_from_str(r["order"]["unit"])
+    if _unit_text(r).startswith("A"):
+        return target in game_map.army_moves(here.province)
+    return any(dest.province == target for dest in game_map.fleet_moves(here))
+
+
+def _unordered_support_reason(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[str]:
+    """Why a legal support that found nothing to support was void: the supported unit
+    did not make that move (``A SPA did not move to MAR``), or a hold-supported unit
+    moved (``A SPA moved``). ``None`` when the order was genuinely invalid (no such
+    supporter, out of its reach, or no unit to support) so the caller keeps "invalid"."""
+    order = r["order"]
+    if order["type"] == "SUPPORT_MOVE":
+        origin, dest = _province(order.get("origin")), _province(order.get("dest"))
+        if not _supporter_reaches(r, dest):
+            return None
+        for o in results:
+            if _province(o["order"].get("unit")) == origin:
+                return f"{_unit_text(o)} did not move to {dest}"
+        return None
+    target = _province(order.get("target"))
+    if not _supporter_reaches(r, target):
+        return None
+    for o in results:
+        if _province(o["order"].get("unit")) == target and o["order"]["type"] == "MOVE":
+            return f"{_unit_text(o)} moved" if o["result"] == "OK" else f"{_unit_text(o)} was ordered to move"
     return None
 
 
