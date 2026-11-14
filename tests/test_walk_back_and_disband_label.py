@@ -4,7 +4,7 @@ disband buttons carry their emoji."""
 from __future__ import annotations
 
 from server.telegram_bot.orders import _order_label, _order_verb
-from tests.test_order_all_flow import ADJUSTMENT, Chat, api  # noqa: F401  (api is a fixture)
+from tests.test_order_all_flow import ADJUSTMENT, Chat, _board, api  # noqa: F401  (api is a fixture)
 
 
 def test_back_keeps_the_current_steps_own_build_pickable(api) -> None:  # noqa: F811
@@ -15,7 +15,7 @@ def test_back_keeps_the_current_steps_own_build_pickable(api) -> None:  # noqa: 
         "adjustment": {"delta": 3, "action": "build", "slots": 3},
         "orders": ["BUILD F STP/NC", "BUILD F STP/SC", "BUILD A SEV", "WAIVE"],
     }
-    api.get.side_effect = lambda path, **_kw: {"phase": "W1901A"} if path.endswith("/state") else three
+    api.get.side_effect = _board("W1901A", three)
     chat = Chat()
     chat.command([])
     chat.press("Build fleet STP/SC")
