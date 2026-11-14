@@ -1161,7 +1161,10 @@ async def _show_walk_summary(send: Sender, context: ContextTypes.DEFAULT_TYPE, g
         fate = "it is disbanded" if str(walk["phase"]).endswith("R") else "it holds"
         note = f"\n\nSkipped: {skipped}. A skipped unit keeps any order you sent earlier; with none, {fate}."
     if walk.get("replace"):
-        note += "\n\nSubmitting replaces the builds or disbands you ordered earlier."
+        # A "Change them" walk is sent with merge=false: nothing ordered
+        # earlier survives, a skipped slot included.
+        note += "\n\nSubmitting replaces the builds or disbands you ordered earlier"
+        note += ", and a skipped slot does not keep its earlier order." if skipped else "."
     count = len(walk["chosen"])
     keyboard = []
     if count:

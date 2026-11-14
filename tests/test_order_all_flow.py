@@ -274,6 +274,35 @@ def test_a_disband_walk_keeps_the_disband_already_ordered(api) -> None:
     assert api.post.call_args[0][1]["merge"] is True
 
 
+def test_a_skipped_slot_in_a_change_walk_is_said_to_drop_its_earlier_order(api) -> None:
+    """In a "Change them" walk the submit replaces the stored set, so a
+    skipped slot keeps nothing; the summary must not imply otherwise."""
+    disbands = {
+        "phase": "W1901A",
+        "phase_type": "ADJUSTMENT",
+        "adjustment": {"delta": -2, "action": "disband", "slots": 2},
+        "orders": ["D A BER", "D F KIE", "D A MUN"],
+        "orders_by_unit": {},
+        "units": [],
+    }
+    api.get.side_effect = _board("W1901A", disbands, pending=["D A BER", "D F KIE"])
+    chat = Chat()
+    chat.command([])
+    chat.press("Change them")
+    chat.press("MUN")
+    chat.press("Skip")
+    assert chat.text.endswith(
+        "Skipped: 1. If you order too few disbands, the server chooses the rest by the civil-disorder rule "
+        "(farthest from home first).\n\n"
+        "Submitting replaces the builds or disbands you ordered earlier, and a skipped slot does not keep "
+        "its earlier order."
+    )
+    assert "keeps any order you sent earlier" not in chat.text
+    chat.press("Submit 1 order")
+    assert api.post.call_args[0][1]["orders"] == ["D A MUN"]
+    assert api.post.call_args[0][1]["merge"] is False
+
+
 def test_selectunit_still_sends_one_order_at_once(api) -> None:
     """The single-order flow is unchanged: no walk, so ord| submits immediately."""
     chat = Chat()
