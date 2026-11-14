@@ -966,7 +966,12 @@ def _unit_order_keyboard(
 #
 # The walk lives in context.user_data[_WALK][game_id]:
 #   {"power", "phase", "adjust": bool, "steps": [unit keys | slot labels],
-#    "flat": [adjustment orders], "i": current step, "chosen": {step: order}}
+#    "flat": [adjustment orders], "i": current step, "chosen": {step: order},
+#    "existing": [adjustment orders already stored], "replace": bool}
+# An adjustment walk starts from the power's stored builds/disbands: it walks
+# only the slots still free and its submit adds to them (``merge``). Once every
+# slot is ordered, "Change them" starts a ``replace`` walk over all the slots,
+# whose submit replaces the stored set.
 # While a walk is active for a game, an ``ord|`` choice (including from the
 # support/convoy sub-menus) is *recorded* for the current step instead of being
 # submitted; the summary then submits everything in one request.
@@ -989,8 +994,21 @@ def _end_walk(context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
     context.user_data.get("pending_orders", {}).pop(str(game_id), None)
 
 
-async def start_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, user_id: str, game_id_arg: Optional[str]) -> None:
-    """Begin walking through every unit that must act this phase."""
+async def start_order_walk(
+    send: Sender,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: str,
+    game_id_arg: Optional[str],
+    replace: bool = False,
+) -> None:
+    """Begin walking through every unit that must act this phase.
+
+    In an adjustment phase the builds or disbands already ordered (``/order``,
+    an earlier walk) are kept: the walk offers only the remaining slots and
+    the still-free sites. With every slot ordered it says so and offers to
+    change them; ``replace`` is that change, a walk over every slot that
+    replaces the stored orders on submit.
+    """
     try:
         game_id, power = resolve_game_and_power(user_id, game_id_arg)
     except GameContextError as e:
@@ -1018,8 +1036,27 @@ async def start_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, use
             await send(f"✅ {power} has no builds or disbands to make in game {game_id}.")
             return
         noun = "Build" if adjustment.get("action") == "build" else "Disband"
-        steps = [f"{noun} {n} of {slots}" for n in range(1, slots + 1)]
+        existing: list[str] = []
+        if not replace:
+            try:
+                existing = list(api_get(f"/games/{game_id}/orders/{power}", telegram_id=user_id).get("orders", []))
+            except requests.RequestException as e:
+                await send(f"❌ Could not retrieve your orders for game {game_id}: {escape_markdown(str(e))}")
+                return
+        if len(existing) >= slots:
+            await send(
+                f"✅ {power} has already ordered all {slots} {noun.lower()}{'s' if slots != 1 else ''} "
+                f"in game {game_id}:\n" + "\n".join(f"• `{o}`" for o in existing)
+                + "\n\nTo change them, choose them all again: the new set replaces these.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Change them", callback_data=f"wlk|{game_id}|redo")],
+                    [InlineKeyboardButton("🎮 Game menu", callback_data=f"g|{game_id}|hub")],
+                ]),
+            )
+            return
+        steps = [f"{noun} {n} of {slots}" for n in range(len(existing) + 1, slots + 1)]
     else:
+        existing = []
         steps = [f"{u['kind']} {u['location']}" for u in orderable_units(data)]
         if not steps:
             auto = forced_disband_note(data)
@@ -1036,6 +1073,8 @@ async def start_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, use
         "flat": list(data.get("orders", [])),
         "i": 0,
         "chosen": {},
+        "existing": existing,
+        "replace": replace,
     }
     await show_walk_step(send, context, game_id)
 
@@ -1057,7 +1096,9 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
         # after one the other is no longer offered.
         # The current step's own earlier choice (after Back) does not count, so
         # it can be re-picked or changed (STP/SC -> STP/NC).
+        # Builds ordered before the walk began hold their sites too.
         taken = {_adjustment_site(o) for s, o in walk["chosen"].items() if s != step and o != "WAIVE"}
+        taken |= {_adjustment_site(o) for o in walk.get("existing", []) if o != "WAIVE"}
         options = [o for o in walk["flat"] if o == "WAIVE" or _adjustment_site(o) not in taken]
         keyboard = order_buttons(context, game_id, options)
         title = f"{'✂️' if walk.get('action') == 'disband' else '🏗️'} *{step}*\n{walk.get('duty', '')}"
@@ -1081,7 +1122,8 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
         nav.append(InlineKeyboardButton("⏭ Skip", callback_data=f"wlk|{game_id}|skip"))
     keyboard.append(nav)
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"wlk|{game_id}|cancel")])
-    chosen = [f"• `{walk['chosen'][s]}`" for s in walk["steps"][: walk["i"]] if s in walk["chosen"]]
+    chosen = [f"• `{o}` (ordered earlier)" for o in walk.get("existing", [])]
+    chosen += [f"• `{walk['chosen'][s]}`" for s in walk["steps"][: walk["i"]] if s in walk["chosen"]]
     so_far = ("\n\nSo far:\n" + "\n".join(chosen)) if chosen else ""
     await send(
         f"{title}\n📊 Game: {game_id} | Power: {walk['power']}{so_far}\n\nChoose an order:",
@@ -1101,7 +1143,7 @@ def record_walk_choice(context: ContextTypes.DEFAULT_TYPE, game_id: str, order_t
 async def _show_walk_summary(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
     walk = active_walk(context, game_id)
     assert walk is not None
-    lines = []
+    lines = [f"• `{o}` (ordered earlier, kept)" for o in walk.get("existing", [])]
     for step in walk["steps"]:
         order = walk["chosen"].get(step)
         lines.append(f"• `{order}`" if order else f"• {step}: _skipped_")
@@ -1118,6 +1160,11 @@ async def _show_walk_summary(send: Sender, context: ContextTypes.DEFAULT_TYPE, g
     elif skipped:
         fate = "it is disbanded" if str(walk["phase"]).endswith("R") else "it holds"
         note = f"\n\nSkipped: {skipped}. A skipped unit keeps any order you sent earlier; with none, {fate}."
+    if walk.get("replace"):
+        # A "Change them" walk is sent with merge=false: nothing ordered
+        # earlier survives, a skipped slot included.
+        note += "\n\nSubmitting replaces the builds or disbands you ordered earlier"
+        note += ", and a skipped slot does not keep its earlier order." if skipped else "."
     count = len(walk["chosen"])
     keyboard = []
     if count:
@@ -1149,10 +1196,13 @@ async def submit_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, ch
         return
     order_list = [walk["chosen"][s] for s in walk["steps"] if s in walk["chosen"]]
     power = walk["power"]
+    # A "Change them" walk sends the whole new set, replacing the stored one;
+    # every other walk adds to what is stored.
+    merge = not bool(walk.get("replace"))
     _end_walk(context, game_id)
     outcome = api_post_reliable(
         "/games/set_orders",
-        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id, "merge": True},
+        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id, "merge": merge},
         chat_id=chat_id,
         description=_orders_description(game_id, power, order_list),
     )
@@ -1181,8 +1231,8 @@ async def handle_walk_action(query: Any, context: ContextTypes.DEFAULT_TYPE, gam
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
     user_id = str(query.from_user.id)
-    if action == "start":
-        await start_order_walk(send, context, user_id, game_id)
+    if action in ("start", "redo"):
+        await start_order_walk(send, context, user_id, game_id, replace=action == "redo")
         return
     walk = active_walk(context, game_id)
     if walk is None:
@@ -1200,7 +1250,7 @@ async def handle_walk_action(query: Any, context: ContextTypes.DEFAULT_TYPE, gam
             walk["i"] += 1
         await show_walk_step(send, context, game_id)
     elif action == "restart":
-        await start_order_walk(send, context, user_id, game_id)
+        await start_order_walk(send, context, user_id, game_id, replace=bool(walk.get("replace")))
     elif action == "submit":
         await submit_order_walk(send, context, query.from_user.id, user_id, game_id)
 
