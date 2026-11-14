@@ -10,19 +10,51 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DK**.
+>   history. Track letters run in sequence; the next free one is **DL**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-11-13.
-- **Open tracks:** DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Last updated:** 2026-11-14.
+- **Open tracks:** DK (bot play-through findings, 2026-11-14): pick it first, DK1 onward.
+  DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DK — Bot play-through findings (2026-11-14)
+
+Found by driving the bot's handlers against a local API through Fall 1903 (four players,
+builds, retreats, deadlines, votes). One PR per item unless noted.
+
+- [ ] DK1: the 🏗️ Builds/Disbands walk (`telegram_bot/orders.py` `start_order_walk`)
+      ignores adjustment orders already given and its submit replaces them: Russia's
+      typed `BUILD A MOS` plus a walk for "Build 1 of 2" ended as one build, with MOS
+      offered again. Start the walk from the stored orders (or count only the remaining
+      slots and keep the existing ones on submit).
+- [ ] DK2: wrong "waived" wording. After 2 of 3 builds the bot says "unordered builds
+      are waived" (`orders.py` ~289), but the turn waits until every build is ordered or
+      waived (`game_service.py` readiness); the menu calls it "Only some units ordered"
+      (`games.py` ~317) and "Processes automatically once every unit has an order" in
+      winter. Say what the turn actually waits for.
+- [ ] DK3: the game menu's build/disband line (`hub.py` ~204, `adjustment_duty`) does not
+      account for pending orders: after `BUILD F BRE` it still says "You may build 1 unit
+      (free home centres: BRE, …)".
+- [ ] DK4: the group's turn-processed post says "To set one, use /deadline …"
+      (`api/shared.py` ~824), but `/deadline` is refused in groups (`app.py`
+      `GROUP_COMMANDS`). Drop or reword the hint for the group.
+- [ ] DK5: a support for a move that wasn't ordered is reported as "was invalid, so the
+      unit held" (`game_service.py` ~2040 fallback). Say it had no effect because the
+      supported unit did not make that move.
+- [ ] DK6: bot text nits, one PR: concede prompt "you FRANCE is out" (`hub.py` ~308);
+      `/selectunit` in adjustments shows "Delta: 1 | Action: build | Slots: 1"
+      (`orders.py` ~841); the reply after processing from the confirm button has no
+      buttons; deadline-proposal DMs lack vote buttons and the proposer is told to vote
+      with buttons; the creator's Process turn ignores a pending wait request without
+      asking; duplicate "A YOR - EDI" / "A YOR - EDI VIA" buttons with VIA unexplained.
 
 # Track DH — Maintainer bug reports from differential fuzzing and race review
 
