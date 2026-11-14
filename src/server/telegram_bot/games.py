@@ -609,7 +609,7 @@ def set_deadline_schedule(game_id: str, user_id: str, words: list[str]) -> str:
     return text + "\nEveryone has been told."
 
 
-def _format_proposal(game_id: str, proposal: dict) -> str:
+def _format_proposal(game_id: str, proposal: dict, voter: Optional[str] = None) -> str:
     what = f"{proposal['value_hours']:g}h" if proposal.get("value_hours") is not None else "clearing it"
     needed = proposal["needed_for_majority"]
     yes = proposal["yes_votes"]
@@ -622,7 +622,10 @@ def _format_proposal(game_id: str, proposal: dict) -> str:
     ]
     if proposal.get("vote_deadline"):
         lines.append(f"⏱ Vote closes: {format_deadline(proposal['vote_deadline'])}")
-    lines.append(f"Vote with the buttons in the game menu, or /deadline {game_id} vote yes|no.")
+    if voter is not None and voter in set(yes) | set(no):
+        lines.append(f"You voted {'yes' if voter in yes else 'no'}.")
+    else:
+        lines.append(f"Vote with the buttons below, or /deadline {game_id} vote yes|no.")
     return "\n".join(lines)
 
 
@@ -645,7 +648,7 @@ def propose_deadline(
             f"Deadline: {_accepted_deadline_text(result)}.",
             None,
         )
-    return _format_proposal(game_id, result), 'Markdown'
+    return _format_proposal(game_id, result, power), 'Markdown'
 
 
 def vote_deadline(game_id: str, power: str, user_id: str, vote: bool) -> Tuple[str, Optional[str]]:
@@ -662,7 +665,7 @@ def vote_deadline(game_id: str, power: str, user_id: str, vote: bool) -> Tuple[s
         return f"✅ Proposal passed. Game {game_id}'s deadline is now {_accepted_deadline_text(result)}.", None
     if status == "rejected":
         return f"❌ Proposal for game {game_id} was voted down; nothing changed.", None
-    return _format_proposal(game_id, result), 'Markdown'
+    return _format_proposal(game_id, result, power), 'Markdown'
 
 
 def withdraw_deadline(game_id: str, power: str, user_id: str) -> str:

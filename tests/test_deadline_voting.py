@@ -400,5 +400,12 @@ def test_proposal_notice_says_the_hours_count_from_when_it_passes(hours, expecte
     assert resp.status_code == 200, resp.text
     assert notify.call_args[0][1] == (
         f"FRANCE proposes {expected} for game {game_id}, counted from when "
-        f"the proposal passes. Needs 4 yes votes (1/4 so far). Use /deadline {game_id} vote yes|no."
+        f"the proposal passes. Needs 4 yes votes (1/4 so far). Vote with the buttons below."
     )
+    assert notify.call_args[1]["buttons"] == [
+        [
+            {"text": "✅ Vote yes", "callback_data": f"g|{game_id}|dlv|yes"},
+            {"text": "❌ Vote no", "callback_data": f"g|{game_id}|dlv|no"},
+        ],
+        [{"text": "🎮 Game menu", "callback_data": f"g|{game_id}|hub|n"}],
+    ]

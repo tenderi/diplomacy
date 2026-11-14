@@ -150,7 +150,7 @@ def _order_row(game_id: str, legal: Optional[dict]) -> list[InlineKeyboardButton
 
 def _hub_keyboard(
     game_id: str, power: str, state: dict, orders_status: Optional[dict], is_creator: bool,
-    legal: Optional[dict] = None,
+    legal: Optional[dict] = None, proposal_pending: bool = False,
 ) -> InlineKeyboardMarkup:
     if str(state.get("status", "")).upper() in ("COMPLETED", "FINISHED", "DRAWN", "ENDED"):
         return InlineKeyboardMarkup([
@@ -162,7 +162,7 @@ def _hub_keyboard(
     rows = [
         *([order_row] if order_row else []),
         [_btn("📋 My orders", game_id, "view"), _btn("🗺 Map", game_id, "map")],
-        [_btn("💬 Messages", game_id, "msgs"), _btn("⏰ Deadline", game_id, "dl")],
+        [_btn("💬 Messages", game_id, "msgs"), _btn("⏰ Deadline (vote pending)" if proposal_pending else "⏰ Deadline", game_id, "dl")],
     ]
     if orders_status and orders_status.get("auto_process"):
         if power in (orders_status.get("waiting") or []):
@@ -210,7 +210,11 @@ async def show_hub(send: Sender, user_id: str, game_id: str) -> None:
             text += "\n" + retreat_duty(legal)
         elif legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not orderable_units(legal):
             text += "\n" + "You have nothing to order this phase; wait for the other powers."
-    await send(text, reply_markup=_hub_keyboard(game_id, power, state, orders_status, is_creator, legal))
+    try:
+        pending = bool((api_get(f"/games/{game_id}/deadline") or {}).get("pending_proposal"))
+    except requests.RequestException:
+        pending = False
+    await send(text, reply_markup=_hub_keyboard(game_id, power, state, orders_status, is_creator, legal, pending))
 
 
 # -- the g| callback router -------------------------------------------------------
@@ -310,7 +314,7 @@ async def handle_game_callback(query: Any, context: ContextTypes.DEFAULT_TYPE, d
 def concede_prompt(game_id: str, power: str) -> str:
     return (
         f"Concede game {game_id} as {power}? Your units are removed from the board and you "
-        f"{power} is out of the game; the others play on. This cannot be undone."
+        f"are out of the game as {power}; the others play on. This cannot be undone."
     )
 
 
@@ -431,7 +435,7 @@ async def _show_deadline(send: Sender, game_id: str, power: str) -> None:
     rows: list[list[InlineKeyboardButton]] = []
     if proposal:
         lines.append("")
-        lines.append(_format_proposal(game_id, proposal))
+        lines.append(_format_proposal(game_id, proposal, power))
         voted = set(proposal.get("yes_votes") or []) | set(proposal.get("no_votes") or [])
         if power not in voted:
             rows.append([_btn("✅ Vote yes", game_id, "dlv", "yes"), _btn("❌ Vote no", game_id, "dlv", "no")])
@@ -453,14 +457,21 @@ async def _process_turn(send: Sender, user_id: str, game_id: str, pinned_phase: 
     except requests.RequestException:
         status = {}
     missing = status.get("missing") or []
+    waiting = status.get("waiting") or []
     # A menu shown for an earlier phase: send that phase, so the player reads
     # the server's "already processed" refusal, not a confirm for a phase they never saw.
     moved = bool(pinned_phase and status.get("phase") and status.get("phase") != pinned_phase)
     # With an empty seat the API refuses the turn whatever is missing (BA6):
     # go straight to it, so the player reads that refusal, not a confirm.
-    if missing and not status.get("unseated") and not moved:
+    if (missing or waiting) and not status.get("unseated") and not moved:
+        warning = []
+        if missing:
+            warning.append(f"⚠️ Still waiting on: {', '.join(missing)}. Their units will hold if you process now.")
+        if waiting:
+            who = ", ".join(waiting)
+            warning.append(f"✋ {who} asked to wait before the turn is processed. Process anyway?")
         await send(
-            f"⚠️ Still waiting on: {', '.join(missing)}. Their units will hold if you process now.",
+            "\n".join(warning),
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Process anyway", callback_data=process_anyway_data(game_id, status))],
                 _back(game_id),
