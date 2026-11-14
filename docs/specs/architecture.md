@@ -419,7 +419,9 @@ results list:
   route." (or, when a fleet convoying it on a possible route was dislodged, "A LON - NWY VIA failed: the
   convoy was broken when F NTH was dislodged."), a support void because it would dislodge the
   supporter's own unit (DATC 6.D.10) "A VIE S A VEN - TRI had no effect: it would dislodge your
-  own F TRI." (both from `GameService.result_reason`, which the web shows too), "A BER held.", "A MUN held (no order)."; a dislodged unit names its attacker,
+  own F TRI.", a legal support with nothing to support "A GAS S A SPA - MAR had no effect: A SPA did
+  not move to MAR." (a support to hold of a unit that moved: "… had no effect: A SPA moved."; one
+  that is out of reach or names no unit stays "was invalid, so the unit held") (all from `GameService.result_reason`, which the web shows too), "A BER held.", "A MUN held (no order)."; a dislodged unit names its attacker,
   power only, never a nickname: "F TRI was dislodged by A TYR (ITALY).", "A VIE - TRI
   bounced; dislodged by A BOH (RUSSIA)."; a bounced move names who it met (`bounce_rivals`,
   from the turn's other results; the web's entries carry `bounced_off` / `bounced_with`):
@@ -492,7 +494,9 @@ first line's end when the DM is one line, on its own line otherwise.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
 post end with "Next deadline: …", and the game-started DM with "First deadline: …".
 When the phase just processed had a deadline and the new one has none, they end with
-"No deadline is set for <phase>. To set one, use /deadline …" instead, in its own paragraph. A deadline announcement ("Deadline for game N set to …")
+"No deadline is set for <phase>. To set one, use /deadline …" instead, in its own paragraph (the
+channel post, where `/deadline` is refused, says "A player can set one from the game menu in a
+private chat with the bot (/game <id>)." instead). A deadline announcement ("Deadline for game N set to …")
 adds "This deadline covers the current phase only." `POST /games/{id}/deadline` refuses a deadline at or
 before now (422, "That deadline has already passed. Choose a time in the future."). After a processed
 movement turn, a power whose seat is vacant (its player quit; not a dummy) and which still has units and ordered nothing that turn (orders it sent before quitting stand) adds

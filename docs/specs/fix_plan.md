@@ -43,10 +43,10 @@ builds, retreats, deadlines, votes). One PR per item unless noted.
 - [ ] DK3: the game menu's build/disband line (`hub.py` ~204, `adjustment_duty`) does not
       account for pending orders: after `BUILD F BRE` it still says "You may build 1 unit
       (free home centres: BRE, …)".
-- [ ] DK4: the group's turn-processed post says "To set one, use /deadline …"
+- [x] DK4: the group's turn-processed post says "To set one, use /deadline …"
       (`api/shared.py` ~824), but `/deadline` is refused in groups (`app.py`
       `GROUP_COMMANDS`). Drop or reword the hint for the group.
-- [ ] DK5: a support for a move that wasn't ordered is reported as "was invalid, so the
+- [x] DK5: a support for a move that wasn't ordered is reported as "was invalid, so the
       unit held" (`game_service.py` ~2040 fallback). Say it had no effect because the
       supported unit did not make that move.
 - [ ] DK6: bot text nits, one PR: concede prompt "you FRANCE is out" (`hub.py` ~308);

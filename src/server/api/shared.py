@@ -799,6 +799,7 @@ def notify_turn_processed(
     best-effort and logged.
     """
     due = f" Next deadline: {next_deadline_text}." if next_deadline_text and not game_ended else ""
+    group_due = due  # what the channel post ends with
     carried = carried or FoldCarry()
 
     ending_sentence = ""  # the ending's line for everyone (no full stop)
@@ -822,6 +823,11 @@ def notify_turn_processed(
     if game_ended:
         duties_view = {"phase": duties_view["phase"], "phase_type": "MOVEMENT", "duties": {}}
     elif deadline_cleared and not next_deadline_text:
+        # /deadline is refused in a group chat, so the group is pointed at the game menu.
+        group_due = (
+            f"\n\nNo deadline is set for {label}. "
+            f"A player can set one from the game menu in a private chat with the bot (/game {game_id})."
+        )
         due = (
             f"\n\nNo deadline is set for {label}. "
             f"To set one, use /deadline {game_id} <hours> (or /deadline {game_id} schedule ...)."
@@ -1013,20 +1019,20 @@ def notify_turn_processed(
         folded.turn = carried.turn if carried.started else processed_turn
         folded.phase = carried.phase if carried.started else processed_phase
         folded.last_turn = processed_turn
-        folded.message = "\n".join([channel_text, *folded.group]) + due
+        folded.message = "\n".join([channel_text, *folded.group]) + group_due
         return folded
     if game_ended:
         group_lines.append(f"{ending_sentence}.")
     if carried.started:
         _post_turn_to_channel(
             game_id,
-            "\n".join([channel_text, *carried.group, *group_lines]) + due,
+            "\n".join([channel_text, *carried.group, *group_lines]) + group_due,
             carried.turn,
             carried.phase,
             processed_turn,
         )
     else:
-        _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
+        _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + group_due, processed_turn, processed_phase)
     return folded
 
 
