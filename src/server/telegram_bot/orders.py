@@ -137,7 +137,12 @@ def _order_label(order_str: str) -> str:
         label = f"🏗️ {order_str}"
     else:
         emoji = _VERB_EMOJI.get(_order_verb(order_str), "")
-        label = f"{emoji} {order_str}".strip()
+        shown = order_str
+        for tail in (" VIA CONVOY", " VIA"):  # the same move as the plain one, but asking for a convoy
+            if order_str.endswith(tail) and _order_verb(order_str) == "-":
+                shown = f"{order_str[: -len(tail)]} (by convoy)"
+                break
+        label = f"{emoji} {shown}".strip()
     return label if len(label) <= 60 else label[:57] + "..."
 
 
@@ -635,7 +640,7 @@ def _owed_text(game_id: str, telegram_id: Optional[str]) -> str:
         _gid, power = resolve_game_and_power(telegram_id or "", game_id)
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except (GameContextError, requests.RequestException):
-        return f"Orders: /orderall {game_id}."
+        return "Enter your orders."
     name = power.title()
     units = data.get("units") or []
     if data.get("phase_type") == "ADJUSTMENT":
@@ -644,11 +649,11 @@ def _owed_text(game_id: str, telegram_id: Optional[str]) -> str:
         if adj.get("action") in (None, "none") or slots <= 0:
             return f"{name} has nothing to build or disband."
         verb = "build" if adj.get("action") == "build" else "disband"
-        return f"{name} owes {slots} {verb}{'' if slots == 1 else 's'}: /orderall {game_id}."
+        return f"{name} owes {slots} {verb}{'' if slots == 1 else 's'}."
     if not units:
         return f"{name} has nothing to order this phase."
     what = "retreats" if data.get("phase_type") == "RETREAT" else "orders"
-    return f"{name} owes {what} for {len(units)} unit{'' if len(units) == 1 else 's'}: /orderall {game_id}."
+    return f"{name} owes {what} for {len(units)} unit{'' if len(units) == 1 else 's'}."
 
 
 def process_anyway_data(game_id: str, orders_status: Optional[dict[str, Any]]) -> str:
@@ -746,11 +751,22 @@ async def run_process_turn(
         winners = game_state.get("winners") or []
         winners_text = ", ".join(winners) if winners else "no one"
         lines.append(f"\n🏁 *Game Complete!* Winners: {winners_text}")
-        lines.append(f"\nView the final map from the game menu: /game {game_id}")
+        lines.append("\nView the final map from the game menu.")
+        buttons = [
+            [InlineKeyboardButton("🗺 Final map", callback_data=f"g|{game_id}|map|n")],
+            [InlineKeyboardButton("🎮 Game menu", callback_data=f"g|{game_id}|hub|n")],
+        ]
     else:
-        lines.append(f"\n🎮 {_owed_text(game_id, telegram_id)} Game menu: /game {game_id}.")
+        lines.append(f"\n🎮 {_owed_text(game_id, telegram_id)}")
+        buttons = [
+            [
+                InlineKeyboardButton("📝 Enter orders", callback_data=f"g|{game_id}|all|n"),
+                InlineKeyboardButton("🗺 Map", callback_data=f"g|{game_id}|map|n"),
+            ],
+            [InlineKeyboardButton("🎮 Game menu", callback_data=f"g|{game_id}|hub|n")],
+        ]
 
-    await send("\n".join(lines), parse_mode='Markdown')
+    await send("\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons), parse_mode='Markdown')
 
 
 async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -853,8 +869,7 @@ async def show_unit_picker(
             return
         header = (
             f"🏗️ *Adjustment for {power}* (Game {game_id})\n\n"
-            f"Delta: {adjustment.get('delta')} | Action: {adjustment.get('action')} "
-            f"| Slots: {adjustment.get('slots')}\n{adjustment_duty(data)}\n\nChoose an order:"
+            f"{adjustment_duty(data)}\n\nChoose an order:"
         )
         await _present_order_choices(reply_or_edit, context, game_id, header, flat_orders)
         return

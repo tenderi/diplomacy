@@ -1413,8 +1413,15 @@ def propose_deadline(
                 int(game.id),
                 f"{power_label(game_id, req.power)} proposes {what}. "
                 f"Needs {needed} yes votes ({len(result['yes_votes'])}/{needed} so far). "
-                f"Use /deadline {game_id} vote yes|no.",
+                "Vote with the buttons below.",
                 exclude_telegram_id=_own_telegram_id(caller_user),
+                buttons=[
+                    [
+                        {"text": "✅ Vote yes", "callback_data": f"g|{game_id}|dlv|yes"},
+                        {"text": "❌ Vote no", "callback_data": f"g|{game_id}|dlv|no"},
+                    ],
+                    [{"text": "🎮 Game menu", "callback_data": f"g|{game_id}|hub|n"}],
+                ],
                 skip_out=True,
             )
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
