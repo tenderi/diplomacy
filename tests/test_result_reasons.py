@@ -58,12 +58,44 @@ def test_a_support_onto_the_supporters_own_unit_says_it_had_no_effect() -> None:
     assert _reasons(res) == {"A VIE S A VEN - TRI": "it would dislodge your own F TRI"}
 
 
-def test_a_support_of_a_move_that_was_not_ordered_keeps_the_invalid_wording() -> None:
+def test_a_support_of_a_move_that_was_not_ordered_says_the_unit_did_not_move() -> None:
     res = _resolve(
         {"A VEN": "ITALY", "A VIE": "AUSTRIA", "F TRI": "AUSTRIA"},
         {"ITALY": ["A VEN H"], "AUSTRIA": ["A VIE S A VEN - TRI", "F TRI H"]},
     )
-    assert "A VIE S A VEN - TRI was invalid, so the unit held." in _outcomes(res)["AUSTRIA"]
+    assert "A VIE S A VEN - TRI had no effect: A VEN did not move to TRI." in _outcomes(res)["AUSTRIA"]
+    assert _reasons(res) == {"A VIE S A VEN - TRI": "A VEN did not move to TRI"}
+
+
+def test_a_support_to_hold_of_a_unit_that_moved_says_it_moved() -> None:
+    res = _resolve(
+        {"A VEN": "ITALY", "A TYR": "AUSTRIA"},
+        {"ITALY": ["A VEN - PIE"], "AUSTRIA": ["A TYR S A VEN"]},
+    )
+    assert _reasons(res) == {"A TYR S A VEN": "A VEN moved"}
+    assert _outcomes(res)["AUSTRIA"] == ["A TYR S A VEN had no effect: A VEN moved."]
+
+
+def test_a_support_to_hold_of_a_unit_whose_move_bounced_says_it_was_ordered_to_move() -> None:
+    res = _resolve(
+        {"A VEN": "ITALY", "A MAR": "FRANCE", "A TYR": "AUSTRIA"},
+        {"ITALY": ["A VEN - PIE"], "FRANCE": ["A MAR - PIE"], "AUSTRIA": ["A TYR S A VEN"]},
+    )
+    assert _reasons(res) == {"A TYR S A VEN": "A VEN was ordered to move"}
+
+
+def test_a_support_out_of_the_supporters_reach_stays_invalid() -> None:
+    res = _resolve(
+        {"A VEN": "ITALY", "A VIE": "AUSTRIA"},
+        {"ITALY": ["A VEN - PIE"], "AUSTRIA": ["A VIE S A VEN - PIE"]},
+    )
+    assert "A VIE S A VEN - PIE was invalid, so the unit held." in _outcomes(res)["AUSTRIA"]
+    assert _reasons(res) == {}
+
+
+def test_a_support_of_a_unit_that_is_not_there_stays_invalid() -> None:
+    res = _resolve({"A VIE": "AUSTRIA"}, {"AUSTRIA": ["A VIE S A BUD - TRI"]})
+    assert "A VIE S A BUD - TRI was invalid, so the unit held." in _outcomes(res)["AUSTRIA"]
     assert _reasons(res) == {}
 
 
