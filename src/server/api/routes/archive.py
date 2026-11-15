@@ -117,7 +117,7 @@ def export_game(game_id: str) -> Dict[str, Any]:
             # restores the rumour still anonymous.
             "anonymous": bool(m.anonymous),
         }
-        for m in db_service.get_messages_by_game_id(int(row.id)).all()
+        for m in db_service.get_messages_by_game_id(int(row.id))
     ]
 
     snapshots = [
