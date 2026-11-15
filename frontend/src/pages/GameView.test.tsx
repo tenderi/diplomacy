@@ -1770,6 +1770,19 @@ describe('GameView — player actions', () => {
     expect(posts[0]).toEqual({ url: '/api/games/10/message', body: { recipient_power: 'GERMANY', text: 'Ally?' } })
   })
 
+  it('does not offer a power that is out of the game as a message recipient (DN3)', async () => {
+    const players = [
+      ...francePlayers,
+      { power: 'GERMANY', user_id: 2, is_active: true, nickname: null, out: true },
+      { power: 'ITALY', user_id: 3, is_active: true, nickname: null, out: false },
+    ]
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, players))
+    const { container } = renderGame10()
+    const recipient = await within(container).findByLabelText('Message recipient power')
+    await waitFor(() => expect(within(recipient as HTMLElement).getByRole('option', { name: 'ITALY' })).toBeInTheDocument())
+    expect(within(recipient as HTMLElement).queryByRole('option', { name: 'GERMANY' })).toBeNull()
+  })
+
   it('says why Send is disabled when text is typed but nobody is chosen to receive it', async () => {
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
     const { container } = renderGame10()
