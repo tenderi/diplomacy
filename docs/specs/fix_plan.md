@@ -39,8 +39,6 @@ From a three-player web play-through at 390x844 (Spring 1901 to Spring 1903). On
       (creator only; `POST /games/{id}/dummies` already exists).
 - [x] DM3: "Tap to enlarge" opens the map at 55% with France and the North Sea cropped;
       open it fitted (`components/MapViewer.tsx`).
-- [ ] DM4: on a phone the games list shows the whole Create-game form before "My games";
-      put the player's games first.
 - [ ] DM5: investigate a purple diagonal-hatched overlay over NTH/ENG that stayed on the
       board from Winter 1902 onward, with no legend entry (a stale `contested` marker?).
 
