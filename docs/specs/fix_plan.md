@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-14.
-- **Open tracks:** DL (code-health findings, 2026-11-14): pick it first, DL3 onward.
+- **Open tracks:** DL (code-health findings, 2026-11-14): pick it first, DL4.
   DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
@@ -35,10 +35,6 @@ that no test runs. One PR per item.
       adjustment phases, the `RET` note on `ORD`. Also the `SUB` per-power rejection
       (~974-976): a client seated as FRANCE submitting an Austrian unit gets `NYU` and
       nothing is stored. Check each reply against the DAIDE syntax doc.
-- [ ] DL3: the void-support explanations (`game_service.py` `_supporter_reaches` fleet
-      branch ~2020, the support-hold branch of `_unordered_support_reason` ~2039-2043) and
-      the end-of-game texts for `no_winner`/`only_dummies` (`api/shared.py` ~705-709)
-      have no tests; include split-coast fleets (STP, SPA, BUL).
 - [ ] DL4: the bot's `/queue` listing with queued and finished writes
       (`telegram_bot/notifications.py` ~446-454, `outbox.py` ~165, older-than-today label)
       and the password-reset SMTP send (`routes/auth.py` ~697-706: starttls before login,
