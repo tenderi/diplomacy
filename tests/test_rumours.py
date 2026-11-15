@@ -93,7 +93,7 @@ class TestRumours:
         row = db_service.get_game_by_game_id(game_id)
         stored = [
             (m.anonymous, m.sender_user_id, m.recipient_power, m.text)
-            for m in db_service.get_messages_by_game_id(int(row.id)).all()
+            for m in db_service.get_messages_by_game_id(int(row.id))
         ]
         assert stored == [(True, db_service.get_user_by_telegram_id(bert).id, None, "Italy will stab")]
 
@@ -101,7 +101,7 @@ class TestRumours:
         game_id, _, bert, _ = _game(client, anonymous=False)
         assert client.post(f"/games/{game_id}/broadcast", json=_as(bert, text="Peace")).status_code == 200
         row = db_service.get_game_by_game_id(game_id)
-        assert [m.anonymous for m in db_service.get_messages_by_game_id(int(row.id)).all()] == [False]
+        assert [m.anonymous for m in db_service.get_messages_by_game_id(int(row.id))] == [False]
 
     def test_the_log_hides_the_sender_from_everyone_but_the_sender(self, client: TestClient) -> None:
         game_id, anna, bert, bert_nick = _game(client, anonymous=False)
