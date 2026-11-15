@@ -2582,6 +2582,72 @@ describe('GameView — a game that has not started (DM1)', () => {
     expect(within(container).getByText('Bob')).toBeInTheDocument()
   })
 
+  it('offers the creator civil disorder per open seat, behind a confirm, and posts it (DM2)', async () => {
+    const posts: unknown[] = []
+    const base = stubFetchActive({ ...lobbyState, created_by_user_id: 1 }, threeSeated)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.includes('/dummies') && init?.method === 'POST') {
+          posts.push(JSON.parse(String(init.body)))
+          return jsonResponse({ status: 'ok', dummy_powers: ['TURKEY'] })
+        }
+        return base(url, init)
+      })
+    )
+    const { container } = renderPage()
+    fireEvent.click(await within(container).findByRole('button', { name: 'Leave TURKEY to civil disorder' }))
+    expect(posts).toEqual([])
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(posts).toEqual([{ power: 'TURKEY', dummy: true }]))
+  })
+
+  it('fills every open seat with one confirmed action (DM2)', async () => {
+    const posts: unknown[] = []
+    const base = stubFetchActive({ ...lobbyState, created_by_user_id: 1 }, threeSeated)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.includes('/dummies') && init?.method === 'POST') {
+          posts.push(JSON.parse(String(init.body)))
+          return jsonResponse({ status: 'ok' })
+        }
+        return base(url, init)
+      })
+    )
+    const { container } = renderPage()
+    fireEvent.click(await within(container).findByRole('button', { name: 'Fill all open seats' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(posts).toHaveLength(4))
+    expect(posts).toEqual(
+      ['AUSTRIA', 'ENGLAND', 'RUSSIA', 'TURKEY'].map((power) => ({ power, dummy: true }))
+    )
+  })
+
+  it("shows the server's message when the seat change is refused (DM2)", async () => {
+    const base = stubFetchActive({ ...lobbyState, created_by_user_id: 1 }, threeSeated)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/dummies') && init?.method === 'POST'
+          ? jsonResponse({ detail: 'TURKEY is taken' }, 400)
+          : base(url, init)
+      )
+    )
+    const { container } = renderPage()
+    fireEvent.click(await within(container).findByRole('button', { name: 'Leave TURKEY to civil disorder' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm' }))
+    expect(await within(container).findByText('TURKEY is taken')).toBeInTheDocument()
+  })
+
+  it('offers no seat controls to a non-creator (DM2)', async () => {
+    vi.stubGlobal('fetch', stubFetchActive({ ...lobbyState, created_by_user_id: 2 }, threeSeated))
+    const { container } = renderPage()
+    await within(container).findByTestId('lobby-card')
+    expect(within(container).queryByRole('button', { name: /civil disorder|fill all/i })).not.toBeInTheDocument()
+  })
+
   it('is not a lobby once a power left to civil disorder fills the table', async () => {
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
     const { container } = renderPage()
