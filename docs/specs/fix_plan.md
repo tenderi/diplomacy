@@ -34,7 +34,7 @@ From a three-player web play-through at 390x844 (Spring 1901 to Spring 1903). On
       ~173); the API's `seats_unfilled` code is handled only on Process turn. Show the
       real reason, and give an unstarted game a lobby state on the game page ("waiting for
       N more players") instead of the order form and "You still need to submit orders".
-- [ ] DM2: once a game exists, nothing in the web UI fills empty seats: the creator can
+- [x] DM2: once a game exists, nothing in the web UI fills empty seats: the creator can
       leave a seat to civil disorder only on the create form. Offer it on the game page
       (creator only; `POST /games/{id}/dummies` already exists).
 - [x] DM3: "Tap to enlarge" opens the map at 55% with France and the North Sea cropped;

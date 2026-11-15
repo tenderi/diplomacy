@@ -457,6 +457,8 @@ export default function GameView() {
     obs.observe(messagesEl)
     return () => obs.disconnect()
   }, [gameId, messagesEl])
+  const [dummyTarget, setDummyTarget] = useState<string[] | null>(null)
+  const [dummyBusy, setDummyBusy] = useState(false)
   const isCreator =
     !!user &&
     (state?.anonymous
@@ -785,6 +787,34 @@ export default function GameView() {
     }
   }
 
+  /** DM2: leave open seats to civil disorder (creator only). One POST per power; the
+   * last one fills the table and the server starts the game, which `load()` shows. */
+  async function handleLeaveToDummies(powers: string[]) {
+    if (!gameId || !isCreator) return
+    setDummyBusy(true)
+    setError('')
+    try {
+      for (const power of powers) {
+        await apiJson(`/games/${gameId}/dummies`, {
+          method: 'POST',
+          body: JSON.stringify({ power, dummy: true }),
+        })
+      }
+      toast.success(
+        powers.length === 1 ? `${powers[0]} left to civil disorder` : 'Open seats left to civil disorder'
+      )
+    } catch (e) {
+      load() // clears `error`, so it runs before the message is set
+      setError(e instanceof ApiError ? e.message : describeActionError(e, 'Could not change the seat'))
+      setDummyBusy(false)
+      setDummyTarget(null)
+      return
+    }
+    setDummyBusy(false)
+    setDummyTarget(null)
+    load()
+  }
+
   async function handleProcessTurn() {
     if (!gameId || !isCreator) return
     setProcessing(true)
@@ -1066,6 +1096,57 @@ export default function GameView() {
               {unseatedPowers.join(', ')}. Orders open then.
             </CardDescription>
           </CardHeader>
+          {isCreator && (
+            <CardContent className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Or leave a seat to civil disorder (its units hold, it never plays):
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {unseatedPowers.map((p) => (
+                  <Button
+                    key={p}
+                    variant="outline"
+                    size="sm"
+                    className="min-h-11 sm:min-h-0"
+                    disabled={dummyBusy}
+                    onClick={() => setDummyTarget([p])}
+                  >
+                    Leave {p} to civil disorder
+                  </Button>
+                ))}
+                {unseatedPowers.length > 1 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="min-h-11 sm:min-h-0"
+                    disabled={dummyBusy}
+                    onClick={() => setDummyTarget(unseatedPowers)}
+                  >
+                    Fill all open seats
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          )}
+          <AlertDialog open={dummyTarget !== null} onOpenChange={(o) => { if (!o) setDummyTarget(null) }}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Leave {dummyTarget?.join(', ')} to civil disorder?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  No player will control {dummyTarget && dummyTarget.length > 1 ? 'these powers' : 'this power'}.
+                  If every power then has a player or civil disorder, the game starts.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => dummyTarget && void handleLeaveToDummies(dummyTarget)}>
+                  Confirm
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </Card>
       )}
 
