@@ -10,19 +10,45 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DN**.
+>   history. Track letters run in sequence; the next free one is **DO**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-15.
-- **Open tracks:** DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Open tracks:** DN (web play-through findings, 2026-11-15): pick it first, DN1 is a
+  connection leak.
+  DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DN — Web play-through of votes, concede, deadlines (2026-11-15)
+
+From a second web play-through (convoy, draw vote, concede/quit, deadlines, sandbox).
+One PR per item.
+
+- [ ] DN1: `GET /games/{id}/messages` leaks database connections:
+      `DatabaseService.get_messages_by_game_id` returns a lazy `Query` from a session its
+      `with` block already closed; the route (`routes/messages.py` ~276) and
+      `routes/archive.py` ~120 run it, which checks out a connection nothing returns.
+      Three or four open game pages exhausted the pool (`QueuePool limit ... reached`, 500s
+      on `/auth/me` and concede). Return a list from inside the session, with the
+      route's filters as parameters.
+- [ ] DN2: the game page's counts go stale: after "Fill all open seats" starts the game,
+      Turn status says "0/7 ... waiting on AUSTRIA ..." and Draw vote "0/7" (the server
+      says 3) until a reload, and another player's draw vote never shows (still 0/3 after
+      30 s). Refresh orders/draw status after these actions and while the page is open.
+- [ ] DN3: the message recipient list still offers a power that is out of the game
+      (conceded or eliminated); the API refuses it.
+- [ ] DN4: the lobby (unstarted game) still shows the draw vote, concede and "Resolve
+      orders" cards; hide what can't be used before the game starts.
+- [ ] DN5: the web UI has no way to set, propose or vote on a deadline (the bot has
+      `/deadline`), yet the page says "No deadline set for this phase". Add the controls
+      the API already supports (`deadline`, `deadline/propose`, `deadline/vote`).
 
 # Track DH — Maintainer bug reports from differential fuzzing and race review
 
