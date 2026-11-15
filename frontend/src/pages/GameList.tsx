@@ -93,7 +93,28 @@ export default function GameList() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+      <h2 className="text-lg font-medium mb-2">My games</h2>
+      {myGames.length === 0 ? (
+        <p className="text-muted-foreground mb-6">You are not in any games.</p>
+      ) : (
+        <ul className="list-none p-0 space-y-2 mb-6">
+          {myGames.map((g) => (
+            <li key={g.game_id}>
+              <Card className="hover:bg-muted/50 transition-colors">
+                <CardHeader className="py-2">
+                  <CardTitle className="text-sm font-medium">
+                    <Link to={`/games/${g.game_id}`} className={TAP_LINK}>
+                      Game {g.game_id} — {g.power} — turn {g.current_turn}
+                    </Link>
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="mb-6 space-y-2">
+        <h2 className="text-lg font-medium mb-2">Create a game</h2>
         <fieldset>
           <legend className="text-sm text-muted-foreground mb-1">
             Fewer than seven players? Leave these powers to civil disorder (they hold, and
@@ -153,26 +174,6 @@ export default function GameList() {
           {creating ? 'Creating...' : 'Create new game'}
         </Button>
       </div>
-      <h2 className="text-lg font-medium mb-2">My games</h2>
-      {myGames.length === 0 ? (
-        <p className="text-muted-foreground mb-6">You are not in any games.</p>
-      ) : (
-        <ul className="list-none p-0 space-y-2 mb-6">
-          {myGames.map((g) => (
-            <li key={g.game_id}>
-              <Card className="hover:bg-muted/50 transition-colors">
-                <CardHeader className="py-2">
-                  <CardTitle className="text-sm font-medium">
-                    <Link to={`/games/${g.game_id}`} className={TAP_LINK}>
-                      Game {g.game_id} — {g.power} — turn {g.current_turn}
-                    </Link>
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      )}
       <h2 className="text-lg font-medium mb-2">All games</h2>
       <ul className="list-none p-0 space-y-2">
         {allGames.map((g) => (
