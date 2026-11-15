@@ -17,12 +17,32 @@
 ## Status
 
 - **Last updated:** 2026-11-15.
-- **Open tracks:** DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Open tracks:** DM (web UI at phone width, 2026-11-15): pick it first.
+  DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DM — Web UI at phone width (play-through 2026-11-15)
+
+From a three-player web play-through at 390x844 (Spring 1901 to Spring 1903). One PR per item.
+
+- [ ] DM1: submitting orders before every seat is filled shows "Someone else updated this
+      game a moment ago" (any 409 goes through `describeActionError`, `GameView.tsx`
+      ~173); the API's `seats_unfilled` code is handled only on Process turn. Show the
+      real reason, and give an unstarted game a lobby state on the game page ("waiting for
+      N more players") instead of the order form and "You still need to submit orders".
+- [ ] DM2: once a game exists, nothing in the web UI fills empty seats: the creator can
+      leave a seat to civil disorder only on the create form. Offer it on the game page
+      (creator only; `POST /games/{id}/dummies` already exists).
+- [ ] DM3: "Tap to enlarge" opens the map at 55% with France and the North Sea cropped;
+      open it fitted (`components/MapViewer.tsx`).
+- [ ] DM4: on a phone the games list shows the whole Create-game form before "My games";
+      put the player's games first.
+- [ ] DM5: investigate a purple diagonal-hatched overlay over NTH/ENG that stayed on the
+      board from Winter 1902 onward, with no legend entry (a stale `contested` marker?).
 
 # Track DH — Maintainer bug reports from differential fuzzing and race review
 
