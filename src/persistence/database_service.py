@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from sqlalchemy import func as sa_func
 import logging
 from .database import (
@@ -1010,9 +1010,39 @@ class DatabaseService:
             session.refresh(msg)
             return msg
 
-    def get_messages_by_game_id(self, game_id: int):
+    def get_messages_by_game_id(
+        self,
+        game_id: int,
+        *,
+        broadcasts_only: bool = False,
+        viewer_power: Optional[str] = None,
+        viewer_user_id: Optional[int] = None,
+    ) -> List[MessageModel]:
+        """A game's messages, oldest first, as a list loaded inside the session.
+
+        With no filter, every message (the admin's archive export). With
+        ``broadcasts_only``, only messages with no recipient. With a viewer
+        (``viewer_power`` and/or ``viewer_user_id``), the broadcasts plus the
+        private messages addressed to ``viewer_power`` or sent by
+        ``viewer_user_id``.
+
+        It must return a materialized list, never a lazy ``Query``: a query
+        run after this ``with`` block closes autobegins the closed session on
+        a fresh pooled connection that nothing returns, and enough of them
+        exhaust the pool (DN1).
+        """
         with self.session_factory() as session:
-            return session.query(MessageModel).filter_by(game_id=game_id)
+            query = session.query(MessageModel).filter(MessageModel.game_id == game_id)
+            if broadcasts_only:
+                query = query.filter(MessageModel.recipient_power.is_(None))
+            elif viewer_power is not None or viewer_user_id is not None:
+                visible = [MessageModel.recipient_power.is_(None)]
+                if viewer_power is not None:
+                    visible.append(MessageModel.recipient_power == viewer_power)
+                if viewer_user_id is not None:
+                    visible.append(MessageModel.sender_user_id == viewer_user_id)
+                query = query.filter(or_(*visible))
+            return query.order_by(MessageModel.timestamp.asc(), MessageModel.id.asc()).all()
 
     def delete_all_messages(self) -> None:
         with self.session_factory() as session:

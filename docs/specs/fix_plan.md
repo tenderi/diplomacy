@@ -17,8 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-15.
-- **Open tracks:** DN (web play-through findings, 2026-11-15): pick it first, DN1 is a
-  connection leak.
+- **Open tracks:** DN (web play-through findings, 2026-11-15): pick it first (DN1 is done).
   DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
@@ -31,13 +30,7 @@
 From a second web play-through (convoy, draw vote, concede/quit, deadlines, sandbox).
 One PR per item.
 
-- [ ] DN1: `GET /games/{id}/messages` leaks database connections:
-      `DatabaseService.get_messages_by_game_id` returns a lazy `Query` from a session its
-      `with` block already closed; the route (`routes/messages.py` ~276) and
-      `routes/archive.py` ~120 run it, which checks out a connection nothing returns.
-      Three or four open game pages exhausted the pool (`QueuePool limit ... reached`, 500s
-      on `/auth/me` and concede). Return a list from inside the session, with the
-      route's filters as parameters.
+- [x] DN1: `GET /games/{id}/messages` leaked database connections (v3.0.314).
 - [ ] DN2: the game page's counts go stale: after "Fill all open seats" starts the game,
       Turn status says "0/7 ... waiting on AUSTRIA ..." and Draw vote "0/7" (the server
       says 3) until a reload, and another player's draw vote never shows (still 0/3 after
