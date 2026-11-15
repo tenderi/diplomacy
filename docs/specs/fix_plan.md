@@ -31,13 +31,13 @@ From a second web play-through (convoy, draw vote, concede/quit, deadlines, sand
 One PR per item.
 
 - [x] DN1: `GET /games/{id}/messages` leaked database connections (v3.0.314).
-- [ ] DN2: the game page's counts go stale: after "Fill all open seats" starts the game,
+- [x] DN2: the game page's counts go stale: after "Fill all open seats" starts the game,
       Turn status says "0/7 ... waiting on AUSTRIA ..." and Draw vote "0/7" (the server
       says 3) until a reload, and another player's draw vote never shows (still 0/3 after
       30 s). Refresh orders/draw status after these actions and while the page is open.
 - [ ] DN3: the message recipient list still offers a power that is out of the game
       (conceded or eliminated); the API refuses it.
-- [ ] DN4: the lobby (unstarted game) still shows the draw vote, concede and "Resolve
+- [x] DN4: the lobby (unstarted game) still shows the draw vote, concede and "Resolve
       orders" cards; hide what can't be used before the game starts.
 - [ ] DN5: the web UI has no way to set, propose or vote on a deadline (the bot has
       `/deadline`), yet the page says "No deadline set for this phase". Add the controls
