@@ -16,7 +16,6 @@ from ..shared import (
     db_service, game_service, scheduler_logger, logger, notify_players, notify_user,
     is_anonymous, power_label, require_not_eliminated,
 )
-from persistence.database import MessageModel
 
 router = APIRouter()
 
@@ -272,27 +271,19 @@ def get_game_messages(
     game_model = db_service.get_game_by_game_id(str(game_id))
     if not game_model:
         raise HTTPException(status_code=404, detail="Game not found")
-    # Retrieve all messages for the game, filter private messages to only those sent to or from the user
-    query = db_service.get_messages_by_game_id(int(game_model.id))
-    if user:
-        # Show broadcasts and private messages sent to or from this user
-        player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
-        if player:
-            power = player.power_name
-            from sqlalchemy import or_
-            query = query.filter(
-                or_(
-                    MessageModel.recipient_power.is_(None),
-                    MessageModel.recipient_power == power,
-                    MessageModel.sender_user_id == user.id,
-                )
-            )
-        else:
-            query = query.filter(MessageModel.recipient_power.is_(None))  # Only broadcasts
+    # Every broadcast, plus a player's private messages sent to or from them.
+    # Anyone without a seat (anonymous or not) sees broadcasts only.
+    player = (
+        db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
+        if user
+        else None
+    )
+    if user and player:
+        messages = db_service.get_messages_by_game_id(
+            int(game_model.id), viewer_power=str(player.power_name), viewer_user_id=int(user.id)  # type: ignore
+        )
     else:
-        # Unauthenticated: only return public broadcast messages (no private messages)
-        query = query.filter(MessageModel.recipient_power.is_(None))
-    messages = query.order_by(MessageModel.timestamp.asc()).all()
+        messages = db_service.get_messages_by_game_id(int(game_model.id), broadcasts_only=True)
     # Who sent each message, by the seat they hold now: ``sender_power``
     # always, ``sender_name`` in a public game only. An anonymous game hides
     # ``sender_user_id`` too -- a public game's player list maps it to a name.
@@ -307,7 +298,7 @@ def get_game_messages(
                 name_of[int(seat.user_id)] = getattr(sender, "nickname", None) if sender else None
     reader_id = int(user.id) if user is not None else None  # type: ignore
 
-    def hidden(m: MessageModel) -> bool:
+    def hidden(m: Any) -> bool:
         # A rumour names its sender to nobody but the sender themself, so
         # their own log still reads as theirs.
         return bool(m.anonymous) and (reader_id is None or int(m.sender_user_id) != reader_id)
