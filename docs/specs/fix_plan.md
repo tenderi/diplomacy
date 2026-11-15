@@ -29,7 +29,7 @@
 
 From a three-player web play-through at 390x844 (Spring 1901 to Spring 1903). One PR per item.
 
-- [ ] DM1: submitting orders before every seat is filled shows "Someone else updated this
+- [x] DM1: submitting orders before every seat is filled shows "Someone else updated this
       game a moment ago" (any 409 goes through `describeActionError`, `GameView.tsx`
       ~173); the API's `seats_unfilled` code is handled only on Process turn. Show the
       real reason, and give an unstarted game a lobby state on the game page ("waiting for

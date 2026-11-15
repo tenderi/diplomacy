@@ -146,6 +146,7 @@ describe('GameView — RETREAT phase', () => {
       units_by_power: { FRANCE: franceUnits }, ownership: { MAR: 'FRANCE' },
       supply_centers: { MAR: 'FRANCE' }, dislodged: [], contested: [],
       players: { FRANCE: { user_id: 1, is_active: true } }, orders: {},
+      dummy_powers: ['AUSTRIA', 'ENGLAND', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'],
     }
     const legal = {
       phase: 'S1901M', phase_type: 'MOVEMENT', power: 'FRANCE',
@@ -588,6 +589,8 @@ const activeMovementState = {
   dislodged: [],
   contested: [],
   players: { FRANCE: { user_id: 1, is_active: true } },
+  // Every other seat is civil disorder: an opening phase with open seats is the lobby (DM1).
+  dummy_powers: ['AUSTRIA', 'ENGLAND', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'],
   orders: {},
 }
 const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Test' }]
@@ -693,7 +696,7 @@ describe('GameView — roster', () => {
       { power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Alice' },
       { power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Bob' },
     ]
-    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, rosterPlayers))
+    vi.stubGlobal('fetch', stubFetchActive({ ...activeMovementState, dummy_powers: [] }, rosterPlayers))
 
     const { container } = render(
       <MemoryRouter initialEntries={['/games/10']}>
@@ -1846,6 +1849,7 @@ describe('GameView — anonymous and public games', () => {
   const anonymousState = {
     ...activeMovementState,
     anonymous: true,
+    dummy_powers: [],
     players: { FRANCE: { user_id: null, is_active: true, seated: true } },
   }
   // An anonymous game's player list carries seats, never who holds them.
@@ -2543,5 +2547,71 @@ describe('GameView — DG1 page states', () => {
     const refWarnings = errors.mock.calls.filter((c) => String(c[0]).includes('cannot be given refs'))
     errors.mockRestore()
     expect(refWarnings).toEqual([])
+  })
+})
+
+describe('GameView — a game that has not started (DM1)', () => {
+  const lobbyState = { ...activeMovementState, dummy_powers: [] }
+  const threeSeated = [
+    { power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Test' },
+    { power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Bob' },
+    { power: 'ITALY', user_id: 3, is_active: true, nickname: 'Cy' },
+  ]
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+  }
+
+  it('shows a lobby naming the open powers, with no order form or nag', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(lobbyState, threeSeated))
+    const { container } = renderPage()
+    const card = await within(container).findByTestId('lobby-card')
+    expect(within(card).getByText('Waiting for 4 more players')).toBeInTheDocument()
+    expect(card.textContent).toContain('AUSTRIA, ENGLAND, RUSSIA, TURKEY')
+    expect(within(container).queryByText(/You still need to submit orders/)).not.toBeInTheDocument()
+    expect(within(container).queryByRole('button', { name: /submit orders/i })).not.toBeInTheDocument()
+    expect(within(container).queryByRole('heading', { name: 'Orders' })).not.toBeInTheDocument()
+    // The roster stays visible.
+    expect(within(container).getByText('Bob')).toBeInTheDocument()
+  })
+
+  it('is not a lobby once a power left to civil disorder fills the table', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+    const { container } = renderPage()
+    expect(await within(container).findByRole('heading', { name: 'Orders' })).toBeInTheDocument()
+    expect(within(container).queryByTestId('lobby-card')).not.toBeInTheDocument()
+  })
+
+  it('shows the server reason, not the stale-write text, when a submit is refused as seats_unfilled', async () => {
+    const reason = "Game 10 hasn't started: 4 powers are unseated (AUSTRIA, ENGLAND, RUSSIA, TURKEY)"
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/legal_orders/')
+          ? jsonResponse({ detail: 'Not Found' }, 404)
+          : url.includes('/set_orders') && init?.method === 'POST'
+            ? Promise.resolve({
+                ok: false,
+                status: 409,
+                headers: new Headers({ 'X-Error-Code': 'seats_unfilled' }),
+                text: () => Promise.resolve(JSON.stringify({ detail: reason })),
+              } as Response)
+            : base(url, init)
+      )
+    )
+    const { container } = renderPage()
+    const box = await within(container).findByPlaceholderText(/A PAR - BUR/)
+    fireEvent.change(box, { target: { value: 'A PAR H' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    expect(await within(container).findByText(reason)).toBeInTheDocument()
+    expect(within(container).queryByText(/Someone else updated this game/)).not.toBeInTheDocument()
   })
 })
