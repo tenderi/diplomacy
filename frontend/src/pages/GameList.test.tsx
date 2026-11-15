@@ -63,6 +63,21 @@ describe('GameList', () => {
     expect(within(container).getByRole('button', { name: /create new game/i })).toBeInTheDocument()
   })
 
+  it('lists My games before the create form', async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth}>
+          <GameList />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    const mine = await within(container).findByRole('heading', { name: 'My games' })
+    const create = within(container).getByRole('heading', { name: 'Create a game' })
+    const button = within(container).getByRole('button', { name: /create new game/i })
+    expect(mine.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(mine.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows my games when API returns data', async () => {
     vi.stubGlobal(
       'fetch',
