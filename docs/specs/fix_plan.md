@@ -35,7 +35,7 @@ One PR per item.
       Turn status says "0/7 ... waiting on AUSTRIA ..." and Draw vote "0/7" (the server
       says 3) until a reload, and another player's draw vote never shows (still 0/3 after
       30 s). Refresh orders/draw status after these actions and while the page is open.
-- [ ] DN3: the message recipient list still offers a power that is out of the game
+- [x] DN3: the message recipient list still offers a power that is out of the game
       (conceded or eliminated); the API refuses it.
 - [x] DN4: the lobby (unstarted game) still shows the draw vote, concede and "Resolve
       orders" cards; hide what can't be used before the game starts.
