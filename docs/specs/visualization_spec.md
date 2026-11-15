@@ -58,7 +58,7 @@ attacker's arrow, not on the defender; a dislodgement is marked on the unit disl
   province it may retreat to, ending in a small open circle; a red ✗ beside a unit with
   nowhere to go.
 - **Provinces** are tinted with the owner's colour; an occupied province shows the
-  occupant's. Seas are hatched instead of filled: bold diagonal stripes (`sea_hatch_width` 4 px, `sea_hatch_spacing` 14 px, `sea_hatch_alpha` 200), so the stripes read at a glance and never look like a land fill. Ownership is recomputed only after Fall
+  occupant's. Seas are hatched instead of filled: bold diagonal stripes (`sea_hatch_width` 4 px, `sea_hatch_spacing` 14 px, `sea_hatch_alpha` 200), so the stripes read at a glance and never look like a land fill. A hatched sea is a fleet standing in it (the occupant's colour, keyed by the footer's power swatches; it stays for as long as the fleet does, e.g. England's bounced fleets left in NTH/ENG), never a standoff marker; those are the burst symbols. Ownership is recomputed only after Fall
   settles, matching the engine.
 - **Province names and supply centres sit over the tint.** `render_base` rasterizes the SVG
   without `BriefLabelLayer` and `SupplyCenterLayer`, tints it, then composites the names
