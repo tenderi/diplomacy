@@ -37,7 +37,7 @@ From a three-player web play-through at 390x844 (Spring 1901 to Spring 1903). On
 - [ ] DM2: once a game exists, nothing in the web UI fills empty seats: the creator can
       leave a seat to civil disorder only on the create form. Offer it on the game page
       (creator only; `POST /games/{id}/dummies` already exists).
-- [ ] DM3: "Tap to enlarge" opens the map at 55% with France and the North Sea cropped;
+- [x] DM3: "Tap to enlarge" opens the map at 55% with France and the North Sea cropped;
       open it fitted (`components/MapViewer.tsx`).
 - [ ] DM4: on a phone the games list shows the whole Create-game form before "My games";
       put the player's games first.
