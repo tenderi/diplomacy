@@ -928,6 +928,47 @@ describe('GameView — deadline schedule', () => {
   })
 })
 
+describe('GameView — deadline controls (DN5)', () => {
+  it('shows the controls to a seated player, with a pending proposal from the deadline read', async () => {
+    const proposal = {
+      proposed_by: 'GERMANY', value_hours: 12, yes_votes: ['GERMANY'], no_votes: [], needed_for_majority: 2,
+    }
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { deadline: { pending_proposal: proposal } }))
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    expect(await within(container).findByTestId('deadline-card')).toBeInTheDocument()
+    expect(within(container).getByTestId('deadline-proposal')).toHaveTextContent('Yes 1/2 needed (GERMANY)')
+  })
+
+  it('hides them from a viewer who holds no seat', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(
+        activeMovementState,
+        ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'].map((power, i) => ({
+          power, user_id: i + 2, is_active: true, nickname: `P${i}`,
+        }))
+      )
+    )
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    expect(await within(container).findByText('No deadline set for this phase.')).toBeInTheDocument()
+    expect(within(container).queryByTestId('deadline-card')).toBeNull()
+  })
+})
+
 describe('GameView — orders status', () => {
   it("shows the logged-in power's submission status and who is still missing", async () => {
     vi.stubGlobal(
@@ -2310,6 +2351,7 @@ describe('GameView — a power that is out (CH1)', () => {
     expect(within(container).queryByRole('button', { name: 'Vote for draw' })).toBeNull()
     expect(within(container).queryByRole('button', { name: 'Concede' })).toBeNull()
     expect(within(container).queryByRole('button', { name: 'Quit (step away)' })).toBeNull()
+    expect(within(container).queryByTestId('deadline-card')).toBeNull()
     expect(within(container).queryByPlaceholderText('Type a message...')).toBeNull()
     expect(within(container).queryByRole('button', { name: 'Send' })).toBeNull()
     expect(within(container).getByRole('heading', { name: 'Messages' })).toBeInTheDocument()

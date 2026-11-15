@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { formatDeadline } from '@/lib/deadline'
+import { DeadlineCard, type DeadlineProposal } from '@/components/DeadlineCard'
 import {
   formatMessageTime,
   readSeenMessageId,
@@ -167,7 +168,11 @@ const MAP_MODE_LABELS: Record<MapMode, string> = {
   resolution: 'Last resolution',
 }
 /** The part of `GET /games/{id}/deadline` the page shows. */
-type DeadlineInfo = { deadline: string | null; schedule?: { description: string } | null }
+type DeadlineInfo = {
+  deadline: string | null
+  schedule?: { description: string } | null
+  pending_proposal?: DeadlineProposal | null
+}
 
 /** A 409 StaleGameError carries a raw backend string (see game_repo.py) not meant for
  * display; translate it and any other action error into something a player can act on. */
@@ -340,6 +345,7 @@ export default function GameView() {
   const [deadlineIso, setDeadlineIso] = useState<string | null>(null)
   /** The weekly schedule that arms each phase's deadline, e.g. "Mon, Wed, Fri at 16:00 (UTC)". */
   const [scheduleText, setScheduleText] = useState<string | null>(null)
+  const [deadlineProposal, setDeadlineProposal] = useState<DeadlineProposal | null>(null)
   const [leaving, setLeaving] = useState(false)
   /** The last processed turn's per-order outcomes (GET .../last_resolution), so "what
    * happened to my orders" survives a reload, not just the inline process_turn response. */
@@ -417,6 +423,7 @@ export default function GameView() {
             setDrawStatus(ds)
             setDeadlineIso(d.deadline ?? null)
             setScheduleText(d.schedule?.description ?? null)
+            setDeadlineProposal(d.pending_proposal ?? null)
           }
         }
       } catch {
@@ -615,12 +622,25 @@ export default function GameView() {
       .then((d) => {
         setDeadlineIso(d.deadline ?? null)
         setScheduleText(d.schedule?.description ?? null)
+        setDeadlineProposal(d.pending_proposal ?? null)
       })
       .catch(() => {
         setDeadlineIso(null)
         setScheduleText(null)
+        setDeadlineProposal(null)
       })
   }, [gameId, state?.status, state?.phase, notStarted])
+
+  /** Re-read the deadline, schedule and proposal after a DeadlineCard action. */
+  const refreshDeadline = useCallback(() => {
+    apiJson<DeadlineInfo>(`/games/${gameId}/deadline`)
+      .then((d) => {
+        setDeadlineIso(d.deadline ?? null)
+        setScheduleText(d.schedule?.description ?? null)
+        setDeadlineProposal(d.pending_proposal ?? null)
+      })
+      .catch(() => undefined)
+  }, [gameId])
 
   // Depends on state.phase (not just gameId/myPower) so that: (a) a phase change refetches
   // and resets selections instead of letting a previous phase's picks survive into the new
@@ -1163,6 +1183,15 @@ export default function GameView() {
             )}
           </CardHeader>
           <CardContent className="space-y-2">
+            {myPower && !iAmOut && gameId && (
+              <DeadlineCard
+                gameId={gameId}
+                power={myPower}
+                proposal={deadlineProposal}
+                hasSchedule={!!scheduleText}
+                onChanged={refreshDeadline}
+              />
+            )}
             {myPower && !iAmOut && (
               <p
                 className={cn(
