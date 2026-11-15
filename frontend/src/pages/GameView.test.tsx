@@ -397,6 +397,7 @@ describe('GameView — draw vote', () => {
     dislodged: [],
     contested: [],
     players: { FRANCE: { user_id: 1, is_active: true } },
+    dummy_powers: ['AUSTRIA', 'ENGLAND', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'], // not a lobby
     orders: {},
   }
   const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Test' }]
@@ -2646,6 +2647,75 @@ describe('GameView — a game that has not started (DM1)', () => {
     const { container } = renderPage()
     await within(container).findByTestId('lobby-card')
     expect(within(container).queryByRole('button', { name: /civil disorder|fill all/i })).not.toBeInTheDocument()
+  })
+
+  it('hides draw vote, concede and process controls in the lobby but keeps Quit (DN4)', async () => {
+    vi.stubGlobal('fetch', stubFetchActive({ ...lobbyState, created_by_user_id: 1 }, threeSeated))
+    const { container } = renderPage()
+    await within(container).findByTestId('lobby-card')
+    expect(within(container).queryByRole('heading', { name: 'Draw vote' })).not.toBeInTheDocument()
+    expect(within(container).queryByRole('button', { name: 'Concede' })).not.toBeInTheDocument()
+    expect(within(container).queryByRole('heading', { name: 'Process turn' })).not.toBeInTheDocument()
+    expect(within(container).queryByRole('button', { name: /resolve orders/i })).not.toBeInTheDocument()
+    expect(within(container).getByRole('button', { name: 'Quit (step away)' })).toBeInTheDocument()
+  })
+
+  it('refreshes the order and draw counts after the fill starts the game (DN2)', async () => {
+    let filled = false
+    const base = stubFetchActive({ ...lobbyState, created_by_user_id: 1 }, threeSeated)
+    const allPlayers = [
+      ...threeSeated,
+      ...['AUSTRIA', 'ENGLAND', 'RUSSIA', 'TURKEY'].map((power) => ({ power, user_id: null, is_active: true })),
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.includes('/dummies') && init?.method === 'POST') {
+          filled = true
+          return jsonResponse({ status: 'ok' })
+        }
+        if (url.endsWith('/players') && filled) return jsonResponse(allPlayers)
+        if (url.includes('/orders_status'))
+          return jsonResponse(
+            filled
+              ? { phase: 'S1901M', active_powers: ['FRANCE', 'GERMANY', 'ITALY'], submitted: [], missing: ['FRANCE', 'GERMANY', 'ITALY'] }
+              : { phase: 'S1901M', active_powers: ['A', 'B', 'C', 'D', 'E', 'F', 'G'], submitted: [], missing: ['A'] }
+          )
+        if (url.includes('/draw_vote_status'))
+          return jsonResponse({
+            phase: 'S1901M', game_status: 'ACTIVE', quorum_reached: false, votes: [], missing: [],
+            required: filled ? ['FRANCE', 'GERMANY', 'ITALY'] : ['A', 'B', 'C', 'D', 'E', 'F', 'G'],
+          })
+        return base(url, init)
+      })
+    )
+    const { container } = renderPage()
+    fireEvent.click(await within(container).findByRole('button', { name: 'Fill all open seats' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm' }))
+    expect(await within(container).findByText(/0\/3 powers have submitted/)).toBeInTheDocument()
+    expect(await within(container).findByText(/0\/3 powers have voted for a draw/)).toBeInTheDocument()
+  })
+
+  it("shows another power's draw vote on the next poll (DN2)", async () => {
+    let votes: string[] = []
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/draw_vote_status')
+          ? jsonResponse({
+              phase: 'S1901M', game_status: 'ACTIVE', quorum_reached: false, votes,
+              required: ['FRANCE', 'GERMANY'], missing: [],
+            })
+          : base(url, init)
+      )
+    )
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { container } = renderPage()
+    expect(await within(container).findByText(/0\/2 powers have voted for a draw/)).toBeInTheDocument()
+    votes = ['GERMANY']
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(await within(container).findByText(/1\/2 powers have voted for a draw: GERMANY/)).toBeInTheDocument()
   })
 
   it('is not a lobby once a power left to civil disorder fills the table', async () => {

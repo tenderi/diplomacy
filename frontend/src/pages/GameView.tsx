@@ -406,12 +406,15 @@ export default function GameView() {
         if (s.status === 'ACTIVE') {
           // The deadline too: one set or changed mid-phase (a vote, the schedule, /deadline)
           // does not change the phase, so the phase-keyed fetch below would never show it.
-          const [os, d] = await Promise.all([
+          const [os, d, ds] = await Promise.all([
             apiJson<OrdersStatus>(`/games/${gameId}/orders_status`),
             apiJson<DeadlineInfo>(`/games/${gameId}/deadline`),
+            // Draw votes by the other powers: nothing else on the page re-reads them.
+            apiJson<DrawVoteStatus>(`/games/${gameId}/draw_vote_status`),
           ])
           if (!cancelled) {
             setOrdersStatus(os)
+            setDrawStatus(ds)
             setDeadlineIso(d.deadline ?? null)
             setScheduleText(d.schedule?.description ?? null)
           }
@@ -593,7 +596,7 @@ export default function GameView() {
     apiJson<DrawVoteStatus>(`/games/${gameId}/draw_vote_status`)
       .then(setDrawStatus)
       .catch(() => setDrawStatus(null))
-  }, [gameId, myPower, state?.status, state?.phase])
+  }, [gameId, myPower, state?.status, state?.phase, notStarted])
 
   // orders_status and deadline are unauthenticated status reads (same as draw_vote_status) --
   // fetch them for every viewer, not just the logged-in power, so anyone watching the game
@@ -617,7 +620,7 @@ export default function GameView() {
         setDeadlineIso(null)
         setScheduleText(null)
       })
-  }, [gameId, state?.status, state?.phase])
+  }, [gameId, state?.status, state?.phase, notStarted])
 
   // Depends on state.phase (not just gameId/myPower) so that: (a) a phase change refetches
   // and resets selections instead of letting a previous phase's picks survive into the new
@@ -1547,7 +1550,7 @@ export default function GameView() {
 
       {myPower && gameId && <TelegramGroupCard gameId={gameId} />}
 
-      {myPower && !iAmOut && state.status === 'ACTIVE' && (
+      {myPower && !iAmOut && state.status === 'ACTIVE' && !notStarted && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Draw vote</h2>
           {drawStatus ? (
@@ -1620,6 +1623,7 @@ export default function GameView() {
               </AlertDialogContent>
             </AlertDialog>
 
+            {!notStarted && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" disabled={leaving}>Concede</Button>
@@ -1639,18 +1643,19 @@ export default function GameView() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            )}
           </div>
         </section>
       )}
 
-      {myPower && !isCreator && state.status === 'ACTIVE' && (
+      {myPower && !isCreator && state.status === 'ACTIVE' && !notStarted && (
         <p className="text-sm text-muted-foreground mb-6">
           The turn is processed at the deadline, or as soon as every order is in if
           auto-processing is on. Only the game&apos;s creator can process it early.
         </p>
       )}
 
-      {isCreator && state.status === 'ACTIVE' && (
+      {isCreator && state.status === 'ACTIVE' && !notStarted && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Process turn</h2>
           <p className="text-sm text-muted-foreground mb-2">
