@@ -1475,7 +1475,9 @@ export default function GameView() {
               )}
             >
               <option value="">To power...</option>
-              {POWERS.filter((p) => p !== myPower && takenPowers.has(p)).map((p) => (
+              {POWERS.filter(
+                (p) => p !== myPower && takenPowers.has(p) && players.find((x) => x.power === p)?.out !== true
+              ).map((p) => (
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
