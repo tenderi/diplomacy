@@ -631,6 +631,13 @@ loses (or never had) a full table stay stored and are adjudicated as usual once 
 reading the board, the pending orders and the order status is unaffected. A finished game
 is left to the service, which answers with how it ended.
 
+The web game page mirrors this. The API exposes no "started" flag, so the page derives
+the lobby: the opening phase (`S1901M`) with a power that has neither a seat row in
+`/players` nor dummy status. It then shows "Waiting for N more players" naming the open
+powers, and hides the turn-status card, the "You still need to submit orders" line and the
+order form; messages and the players list stay. Any action refused with `seats_unfilled`
+shows the server's own detail, not the generic stale-write text every other 409 gets.
+
 **Deadlines are never imposed by the server.** A game has a deadline only when a player
 chose one: set explicitly via `POST /games/{id}/deadline` (the bot's `/deadline <game_id>
 <hours|clear>`, or a majority vote through `deadline/propose`), or armed from the game's

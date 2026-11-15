@@ -172,6 +172,9 @@ type DeadlineInfo = { deadline: string | null; schedule?: { description: string 
 /** A 409 StaleGameError carries a raw backend string (see game_repo.py) not meant for
  * display; translate it and any other action error into something a player can act on. */
 function describeActionError(e: unknown, fallback: string): string {
+  // The table is not full yet: the server's message names the open powers, and the
+  // stale-write text below would misdescribe it.
+  if (e instanceof ApiError && e.code === 'seats_unfilled') return e.message
   if (e instanceof ApiError && e.status === 409) {
     return 'Someone else updated this game a moment ago. The latest state has been reloaded — please check before trying again.'
   }
@@ -463,6 +466,13 @@ export default function GameView() {
   const takenPowers = new Set(players.filter(isSeated).map((p) => p.power))
   const dummyPowers = new Set(state?.dummy_powers ?? [])
   const availablePowers = POWERS.filter((p) => !takenPowers.has(p) && !dummyPowers.has(p))
+  // The API exposes no "started" flag. A game is in its lobby until every power has a seat
+  // row or is a dummy (`/players` lists only seat rows) and while still on the opening
+  // phase; once a turn has run it has started whatever seat was reopened since.
+  const rowPowers = new Set(players.map((p) => p.power))
+  const unseatedPowers = POWERS.filter((p) => !rowPowers.has(p) && !dummyPowers.has(p))
+  const notStarted =
+    state?.status === 'ACTIVE' && state.phase === 'S1901M' && unseatedPowers.length > 0
 
   useEffect(() => { load() }, [load])
 
@@ -1044,7 +1054,22 @@ export default function GameView() {
         </Alert>
       )}
 
-      {state.status === 'ACTIVE' && (
+      {notStarted && (
+        <Card className="mb-6" data-testid="lobby-card">
+          <CardHeader>
+            <CardTitle>
+              Waiting for {unseatedPowers.length} more{' '}
+              {unseatedPowers.length === 1 ? 'player' : 'players'}
+            </CardTitle>
+            <CardDescription>
+              The game starts once every power has a player. Still open:{' '}
+              {unseatedPowers.join(', ')}. Orders open then.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {state.status === 'ACTIVE' && !notStarted && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Turn status</CardTitle>
@@ -1247,7 +1272,7 @@ export default function GameView() {
       {myPower && !iAmOut && (
         <>
           <p className="font-medium mb-4">Your power: {myPower}</p>
-          {state.status === 'ACTIVE' && (
+          {state.status === 'ACTIVE' && !notStarted && (
           <section id="orders-panel" className="mb-6 scroll-mt-4">
             <h2 id="orders-heading" tabIndex={-1} className="text-lg font-medium mb-2 outline-none">
               Orders
