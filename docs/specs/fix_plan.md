@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-14.
-- **Open tracks:** DL (code-health findings, 2026-11-14): pick it first, DL2 onward.
+- **Open tracks:** DL (code-health findings, 2026-11-14): pick it first, DL3 onward.
   DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
@@ -30,7 +30,7 @@
 From a coverage sweep (3764 passed, 0 skipped, 89.9%): code a player or client depends on
 that no test runs. One PR per item.
 
-- [ ] DL2: DAIDE retreat/adjustment replies are untested (`daide/session.py` ~377,
+- [x] DL2: DAIDE retreat/adjustment replies are untested (`daide/session.py` ~377,
       ~581-585, ~615-630): `NOW` with dislodged units and `MRT` lists, `MIS` in retreat and
       adjustment phases, the `RET` note on `ORD`. Also the `SUB` per-power rejection
       (~974-976): a client seated as FRANCE submitting an Austrian unit gets `NYU` and
