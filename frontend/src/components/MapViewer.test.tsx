@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, within, cleanup } from '@testing-library/react'
-import MapViewer, { fitScaleFor, initialScaleFor } from './MapViewer'
+import MapViewer, { fitScaleFor } from './MapViewer'
 
 // `globals` is off in vite.config.ts, so Testing Library cannot register its automatic
 // per-test cleanup -- without this every test would see the previous test's DOM. Same
@@ -266,25 +266,40 @@ describe('MapViewer', () => {
     expect(fitScaleFor(1600, 500, 1835, 1360)).toBeCloseTo(500 / 1360, 6)
   })
 
-  it('opens at a readable zoom on a phone, not at the ~21% fit', () => {
-    expect(initialScaleFor(390, 700, 1835, 1360)).toBe(0.55)
-  })
-
-  it('keeps Fit on wide screens where fit is already legible', () => {
-    expect(initialScaleFor(1280, 700, 1835, 1360)).toBeCloseTo(700 / 1360, 6)
-    expect(initialScaleFor(0, 0, 1835, 1360)).toBe(1)
-  })
-
-  it('applies the readable zoom when the image loads in a narrow viewport', () => {
-    open()
+  function sizeViewport(w: number, h: number) {
     const vp = screen.getByTestId('map-viewport')
-    Object.defineProperty(vp, 'clientWidth', { value: 390, configurable: true })
-    Object.defineProperty(vp, 'clientHeight', { value: 700, configurable: true })
+    Object.defineProperty(vp, 'clientWidth', { value: w, configurable: true })
+    Object.defineProperty(vp, 'clientHeight', { value: h, configurable: true })
+  }
+
+  function loadBoard() {
     const img = viewerImage()
     Object.defineProperty(img, 'naturalWidth', { value: 1835, configurable: true })
     Object.defineProperty(img, 'naturalHeight', { value: 1360, configurable: true })
     fireEvent.load(img)
-    expect(scaleOf(viewerImage())).toBeCloseTo(0.55, 5)
+  }
+
+  it('opens fitted on a phone: whole map visible and centred, not a cropped 55%', () => {
+    open()
+    sizeViewport(390, 700)
+    loadBoard()
+    expect(scaleOf(viewerImage())).toBeCloseTo(390 / 1835, 5)
+    expect(translateOf(viewerImage())).toEqual({ x: 0, y: 0 })
+    expect(screen.getByText('21%')).toBeTruthy()
+  })
+
+  it('re-fits on resize or rotation until the user has zoomed', () => {
+    open()
+    sizeViewport(390, 700)
+    loadBoard()
+    sizeViewport(844, 390)
+    fireEvent(window, new Event('resize'))
+    expect(scaleOf(viewerImage())).toBeCloseTo(390 / 1360, 5)
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    const zoomed = scaleOf(viewerImage())
+    sizeViewport(390, 700)
+    fireEvent(window, new Event('resize'))
+    expect(scaleOf(viewerImage())).toBeCloseTo(zoomed, 5)
     fireEvent.click(screen.getByRole('button', { name: 'Fit map to screen' }))
     expect(scaleOf(viewerImage())).toBeCloseTo(390 / 1835, 5)
   })
