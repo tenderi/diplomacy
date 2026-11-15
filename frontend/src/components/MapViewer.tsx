@@ -41,24 +41,6 @@ export function fitScaleFor(vw: number, vh: number, nw: number, nh: number): num
   return clampScale(Math.min(vw / nw, vh / nh))
 }
 
-/** Below this scale province labels and unit icons are not legible. */
-const READABLE_SCALE = 0.55
-/** Fit scales under this are too small to read; viewports narrower than NARROW_VIEWPORT are "phones". */
-const MIN_LEGIBLE_FIT = 0.4
-const NARROW_VIEWPORT = 768
-
-/**
- * Scale the enlarged map opens at. Fit when fit is already legible (desktop); on a
- * narrow viewport, where fit is ~21% and no better than the in-page map, a readable zoom
- * instead (panned from the board's centre: no province coordinates exist client-side).
- */
-export function initialScaleFor(vw: number, vh: number, nw: number, nh: number): number {
-  const fit = fitScaleFor(vw, vh, nw, nh)
-  if (!vw || !vh || !nw || !nh) return fit
-  if (fit >= MIN_LEGIBLE_FIT || vw >= NARROW_VIEWPORT) return fit
-  return READABLE_SCALE
-}
-
 /**
  * Scale about a fixed point so the pixel under the cursor stays under the cursor.
  * `px`/`py` are relative to the transform's origin (the centre of the viewport).
@@ -129,7 +111,8 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
   const [transform, setTransform] = useState<Transform>(IDENTITY)
   /** Natural image size, needed to compute the "fit to viewport" scale. */
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
-  const [fitted, setFitted] = useState(false)
+  /** True until the user zooms or pans: while true, a resize re-fits the map. */
+  const autoFit = useRef(true)
   const dialogRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   /** Active pointers, for drag-to-pan and two-finger pinch. */
@@ -138,6 +121,12 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
   const pinchDist = useRef<number | null>(null)
   const [dragging, setDragging] = useState(false)
 
+  /** A user-driven transform change: stops the automatic re-fit on resize. */
+  const adjust = useCallback((next: Transform | ((t: Transform) => Transform)) => {
+    autoFit.current = false
+    setTransform(next)
+  }, [])
+
   const fitScale = useCallback((): number => {
     const vp = viewportRef.current
     if (!natural || !vp) return 1
@@ -145,22 +134,36 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
   }, [natural])
 
   const fitToViewport = useCallback(() => {
+    autoFit.current = true
     setTransform({ scale: fitScale(), x: 0, y: 0 })
   }, [fitScale])
 
-  // Open fitted when fit is legible; on a phone, at a readable zoom instead (the inline
-  // map's failing is scale). "Fit" and "1:1" stay one tap away.
+  // Open fitted, and stay fitted through a resize or rotation until the user zooms or
+  // pans. The viewport's size is only known after layout and changes with the window, so
+  // the fit is recomputed whenever the image's natural size or the viewport's size
+  // changes, not once at load. (Opening at a fixed 55% "readable" zoom, centred, is what
+  // cropped France and the North Sea on a phone.)
   useEffect(() => {
     const vp = viewportRef.current
-    if (natural && !fitted && vp) {
-      setFitted(true)
-      setTransform({
-        scale: initialScaleFor(vp.clientWidth, vp.clientHeight, natural.w, natural.h),
-        x: 0,
-        y: 0,
-      })
+    if (!natural || !vp) return
+    const refit = () => {
+      if (autoFit.current) {
+        setTransform({
+          scale: fitScaleFor(vp.clientWidth, vp.clientHeight, natural.w, natural.h),
+          x: 0,
+          y: 0,
+        })
+      }
     }
-  }, [natural, fitted])
+    refit()
+    window.addEventListener('resize', refit)
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refit)
+    ro?.observe(vp)
+    return () => {
+      window.removeEventListener('resize', refit)
+      ro?.disconnect()
+    }
+  }, [natural])
 
   useEffect(() => {
     dialogRef.current?.focus()
@@ -181,20 +184,20 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
         e.stopPropagation()
         onClose()
       } else if (e.key === '+' || e.key === '=') {
-        setTransform((t) => zoomAbout(t, ZOOM_STEP, 0, 0))
+        adjust((t) => zoomAbout(t, ZOOM_STEP, 0, 0))
       } else if (e.key === '-' || e.key === '_') {
-        setTransform((t) => zoomAbout(t, 1 / ZOOM_STEP, 0, 0))
+        adjust((t) => zoomAbout(t, 1 / ZOOM_STEP, 0, 0))
       } else if (e.key === '0') {
         fitToViewport()
       } else if (e.key === '1') {
-        setTransform({ scale: 1, x: 0, y: 0 })
+        adjust({ scale: 1, x: 0, y: 0 })
       }
     }
     // Capture phase: the map lives inside a page with its own key handling, and Esc
     // here must not also reach whatever is behind the overlay.
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [onClose, fitToViewport])
+  }, [onClose, fitToViewport, adjust])
 
   /** Cursor position relative to the viewport centre, which is the transform origin. */
   const toOrigin = (clientX: number, clientY: number): { px: number; py: number } => {
@@ -208,7 +211,7 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
     e.preventDefault()
     const { px, py } = toOrigin(e.clientX, e.clientY)
     const factor = e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP
-    setTransform((t) => zoomAbout(t, factor, px, py))
+    adjust((t) => zoomAbout(t, factor, px, py))
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -229,7 +232,7 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
       if (pinchDist.current !== null && pinchDist.current > 0) {
         const { px, py } = toOrigin((a.x + b.x) / 2, (a.y + b.y) / 2)
         const factor = dist / pinchDist.current
-        setTransform((t) => zoomAbout(t, factor, px, py))
+        adjust((t) => zoomAbout(t, factor, px, py))
       }
       pinchDist.current = dist
       return
@@ -237,7 +240,7 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
 
     const dx = e.clientX - previous.x
     const dy = e.clientY - previous.y
-    setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
+    adjust((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
   }
 
   const endPointer = (e: React.PointerEvent) => {
@@ -261,19 +264,19 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
       <div className="flex flex-nowrap items-center gap-1.5 border-b border-white/15 bg-neutral-950 px-2 py-2 text-white sm:gap-2 sm:px-3">
         <span className="mr-auto hidden min-w-0 truncate text-sm font-medium sm:block">{alt}</span>
         <span className="mr-auto sm:hidden" />
-        <ViewerButton onClick={() => setTransform((t) => zoomAbout(t, 1 / ZOOM_STEP, 0, 0))} label="Zoom out">
+        <ViewerButton onClick={() => adjust((t) => zoomAbout(t, 1 / ZOOM_STEP, 0, 0))} label="Zoom out">
           &minus;
         </ViewerButton>
         <span className="w-11 text-center text-xs tabular-nums sm:w-14" aria-live="polite">
           {zoomPercent}%
         </span>
-        <ViewerButton onClick={() => setTransform((t) => zoomAbout(t, ZOOM_STEP, 0, 0))} label="Zoom in">
+        <ViewerButton onClick={() => adjust((t) => zoomAbout(t, ZOOM_STEP, 0, 0))} label="Zoom in">
           +
         </ViewerButton>
         <ViewerButton onClick={fitToViewport} label="Fit map to screen">
           Fit
         </ViewerButton>
-        <ViewerButton onClick={() => setTransform({ scale: 1, x: 0, y: 0 })} label="Show map at full size">
+        <ViewerButton onClick={() => adjust({ scale: 1, x: 0, y: 0 })} label="Show map at full size">
           1:1
         </ViewerButton>
         <a
@@ -300,7 +303,7 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
         onPointerMove={onPointerMove}
         onPointerUp={endPointer}
         onPointerCancel={endPointer}
-        onDoubleClick={() => (atNaturalSize ? fitToViewport() : setTransform({ scale: 1, x: 0, y: 0 }))}
+        onDoubleClick={() => (atNaturalSize ? fitToViewport() : adjust({ scale: 1, x: 0, y: 0 }))}
         className={cn(
           'relative flex-1 touch-none overflow-hidden',
           dragging ? 'cursor-grabbing' : 'cursor-grab',
