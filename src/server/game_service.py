@@ -559,6 +559,9 @@ class GameService:
             # turn; its own end check ran on the board before it (CB1).
             expected_dummy_powers=dummies,
             refuse_if_waiting=honour_wait_flags,
+            # A power out of the game cannot hold the table up (DO1); the board
+            # it is out on is the one ``expected_state_json`` pins.
+            wait_flags_ignored=game.eliminated_powers(),
             last_resolution=resolution_dict,
             order_history_entry=history_entry,
             # Same dict as ``last_resolution``, but kept per turn so it survives
@@ -622,9 +625,20 @@ class GameService:
         self._repo.set_join_password_hash(game_id, password_hash)
 
     def wait_flags(self, game_id: str) -> frozenset[str]:
-        """Powers whose players asked the table to wait this phase."""
-        meta = self._repo.get_meta(game_id) or {}
-        return frozenset(meta.get("wait_flags") or ())
+        """Powers whose players asked the table to wait this phase. A flag held
+        by a power that has since left the game (DO1) is not one: nobody is
+        waiting on it."""
+        sj = self._repo.get_state_json(game_id)
+        if sj is None:
+            return frozenset()
+        return self._live_wait_flags(self._repo.get_meta(game_id) or {}, state_from_dict(sj))
+
+    def _live_wait_flags(self, meta: dict[str, Any], state: GameState) -> frozenset[str]:
+        """``meta``'s stored flags less those of powers out of the game on ``state``."""
+        flags = frozenset(meta.get("wait_flags") or ())
+        if state.status is GameStatus.COMPLETED:
+            return flags
+        return flags - Game(map=self._map, state=state).eliminated_powers()
 
     def set_wait(self, game_id: str, power: str, waiting: bool) -> tuple[list[str], bool]:
         """Raise or lower ``power``'s wait flag. Returns the powers now waiting and
@@ -634,6 +648,12 @@ class GameService:
             raise OrderError(f"game {game_id} not found")
         _require_active(game, game_id, "wait flags can no longer be changed")
         power = power.upper()
+        if waiting and power in game.eliminated_powers():
+            # DO1: its flag would hold up a table it is no longer at. Lowering one
+            # stays allowed (it changes nothing the table waits on).
+            raise PowerEliminatedError(
+                f"{power} has been eliminated from game {game_id}; it cannot ask the table to wait"
+            )
         changed = False
 
         def change(flags: set[str]) -> set[str]:
@@ -642,7 +662,8 @@ class GameService:
             return flags | {power} if waiting else flags - {power}
 
         flags = self._repo.modify_wait_flags(game_id, change, expected_phase_code=game.state.phase_name)
-        return flags, changed
+        out = game.eliminated_powers()
+        return [p for p in flags if p not in out], changed
 
     def _demo_ai_orders(
         self,
@@ -673,11 +694,12 @@ class GameService:
         """W10: auto-process is on, the game is running, every power with
         something to order this phase has submitted (dummies are never waited
         on, W9), and no one's wait flag is up. A flag from a dummy's seat cannot
-        exist -- only a seated player can raise one."""
+        exist -- only a seated player can raise one -- and one held by a power
+        that has left the game does not count (DO1)."""
         meta = self._repo.get_meta(game_id)
         if meta is None or not meta.get("auto_process") or meta.get("status") != "active":
             return False
-        if meta.get("wait_flags"):
+        if self.wait_flags(game_id):
             return False
         status = self.orders_status(game_id)
         return status is not None and not status["missing"] and not status["incomplete"]
@@ -971,9 +993,11 @@ class GameService:
         except StaleGameError:
             self._raise_if_ended(game_id, "a power can no longer concede")
             raise
-        # The conceding power has nothing left to order or vote on this phase.
+        # The conceding power has nothing left to order, vote on or wait for
+        # this phase.
         self.clear_orders(game_id, power)
         self._repo.modify_draw_votes(game_id, lambda votes: {p: v for p, v in votes.items() if p != power})
+        self._repo.modify_wait_flags(game_id, lambda flags: flags - {power})
 
         eliminated = power in Game(map=self._map, state=new_state).eliminated_powers()
         how = self._settle_after_leaving(game_id)
@@ -1244,7 +1268,7 @@ class GameService:
             "players": players,
             "dummy_powers": meta.get("dummy_powers") or [],
             "auto_process": bool(meta.get("auto_process")),
-            "wait_flags": meta.get("wait_flags") or [],
+            "wait_flags": sorted(self._live_wait_flags(meta, state)),
             "private": bool(meta.get("private")),
             "anonymous": anonymous,
             "random_powers": bool(meta.get("random_powers")),
@@ -1535,6 +1559,7 @@ class GameService:
         active_powers = sorted(p for p in powers_with_orders_to_give(self._map, state) if p not in dummies)
         submitted = [p for p in active_powers if pending.get(p)]
         alive = {u.power for u in state.units} | set(state.ownership.values())
+        meta = self._repo.get_meta(game_id) or {}
         return {
             "phase": state.phase_name,
             "active_powers": active_powers,
@@ -1544,8 +1569,8 @@ class GameService:
             # Submitted something, but not an order for everything that must act.
             "incomplete": [p for p in submitted if not self._orders_complete(p, state, pending[p])],
             # W10: who asked to wait, and whether the turn runs by itself.
-            "waiting": sorted(self.wait_flags(game_id)),
-            "auto_process": bool((self._repo.get_meta(game_id) or {}).get("auto_process")),
+            "waiting": sorted(self._live_wait_flags(meta, state)),
+            "auto_process": bool(meta.get("auto_process")),
         }
 
     def phase_duties(self, game_id: str) -> Optional[dict[str, Any]]:

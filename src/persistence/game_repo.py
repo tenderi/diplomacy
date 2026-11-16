@@ -387,6 +387,7 @@ class GameRepo:
         resolution_history_entry: Optional[dict[str, Any]] = None,
         refuse_completed: bool = False,
         refuse_if_waiting: bool = False,
+        wait_flags_ignored: frozenset[str] = frozenset(),
         board: Optional[dict[str, Any]] = None,
     ) -> bool:
         """Persist the next ``GameState`` and bump the phase counter. When given, the
@@ -423,7 +424,9 @@ class GameRepo:
         ``refuse_if_waiting`` refuses (``WaitFlagRaisedError``) while any wait
         flag is up, checked on the locked row: only auto-processing honours wait
         flags, and a flag raised after its readiness check must still hold the
-        turn (DH4). A deadline and the manual process leave it off.
+        turn (DH4). A deadline and the manual process leave it off. A flag
+        held by a power in ``wait_flags_ignored`` -- one that has left the game
+        on the board this write replaces (DO1) -- does not count.
 
         ``board``, the view-shaped ``units`` and ``supply_centers`` of
         ``state_json``, is recorded in the same transaction as the
@@ -460,7 +463,7 @@ class GameRepo:
                 raise PhaseInputsChangedError(
                     f"game {game_id}: the civil-disorder powers changed while the turn was being adjudicated"
                 )
-            if refuse_if_waiting and any((row.wait_flags or {}).values()):
+            if refuse_if_waiting and any(on and p not in wait_flags_ignored for p, on in (row.wait_flags or {}).items()):
                 raise WaitFlagRaisedError(f"game {game_id}: a wait flag was raised while the turn was being adjudicated")
             spent_deadline = row.deadline is not None
             _write_state(
