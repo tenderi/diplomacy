@@ -1,12 +1,23 @@
 import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { apiJson } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent } from '@/components/ui/card'
+
+const BOT = (import.meta.env.VITE_BOT_USERNAME as string | undefined)?.replace(/^@/, '')
+
+function BotHandle() {
+  return BOT ? (
+    <>
+      the bot <a href={`https://t.me/${BOT}`} className="underline">@{BOT}</a>
+    </>
+  ) : (
+    <>the bot</>
+  )
+}
 
 export default function LinkTelegram() {
   const { user, refreshUser } = useAuth()
@@ -26,7 +37,6 @@ export default function LinkTelegram() {
       )
       setCode(data.code)
       setExpiresIn(data.expires_in_seconds)
-      toast.success('Link code generated')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate code')
     } finally {
@@ -71,7 +81,7 @@ export default function LinkTelegram() {
     <div className="max-w-xl mx-auto">
       <h1 className="text-2xl font-semibold mb-4">Link Telegram</h1>
       <p className="text-muted-foreground mb-4">
-        Generate a one-time code, then in Telegram send: <strong>/link &lt;code&gt;</strong>
+        Generate a one-time code, then, in Telegram with <BotHandle />, send: <strong>/link &lt;code&gt;</strong>
       </p>
       <Button onClick={generateCode} disabled={loading} className="mb-4">
         {loading ? 'Generating...' : 'Generate link code'}
@@ -84,9 +94,9 @@ export default function LinkTelegram() {
       {code && (
         <Card className="mt-4 bg-muted/50">
           <CardContent className="p-4">
-            <p className="text-2xl tracking-widest font-mono font-semibold">{code}</p>
+            <p role="status" className="text-2xl tracking-widest font-mono font-semibold">{code}</p>
             <p className="text-sm text-muted-foreground mt-2">
-              Valid for {Math.floor(expiresIn / 60)} minutes. In Telegram, send: <strong>/link {code}</strong>
+              Valid for {Math.floor(expiresIn / 60)} minutes. In Telegram with <BotHandle />, send: <strong>/link {code}</strong>
             </p>
           </CardContent>
         </Card>

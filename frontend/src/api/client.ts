@@ -110,7 +110,9 @@ export function errorDetailToMessage(text: string, status: number): string {
     const detail = j.detail
     if (Array.isArray(detail) && detail.length > 0) {
       const first = detail[0]
-      return typeof first === 'object' && first?.msg != null ? first.msg : String(detail[0])
+      return typeof first === 'object' && first?.msg != null
+        ? String(first.msg).replace(/^Value error, /, '')
+        : String(detail[0])
     }
     if (typeof detail === 'string') return detail
     if (detail != null) return String(detail)

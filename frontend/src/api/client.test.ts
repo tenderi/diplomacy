@@ -15,6 +15,11 @@ describe('errorDetailToMessage', () => {
     expect(errorDetailToMessage(body, 422)).toBe('Invalid email')
   })
 
+  it('strips the pydantic Value error prefix', () => {
+    const body = JSON.stringify({ detail: [{ msg: 'Value error, A nickname is 2-24 characters' }] })
+    expect(errorDetailToMessage(body, 422)).toBe('A nickname is 2-24 characters')
+  })
+
   it('falls back to string of first element when detail array has no msg', () => {
     const body = JSON.stringify({ detail: ['Invalid input'] })
     expect(errorDetailToMessage(body, 422)).toBe('Invalid input')
