@@ -356,6 +356,7 @@ pre-existing `status: "ok"` key is unchanged so existing clients keep working):
     "phase": "S1901M",         // the phase it adjudicated
     "eliminated": [],          // powers this turn put out (not an earlier concession), sorted
     "centres": {"FRANCE": {"gained": ["BEL"], "lost": [], "count": 6}},  // per power whose centres changed (Fall only)
+    "units": [{"kind": "A", "power": "FRANCE", "location": "PAR"}, ...],  // the board the orders were given on
     "results": [ ... ]         // per-result shape below, without `power`, `reason`,
                                 // `bounced_off` or `bounced_with`
   },
@@ -369,7 +370,7 @@ pre-existing `status: "ok"` key is unchanged so existing clients keep working):
 That is the dict `GameService.process_turn` stores (and `resolution_history` keeps): the
 engine's `resolution_to_dict` (`results`, §2) plus fields `GameService` adds, not the
 serializer: `phase` and each result's `order_str` (`_resolution_dict`), then `eliminated`,
-`centres` and, on a result for a unit the power gave no order (the engine made one up),
+`centres`, `units` (the pre-adjudication board, §1 above) and, on a result for a unit the power gave no order (the engine made one up),
 `unordered: true`. A result's `power`, `reason`, `bounced_off` and `bounced_with` are not
 stored: reads derive them.
 
