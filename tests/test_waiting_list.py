@@ -369,3 +369,24 @@ def test_every_seated_player_sees_the_new_game_straight_away() -> None:
     game_id = str(_join(client, ids[-1])["game_id"])
     for telegram_id in ids:
         assert [str(g["game_id"]) for g in client.get(f"/users/{telegram_id}/games", headers=bot).json()["games"]] == [game_id]
+
+
+def test_a_quit_and_join_at_turn_0_does_not_announce_the_start_again() -> None:
+    """DO3: the fill's "created"/"now full" DMs are the start announcement, so a
+    player who quits before the first turn and is replaced does not make the
+    whole table hear "has started!" a second time (architecture §DF3)."""
+    from tests.test_quit_and_replace import _as, _telegram_user
+
+    client = TestClient(app)
+    ids = [_register(client, f"r{i}") for i in range(WAITING_LIST_SIZE)]
+    for telegram_id in ids[:-1]:
+        _join(client, telegram_id)
+    result = _join(client, ids[-1])
+    game_id = str(result["game_id"])
+    power, quitter = next(iter(result["assignments"].items()))
+    assert client.post(f"/games/{game_id}/quit", json=_as(quitter)).status_code == 200
+    newcomer = _telegram_user(client, "wl newcomer")
+    with OutboxProbe() as probe:
+        joined = client.post(f"/games/{game_id}/join", json=_as(newcomer, power=power))
+    assert joined.status_code == 200, joined.text
+    assert [m for m in probe.messages() if "has started!" in m] == []

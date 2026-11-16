@@ -119,6 +119,10 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
 
         for _telegram_id, user_id, power in assignments:
             db_service.create_player(int(row.id), power, user_id=user_id)
+        # The "created" and "now full" messages below are this game's start
+        # announcement, so the one claim is taken here: otherwise a later quit
+        # and join at turn 0 would announce the start a second time (DF3).
+        db_service.claim_game_start_announcement(int(row.id))
     except Exception:  # noqa: BLE001 -- boundary: whatever broke game creation, give the players their places back
         db_service.requeue_waiting_list_entries(claimed)
         if orphan_id is not None:
