@@ -263,9 +263,12 @@ class BotOutboxModel(Base):
     bot renders ``created_at`` into the message when delivery was late, so a
     player can tell a reminder that arrived on time from one that was held up.
 
-    ``kind`` is ``"dm"`` today and exists so channel posts can join the same
-    queue later without a schema change. ``payload`` is spare JSON for the same
-    reason. ``attempts``/``last_error`` record permanent Telegram-side failures
+    ``kind`` says how the bot delivers a row: ``"dm"`` (a player DM;
+    ``telegram_id`` is the user), or ``"channel_text"``, ``"channel_map"`` and
+    ``"channel_create_thread"`` (a group post; ``telegram_id`` is the chat id).
+    ``payload`` is per-kind JSON: a DM's inline ``buttons``, a channel post's
+    ``dm_start`` deep link, or the map image's ``game_id`` and ``path``.
+    ``attempts``/``last_error`` record permanent Telegram-side failures
     (user blocked the bot, chat not found) that the bot reports back via the
     ack endpoint; such rows are marked delivered with the error kept, so they
     stop being retried but stay auditable.
