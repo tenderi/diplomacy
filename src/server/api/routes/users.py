@@ -94,6 +94,7 @@ def _user_games_response(user: Any) -> Dict[str, Any]:  # noqa: ANN401
                 "map_name": game.map_name,
                 "power": player.power_name,
                 "current_turn": getattr(game, 'current_turn', 0),
+                "phase_code": getattr(game, 'phase_code', None),
                 "status": getattr(game, 'status', "active"),
                 # The bot offers "process turn now" only to a game's creator,
                 # the one Telegram player allowed to end a turn early.

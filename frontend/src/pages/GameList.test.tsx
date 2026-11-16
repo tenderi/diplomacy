@@ -216,7 +216,7 @@ describe('GameList', () => {
         json: () => Promise.resolve(url.includes('/users/me/games') ? { games: [] } : {
           games: [
             { id: 5, map_name: 'standard', player_count: 3, max_players: 5, current_turn: 0, private: true },
-            { id: 6, map_name: 'standard', player_count: 7, current_turn: 4, private: false },
+            { id: 6, map_name: 'standard', player_count: 7, current_turn: 4, phase_code: 'F1902M', private: false },
           ],
         }),
       } as Response)
@@ -229,7 +229,7 @@ describe('GameList', () => {
       </MemoryRouter>
     )
     expect(await within(container).findByRole('link', { name: '🔒 Game 5 — standard — 3/5 — turn 0' })).toHaveAttribute('href', '/games/5')
-    expect(within(container).getByRole('link', { name: 'Game 6 — standard — 7/7 — turn 4' })).toBeInTheDocument()
+    expect(within(container).getByRole('link', { name: 'Game 6 — standard — 7/7 — Fall 1902' })).toBeInTheDocument()
   })
 
   it('sends the powers ticked for civil disorder with the create request (W9)', async () => {
