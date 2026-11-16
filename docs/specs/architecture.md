@@ -687,7 +687,9 @@ cannot concede again (409 `FRANCE has already conceded`, not announced a second 
 on a draw (409 `... has been eliminated from game N; it cannot vote on a draw`), send
 private or broadcast press or a channel broadcast (409 `... it can no longer send
 messages`), and nobody can take its seat back through `/join` with that power, `/replace`
-or a random join (409 `... its seat cannot be taken`; a random join skips it). Both service
+or a random join (409 `... its seat cannot be taken`; a random join skips it), or raise a wait
+flag (409 `... it cannot ask the table to wait`; lowering one is accepted): conceding lowers
+the flag it held, and a flag still stored for a power out of the game holds up nothing. The service
 refusals are `PowerEliminatedError`, a `GameOverError`, so every route already mapping that
 to 409 maps them. **When a concession or a processed turn leaves one power standing, the game ends with it
 as the sole winner; when it leaves none, or leaves only civil-disorder dummies (two or more:

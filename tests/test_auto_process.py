@@ -260,6 +260,43 @@ def test_the_last_power_awaited_conceding_processes_the_turn(client: TestClient)
     assert _phase(client, game_id) == "F1901M"
 
 
+def test_a_conceded_power_cannot_raise_a_wait_flag(client: TestClient) -> None:
+    """DO1: FRANCE has left; its flag would hold the turn for good, so it is refused
+    (409) and the turn runs on ENGLAND's orders alone. Lowering one is still fine."""
+    game_id, e, f = _table(client, auto=True)
+    assert client.post(f"/games/{game_id}/concede", json=_as(f, power="FRANCE")).status_code == 200
+    raised = client.post(f"/games/{game_id}/wait", json=_as(f, power="FRANCE"))
+    assert raised.status_code == 409
+    assert raised.json()["detail"] == f"FRANCE has been eliminated from game {game_id}; it cannot ask the table to wait"
+    lowered = client.post(f"/games/{game_id}/wait", json=_as(f, power="FRANCE", waiting=False))
+    assert lowered.status_code == 200 and lowered.json()["waiting"] == []
+    assert _order(client, game_id, e, "ENGLAND", ENG_HOLD)["auto_processed"] == 1
+    assert _phase(client, game_id) == "F1901M"
+
+
+def test_conceding_lowers_the_powers_wait_flag(client: TestClient) -> None:
+    """DO1: a flag FRANCE raised before conceding goes with it."""
+    game_id, e, f = _table(client, auto=True)
+    assert client.post(f"/games/{game_id}/wait", json=_as(f, power="FRANCE")).status_code == 200
+    assert client.post(f"/games/{game_id}/concede", json=_as(f, power="FRANCE")).status_code == 200
+    assert game_service._repo.get_meta(game_id)["wait_flags"] == []
+    assert _order(client, game_id, e, "ENGLAND", ENG_HOLD)["auto_processed"] == 1
+    assert _phase(client, game_id) == "F1901M"
+
+
+def test_a_stored_flag_of_a_power_out_of_the_game_holds_nothing(client: TestClient) -> None:
+    """DO1: a flag still stored for a power that has left (a game stalled before
+    this was fixed, or a flag landing beside the concession) is not waited on:
+    not by the readiness check, not by the locked write, not in what players see."""
+    game_id, e, f = _table(client, auto=True)
+    assert client.post(f"/games/{game_id}/concede", json=_as(f, power="FRANCE")).status_code == 200
+    assert game_service._repo.modify_wait_flags(game_id, lambda flags: flags | {"FRANCE"}) == ["FRANCE"]
+    assert client.get(f"/games/{game_id}/orders_status").json()["waiting"] == []
+    assert client.get(f"/games/{game_id}/state").json()["wait_flags"] == []
+    assert _order(client, game_id, e, "ENGLAND", ENG_HOLD)["auto_processed"] == 1
+    assert _phase(client, game_id) == "F1901M"
+
+
 def test_one_human_and_six_dummies_waits_only_for_every_unit_ordered(client: TestClient) -> None:
     """DG2: with six dummies the lone human's orders are all the turn waits for -- but
     every unit's, holds included. A partial set is "submitted" and ``incomplete``, so
