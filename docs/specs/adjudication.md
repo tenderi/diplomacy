@@ -6,7 +6,7 @@
 > `movement.py`, `retreats.py`, `adjustments.py` — those files are the ground truth; this
 > doc explains *why* they're shaped the way they are and ties the pieces together.
 >
-> Conformance: all 154 DATC cases green (`tests/datc/`), under every submission order
+> Conformance: all 160 DATC cases green (`tests/datc/`), under every submission order
 > tried (§11). Everything below is implemented, not aspirational.
 
 ## 1. Why fixed-point, not a single pass
