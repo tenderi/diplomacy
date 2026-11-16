@@ -16,8 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-11-15.
-- **Open tracks:** DO (spec-audit findings, DO1–DO4). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Last updated:** 2026-11-16.
+- **Open tracks:** DO (spec-audit findings, DO2–DO4; DO1 done). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
@@ -47,7 +47,7 @@ the suggested direction.
 
 # Track DO — Spec-vs-code audit findings (2026-11-16)
 
-- [ ] DO1: a conceded or eliminated power can still `POST /wait`, and its flag stops
+- [x] DO1: a conceded or eliminated power can still `POST /wait`, and its flag stops
       auto-processing forever (`game_service.set_wait` checks only that the game is live;
       `ready_to_auto_process` refuses on any flag). Refuse the flag from a power that is
       out (409), ignore stale ones in `ready_to_auto_process`; add it to the
