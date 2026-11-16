@@ -67,7 +67,7 @@ The package is **pure**: stdlib only, no I/O, no DB, no rendering, no framework 
 - **Multi-coast provinces.** Bulgaria (EC/SC), Spain (NC/SC), and St. Petersburg (NC/SC)
   are first-class `Location(province, coast)` pairs read straight from `standard.map`.
 - **Victory.** ≥18 supply centers, checked once per year right after Fall ownership updates.
-- **Conformance.** All 154 DATC cases green (`tests/datc/`), each under shuffled
+- **Conformance.** All 160 DATC cases green (`tests/datc/`), each under shuffled
   submission orders too — see `adjudication.md` §11 for how order independence is tested.
 
 ---
@@ -268,7 +268,7 @@ venv active and Postgres up. CI enforces coverage: `--fail-under=80` overall,
 
 | Category | Location |
 |---|---|
-| **DATC conformance** | `tests/datc/test_datc_6a_*.py` … `6k_*.py` (~154 cases, `datc` marker), `test_adjudicator_mechanics.py`, `harness.py`, and `test_properties.py` (Hypothesis over random *supported* positions: determinism under order-shuffling, unit conservation, ≤1 unit/province, every offered retreat legal). |
+| **DATC conformance** | `tests/datc/test_datc_6a_*.py` … `6k_*.py` (160 cases: 158 in 6.A–6.J, two extras in 6.K; `datc` marker), `test_adjudicator_mechanics.py`, `harness.py`, and `test_properties.py` (Hypothesis over random *supported* positions: determinism under order-shuffling, unit conservation, ≤1 unit/province, every offered retreat legal). |
 | **Engine units** | `tests/engine/` — value types, `.map` topology loading, order grammar and its errors, validation, adjustment edge rules, JSON round-trips, the phase machine, `simple_ai` (its orders must validate), plus a 7-AI-power self-play run. |
 | **Game service** | `test_game_service.py` (including resolution maps across every phase), `test_concurrent_processing.py` (`StaleGameError`, the cross-process guard), `test_order_overlay.py`, `test_view_adapter.py`, `test_legal_orders.py`. |
 | **API routes** | `test_api_routes_*.py`, `test_api_scheduler.py`, `test_api_health.py`, `test_cache_coherence.py` (no cached read shows the world before your own write), `test_game_archive.py`, `test_channel_posts.py`, `test_background_jobs.py`. |

@@ -190,9 +190,9 @@ you used, so the next run picks different ones.
   and dead ends.
 - **`fix_plan.md`** open items, and the specs in `docs/specs/` against the code: anything
   the spec promises that the code doesn't do.
-- **Rules correctness.** The remaining DATC `xfail`s are Track BC in `fix_plan.md`: its
-  root-cause notes and one milestone per PR, the targeted fixes first and the paradox
-  resolver (BC5, BC6) last.
+- **Rules correctness.** Every DATC case in `tests/datc/` passes and none is `xfail`, so
+  a rules bug now lies in a board the cases don't cover: check the rulebook and
+  `docs/specs/adjudication.md` against the resolver.
 - **Code health.** Coverage holes in risky code, dead code, slow tests, duplication across
   the bot and frontend.
 - **Dependencies.** Outdated or vulnerable packages (`pip-audit`, `npm outdated`). Upgrade

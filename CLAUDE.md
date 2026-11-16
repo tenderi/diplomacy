@@ -147,7 +147,7 @@ Full writeups: [`docs/specs/architecture.md`](docs/specs/architecture.md) (packa
 - `orders/parser.py` + `orders/validation.py` — one grammar, one validation path (coasts, VIA convoy, aliases).
 - `serialization.py` — canonical JSON for `GameState`/`Order`/`Resolution`, the one place that conversion happens. `simple_ai.py` — dumb heuristic order generator (the demo game's opponents).
 
-DATC conformance lives in `tests/datc/`: all 154 cases green, each also under shuffled submission orders (`test_order_independence.py`). A change to the resolver must keep every case green under every order; `tests/datc/test_properties.py` and `test_szykman_boards.py` shuffle random and fuzz-found convoy paradox boards too.
+DATC conformance lives in `tests/datc/`: all 160 cases green, each also under shuffled submission orders (`test_order_independence.py`). A change to the resolver must keep every case green under every order; `tests/datc/test_properties.py` and `test_szykman_boards.py` shuffle random and fuzz-found convoy paradox boards too.
 
 ### Persistence (`src/persistence/`) and rendering (`src/rendering/`)
 
