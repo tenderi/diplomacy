@@ -60,7 +60,7 @@ the suggested direction.
 - [ ] DO3: games created by the waiting list (and imports) never claim
       `start_announced_at`, so a later `/join` into a turn-0 seat re-sends "Game N has
       started!". Claim it when the waiting list creates the game and on import.
-- [ ] DO4: notification matrix in architecture.md lacks: deadline proposal made (and
+- [x] DO4: notification matrix in architecture.md lacks: deadline proposal made (and
       accepted-immediately), proposal expired (also sent to out powers — decide), deadline
       passed with seats unfilled, game ended by concession/dummy toggle, password-reset
       DM; row details for schedule (⏰ prefix), quit (eliminated variant), join (joiner
