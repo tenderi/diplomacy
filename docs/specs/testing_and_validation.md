@@ -85,9 +85,10 @@ misuse among them). Fix or narrowly silence the individual warning instead.
 **Engine (`tests/engine/`, `tests/datc/`)** — the engine is pure, so it needs no fixtures,
 no database, and no mocks. This is where correctness actually lives:
 
-- `tests/datc/` — one test per official DATC case (6.A–6.J, plus two extra cases in 6.K).
-  All 154 pass. `test_order_independence.py` runs every movement case again under its
-  own order, reversed and in seeded shuffles (every permutation up to five orders), and
+- `tests/datc/` — one test per official DATC case (the 158 of 6.A–6.J, plus two extra
+  cases in 6.K). All 160 pass; none is `xfail` or skipped. `test_order_independence.py`
+  runs every movement case again under its own order, reversed and in seeded shuffles
+  (every permutation up to five orders), and
   requires one result (see [`adjudication.md`](adjudication.md) §11).
 - `tests/datc/harness.py` — `Harness().units(...)`, `.orders(...)`, `.adjudicate()`, the
   retreat and adjustment variants, and `assert_success` / `assert_bounce` /
