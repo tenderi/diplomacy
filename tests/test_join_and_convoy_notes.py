@@ -83,7 +83,7 @@ def test_a_non_adjacent_army_move_is_accepted_with_a_convoy_note() -> None:
 def test_order_notes_explain_a_draft_and_show_only_the_players_own_orders() -> None:
     """#460: the read route explains a draft before submitting, and another power's
     pending orders change nothing in it."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users, _probe = _seat_all(client, group=False)
     italy = _as(users["ITALY"], game_id=game_id, power="ITALY")
     austria = _as(users["AUSTRIA"], game_id=game_id, power="AUSTRIA")
