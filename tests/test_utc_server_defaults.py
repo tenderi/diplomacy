@@ -34,7 +34,6 @@ def tokyo() -> Iterator[Engine]:
 
 def test_a_raw_sql_insert_from_a_tokyo_session_stores_utc_defaults(tokyo: Engine) -> None:
     game_id = f"cp5-{uuid4().hex[:8]}"
-    name = f"cp5-{uuid4().hex[:8]}"
     with tokyo.begin() as conn:
         game_created, game_updated = conn.execute(
             text(
@@ -43,13 +42,9 @@ def test_a_raw_sql_insert_from_a_tokyo_session_stores_utc_defaults(tokyo: Engine
             ),
             {"g": game_id},
         ).one()
-        tournament_created = conn.execute(
-            text("INSERT INTO tournaments (name) VALUES (:n) RETURNING created_at"), {"n": name}
-        ).scalar_one()
         expected = utcnow_naive()
-        conn.execute(text("DELETE FROM tournaments WHERE name = :n"), {"n": name})
         conn.execute(text("DELETE FROM games WHERE game_id = :g"), {"g": game_id})
-    for stored in (game_created, game_updated, tournament_created):
+    for stored in (game_created, game_updated):
         assert stored.tzinfo is None
         assert abs(stored - expected) < SLACK, f"stored {stored}, expected about {expected} (naive UTC)"
 
@@ -75,4 +70,4 @@ def test_no_naive_timestamp_column_defaults_to_bare_now(tokyo: Engine) -> None:
         if column.server_default is not None and column.server_default.arg is UTC_NOW
     }
     assert declared == {(t, c) for t, c, _ in rows}
-    assert len(declared) == 11
+    assert len(declared) == 6

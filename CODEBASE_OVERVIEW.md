@@ -80,8 +80,8 @@ and full field list.
 
 | File | Purpose |
 |---|---|
-| `database.py` | ORM models (`GameModel`, `UserModel`, `PlayerModel`, plus messaging/channel/tournament/spectator models) and `utcnow_naive()`. |
-| `database_service.py` | `DatabaseService` — the DAL for everything **not** engine-coupled: users, players, messages, channels, tournaments, spectators. |
+| `database.py` | ORM models (`GameModel`, `UserModel`, `PlayerModel`, plus the messaging, channel, outbox and feedback models) and `utcnow_naive()`. |
+| `database_service.py` | `DatabaseService` — the DAL for everything **not** engine-coupled: users, players, messages, channels, waiting list, bot outbox, feedback. |
 | `game_repo.py` | `GameRepo` — the game-state repository: `state_json`, `pending_orders`, `last_resolution`, `order_history`. The only persistence path for game state; `save_state` and `modify_state_json` (concede's locked read-modify-write of the board) take an `expected_phase_code`, checked on a row locked `FOR UPDATE`, and raise `StaleGameError` (→ HTTP 409) on a concurrent write. |
 
 ### `games` table — the columns that matter
@@ -153,7 +153,7 @@ unit and dislodged-unit positions; `place_unit_anchors.py` and `place_dislodged_
 
 | Module | Endpoints |
 |---|---|
-| `games.py` | Create/list/get games (anonymous or public naming, chosen or random powers), join/quit/replace, private-game passwords, dummies, auto-process and wait flags, deadlines (set and majority vote), process turn, snapshots + restore, history and resolutions, draw vote and concede, legal orders, spectators (out of scope, kept). |
+| `games.py` | Create/list/get games (anonymous or public naming, chosen or random powers), join/quit/replace, private-game passwords, dummies, auto-process and wait flags, deadlines (set and majority vote), process turn, snapshots + restore, history and resolutions, draw vote and concede, legal orders. |
 | `orders.py` | Submit orders (replace, or merge one per unit), get current orders, clear orders, order history. |
 | `users.py` | Register a Telegram user, list a user's games. |
 | `auth.py` | JWT register/login/token/refresh/me, forgot + reset password, Telegram link code and link/unlink. |
@@ -166,7 +166,6 @@ unit and dislodged-unit positions; `place_unit_anchors.py` and `place_dislodged_
 | `feedback.py` | `POST /feedback` (a signed-in player's report, with the named game's phase; DMed to `DIPLOMACY_ADMIN_TELEGRAM_ID`; 10 per hour) and `GET /admin/feedback`. |
 | `sandbox.py` | The web sandbox: `POST /sandbox/start`, `/legal_orders`, `/adjudicate`, `/map`. Stateless — the client sends the serialized board every time; `GameService.sandbox_state` validates it. |
 | `bot_outbox.py` | The bot's long-poll endpoint for queued notifications (`?wait=N`, via `api/long_poll.py`), and its ack. |
-| `tournaments.py` | Legacy tournament endpoints — out of scope, kept for backward compatibility. |
 
 `shared.py` holds the `db_service` / `game_service` singletons, loggers, `notify_user` /
 `notify_players` / `post_to_game_group` (which write `bot_outbox` rows — server code never
