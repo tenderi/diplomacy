@@ -1,7 +1,7 @@
 import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router'
-import { apiJson } from '@/api/client'
+import { apiJson, ApiError } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,10 +16,12 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
+  const [tokenRejected, setTokenRejected] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setTokenRejected(false)
     if (password !== confirm) {
       setError('Passwords do not match')
       return
@@ -42,6 +44,7 @@ export default function ResetPassword() {
       setTimeout(() => navigate('/login'), 2000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reset failed')
+      if (err instanceof ApiError && err.status === 400) setTokenRejected(true)
     } finally {
       setLoading(false)
     }
@@ -103,6 +106,11 @@ export default function ResetPassword() {
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
+        )}
+        {tokenRejected && (
+          <p className="text-sm">
+            <Link to="/forgot-password" className={TAP_LINK}>Request a new reset link</Link>
+          </p>
         )}
         <Button type="submit" disabled={loading}>
           {loading ? 'Resetting…' : 'Reset password'}

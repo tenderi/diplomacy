@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
-type Game = { game_id: number; map_name: string; power: string; current_turn: number; status: string }
+type Game = { game_id: number; map_name: string; power: string; current_turn: number; phase_code?: string | null; status: string }
 type AllGame = {
   id: number
   map_name: string
@@ -18,6 +18,15 @@ type AllGame = {
   private?: boolean
   anonymous?: boolean
   random_powers?: boolean
+  phase_code?: string | null
+}
+
+const SEASONS: Record<string, string> = { S: 'Spring', F: 'Fall', W: 'Winter' }
+
+/** "S1901M" -> "Spring 1901"; falls back to the turn number when the code is unknown. */
+function when(code: string | null | undefined, turn: number): string {
+  const m = code ? /^([SFW])(\d{4})[MRA]$/.exec(code) : null
+  return m ? `${SEASONS[m[1]]} ${m[2]}` : `turn ${turn}`
 }
 
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
@@ -104,7 +113,7 @@ export default function GameList() {
                 <CardHeader className="py-2">
                   <CardTitle className="text-sm font-medium">
                     <Link to={`/games/${g.game_id}`} className={TAP_LINK}>
-                      Game {g.game_id} — {g.power} — turn {g.current_turn}
+                      Game {g.game_id} — {g.power} — {when(g.phase_code, g.current_turn)}
                     </Link>
                   </CardTitle>
                 </CardHeader>
@@ -182,7 +191,7 @@ export default function GameList() {
               <CardHeader className="py-2">
                 <CardTitle className="text-sm font-medium">
                   <Link to={`/games/${g.id}`} className={TAP_LINK}>
-                    {g.private ? '🔒 ' : ''}{g.anonymous ? '🕶️ ' : ''}{g.random_powers ? '🎲 ' : ''}Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
+                    {g.private ? '🔒 ' : ''}{g.anonymous ? '🕶️ ' : ''}{g.random_powers ? '🎲 ' : ''}Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — {when(g.phase_code, g.current_turn)}
                   </Link>
                 </CardTitle>
               </CardHeader>
