@@ -98,9 +98,9 @@ def test_order_notes_explain_a_draft_and_show_only_the_players_own_orders() -> N
 
     # merge lays a pick over the stored orders, as the bot submits it.
     assert client.post("/games/set_orders", json={**italy, "orders": ["A VEN H", "A ROM H", "F NAP H"]}).status_code == 200
-    merged = client.post(url, json={**italy, "orders": ["A ROM S A VEN - TRI"], "merge": True}).json()
-    assert [e["order"] for e in merged["orders"]] == ["A VEN H", "F NAP H", "A ROM S A VEN - TRI"]
-    assert merged["orders"][2]["notes"][0]["text"] == "A ROM supports A VEN - TRI, but A VEN is ordered to hold"
+    merged = client.post(url, json={**italy, "orders": ["A ROM S A VEN - TUS"], "merge": True}).json()
+    assert [e["order"] for e in merged["orders"]] == ["A VEN H", "F NAP H", "A ROM S A VEN - TUS"]
+    assert merged["orders"][2]["notes"][0]["text"] == "A ROM supports A VEN - TUS, but A VEN is ordered to hold"
     stored = client.post(url, json=italy).json()
     assert [e["order"] for e in stored["orders"]] == ["A VEN H", "A ROM H", "F NAP H"]
 
