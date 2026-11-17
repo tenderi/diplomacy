@@ -51,11 +51,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  images:
+  # A Test Suite run on an older main commit can finish after the one on a
+  # newer commit (two merges minutes apart). Its Deploy would then roll the
+  # host back to the older SHA: on 2026-11-16 the run for f4d8cf06 (v3.0.319)
+  # finished after a80a7e2f's (v3.0.321) and production stayed on the older one.
+  # A workflow_run deploy goes ahead only while its SHA is still main's tip; a
+  # newer tip has its own Test Suite run and its own Deploy. A dispatched
+  # deploy (a rollback) is never skipped.
+  gate:
     runs-on: ubuntu-latest
     if: >-
       vars.DEPLOY_CONTROL_ENABLED == 'true' &&
       (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    outputs:
+      current: ${{ steps.tip.outputs.current }}
+    steps:
+      - name: Is this still main's tip?
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ "$EVENT" != "workflow_run" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tip=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
+          if [ "$tip" = "$SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Not deploying $SHA: main has moved on to $tip, whose own Test Suite run deploys it."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  images:
+    needs: gate
+    runs-on: ubuntu-latest
+    if: needs.gate.outputs.current == 'true'
     permissions:
       contents: read
       packages: write
