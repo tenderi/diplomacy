@@ -17,7 +17,9 @@ config = context.config
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep loggers that already exist: a test that runs a migration in-process
+    # must not silence the app's loggers for the rest of the session.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
     
 # Load environment variables from .env file if it exists
 env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
