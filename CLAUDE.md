@@ -28,21 +28,33 @@ the next free version and track letter from `origin/main`, not from local tags.
 ```bash
 git fetch origin && git checkout -b some-change origin/main
 # ... work, run the local gates below ...
-git commit -m "v3.0.N: <what changed>"   # next patch version; see below
+git commit -m "vX.Y.Z: <what changed>"  # next free version of the right kind; see below
 git fetch origin && git rebase origin/main
 git push -u origin some-change
 gh pr create -R tenderi/diplomacy          # the -R is mandatory; gh otherwise resolves the wrong remote
 gh pr checks <n> -R tenderi/diplomacy --watch
 gh pr merge <n> -R tenderi/diplomacy --merge
 git checkout main && git pull --ff-only origin main
-git tag v3.0.N && git push origin v3.0.N   # tag the merge commit on main
+git tag vX.Y.Z && git push origin vX.Y.Z   # tag the merge commit on main
 ```
 
-- The commit message starts with the version (`v3.0.N: ...`) and carries the write-up:
+- The commit message starts with the version (`vX.Y.Z: ...`) and carries the write-up:
   what was wrong, what changed, how it was verified. That *is* the project history.
-- Patch tags are `v3.0.x`. A minor/major bump and a GitHub Release are the maintainer's
-  call; the version lives in `pyproject.toml`, `frontend/package.json` and `_api_module.py`
-  (`tests/test_api_health.py` checks they agree).
+- **Semantic versioning (since 4.0.0).** Every merged PR gets its own tag; its kind picks
+  which number moves. Take the next free one from `origin/main`'s tags
+  (`git ls-remote --tags origin 'v4.*'`):
+  - **PATCH** (`v4.1.1`): a bug fix, docs, tests, refactoring, dependency bumps, CI.
+  - **MINOR** (`v4.2.0`, patch resets to 0): anything a player would notice as new or
+    changed behaviour: a feature, a new notification, a UI change, a rules-engine change.
+    The PR title says what was added.
+  - **MAJOR** (`v5.0.0`): something a player, client or host must adapt to (a removed or
+    renamed route, field or bot command; a migration that drops data; a changed deploy
+    procedure). **Only the maintainer decides a major.**
+  - A MINOR or MAJOR PR also sets the version in `pyproject.toml`, `frontend/package.json`
+    and `_api_module.py` to `X.Y.0` (`tests/test_api_health.py` checks they agree); a
+    PATCH leaves them alone. Each MINOR and MAJOR gets a GitHub Release whose notes cover
+    everything since the previous release; patches get tags only. Tags before 4.0.0 are
+    the old `v3.0.x` series, one patch per PR.
 - Never chain `gh pr merge && git push --delete`: if the merge is refused for staleness the
   delete still runs, and deleting the head branch **closes** the PR. Tag the `main` merge
   commit, not the pre-rebase branch commit (`git merge-base --is-ancestor <tag> main`).

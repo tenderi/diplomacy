@@ -1,6 +1,6 @@
 [project]
 name = "diplomacy"
-version = "3.0.0"
+version = "4.0.0"
 license = "AGPL-3.0-or-later"
 description = "Diplomacy board game server (Python implementation)"
 requires-python = ">=3.14,<3.15"
