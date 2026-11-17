@@ -19,7 +19,7 @@ would have to filter ``messages`` the way ``GET /games/{id}/messages`` does; it
 does not exist because nobody has asked for one.
 """
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -32,6 +32,7 @@ from ..shared import (
     db_service,
     game_service,
     logger,
+    naive_utc,
     process_if_phase_needs_nobody,
     utc_iso,
 )
@@ -185,10 +186,21 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
             detail=f"Unsupported export format {req.format!r}; expected {EXPORT_FORMAT!r}",
         )
     try:
-        game_service.check_state_json(req.state)
+        phase_code = game_service.state_phase(req.state)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Malformed state in the export: {e}") from e
     source = req.game or {}
+    # The board carries its own phase; ``game.phase_code`` is only a copy. The
+    # stored column must be the board's (every later write checks against it),
+    # and a document whose copy disagrees is inconsistent, not a choice.
+    if source.get("phase_code") is not None and str(source["phase_code"]) != phase_code:
+        raise HTTPException(
+            status_code=400,
+            detail=f"game.phase_code {source['phase_code']!r} does not match the board's phase {phase_code!r}",
+        )
+    seats = _checked_seats(req.players or [])
+    message_times = _checked_message_times(req.messages or [])
+    _check_snapshots(req.snapshots or [])
     creator_telegram_id = source.get("created_by_telegram_id")
     creator = db_service.get_user_by_telegram_id(str(creator_telegram_id)) if creator_telegram_id else None
     try:
@@ -214,7 +226,11 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
     if row is None:  # pragma: no cover - create_game just wrote it
         raise HTTPException(status_code=500, detail="Imported game could not be read back")
 
-    game_service.restore_snapshot(str(game_id), req.state, str(source.get("phase_code") or "S1901M"))
+    game_service.restore_snapshot(str(game_id), req.state, phase_code)
+    # An imported game is a game already under way: a later join, replace or
+    # dummy toggle must not announce its start (DF3), so the one announcement
+    # is claimed here, unsent.
+    db_service.claim_game_start_announcement(int(row.id))
 
     game_service.import_histories(
         str(game_id),
@@ -226,11 +242,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
 
     power_by_telegram: Dict[str, str] = {}
     players_linked, players_unlinked = 0, 0
-    for entry in req.players or []:
-        power = str(entry.get("power", "")).upper()
-        telegram_id = entry.get("telegram_id")
-        if not power:
-            continue
+    for power, telegram_id in seats:
         user = db_service.get_user_by_telegram_id(str(telegram_id)) if telegram_id else None
         if user is None:
             players_unlinked += 1
@@ -250,7 +262,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         if p.user_id is not None
     }
     messages_restored, messages_skipped = 0, 0
-    for m in req.messages or []:
+    for m, timestamp in zip(req.messages or [], message_times):
         # By Telegram id first: it names the sender even when they no longer hold
         # a seat. ``sender_power`` is the fallback for exports made before it.
         sender_tg = m.get("sender_telegram_id")
@@ -262,13 +274,12 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         if sender_user_id is None:
             messages_skipped += 1
             continue
-        timestamp = m.get("timestamp")
         db_service.create_message(
             game_id=int(row.id),
             sender_user_id=sender_user_id,
             recipient_power=m.get("recipient_power"),
             text=str(m.get("text", "")),
-            timestamp=datetime.fromisoformat(timestamp) if timestamp else None,
+            timestamp=timestamp,
             phase_code=m.get("phase_code"),
             anonymous=bool(m.get("anonymous", False)),
         )
@@ -322,3 +333,57 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         # Phases that needed nobody, processed on import (BY2): 0 or more.
         "auto_processed": auto_processed,
     }
+
+
+def _checked_seats(players: List[Dict[str, Any]]) -> List[Tuple[str, Any]]:
+    """``(power, telegram_id)`` per exported seat; 400 on a power this map does
+    not have, or one seated twice (``create_player`` would write both rows)."""
+    known = frozenset(game_service.map.home_centers)
+    seats: List[Tuple[str, Any]] = []
+    for entry in players:
+        power = str(entry.get("power") or "").upper()
+        if power not in known:
+            raise HTTPException(status_code=400, detail=f"Unknown power {entry.get('power')!r} in players")
+        if any(power == seated for seated, _ in seats):
+            raise HTTPException(status_code=400, detail=f"Power {power} is seated twice in players")
+        seats.append((power, entry.get("telegram_id")))
+    return seats
+
+
+def _checked_message_times(messages: List[Dict[str, Any]]) -> List[Optional[datetime]]:
+    """Each message's timestamp as naive UTC (the storage form), or None when it
+    has none; 400 on one that is not an ISO datetime."""
+    times: List[Optional[datetime]] = []
+    for m in messages:
+        raw = m.get("timestamp")
+        if not raw:
+            times.append(None)
+            continue
+        try:
+            times.append(naive_utc(datetime.fromisoformat(str(raw))))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Malformed message timestamp {raw!r}: {e}") from e
+    return times
+
+
+def _check_snapshots(snapshots: List[Dict[str, Any]]) -> None:
+    """400 on a snapshot whose turn is not a number, whose board does not parse,
+    or whose ``phase_code`` is not its board's: a stored one would break or
+    mislabel the replay that reads it back."""
+    for s in snapshots:
+        try:
+            int(s.get("turn", 0))
+        except (TypeError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=f"Malformed snapshot turn {s.get('turn')!r}") from e
+        board = s.get("state")
+        if board is None:
+            continue
+        try:
+            phase = game_service.state_phase(board)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Malformed state in snapshot {s.get('turn')}: {e}") from e
+        if s.get("phase_code") is not None and str(s["phase_code"]) != phase:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Snapshot {s.get('turn')}'s phase_code {s['phase_code']!r} does not match its board's phase {phase!r}",
+            )

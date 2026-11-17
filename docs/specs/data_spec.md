@@ -194,6 +194,13 @@ turn's `order_history`/`resolution_history` entries by the number it leaves behi
 the board it reaches gets the `map_snapshots` row with the new number. A game ended
 outside a turn (a draw, a concession, a seat made a dummy: `GameRepo.end_game_if`) keeps
 its number, and an admin restore of the snapshot of turn *t* sets it back to *t*.
+`phase_code` is always `state_json`'s own phase (`GameState.phase_name`): it is what every
+phase-checked write compares against (`expected_phase_code`), so `GameService.restore_snapshot`
+refuses a `phase_code` that differs from the board's (`ValueError`). A saved-game import
+(`POST /games/import`) takes it from the imported board, and refuses with 400, before
+creating anything, a document whose `game.phase_code` disagrees with that board, a
+`players` entry naming an unknown power or a power twice, a message `timestamp` that is not
+ISO 8601 (an aware one is stored as naive UTC), or a snapshot whose `state` does not parse or whose `phase_code` is not that state's phase.
 
 There are no relational unit, order or supply-centre tables: `state_json` holds the
 board, and `map_snapshots` one row per turn: the board the turn began on (turn 0, the

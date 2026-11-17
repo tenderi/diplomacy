@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-16.
-- **Open tracks:** DP (web play-through findings, DP1–DP6). DO (spec-audit findings, DO2–DO4; DO1 done). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Open tracks:** DP (web play-through findings, DP1–DP6). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
@@ -72,28 +72,6 @@ reset, Telegram linking). No layout overflow; auth and linking flows behave. Fin
       pydantic's "Value error, " prefix on a bad nickname.
 - [ ] DP6: games list — rows say "turn 0" instead of the phase ("Spring 1901"); the create
       form offers the creator's own power as a civil-disorder power.
-
-# Track DO — Spec-vs-code audit findings (2026-11-16)
-
-- [x] DO1: a conceded or eliminated power can still `POST /wait`, and its flag stops
-      auto-processing forever (`game_service.set_wait` checks only that the game is live;
-      `ready_to_auto_process` refuses on any flag). Refuse the flag from a power that is
-      out (409), ignore stale ones in `ready_to_auto_process`; add it to the
-      architecture.md list of what an eliminated power may not do.
-- [ ] DO2: `POST /games/import` takes the row's `phase_code` from `game.phase_code` or
-      `S1901M`, not from the imported state, so a board-only import of a non-spring board
-      can never be processed (every `save_state` 409s). Derive it from the state (or
-      reject a mismatch). Validate imported seats (known powers, no duplicates), message
-      timestamps (naive UTC, malformed → 400) and snapshot states (`check_state_json`).
-- [ ] DO3: games created by the waiting list (and imports) never claim
-      `start_announced_at`, so a later `/join` into a turn-0 seat re-sends "Game N has
-      started!". Claim it when the waiting list creates the game and on import.
-- [x] DO4: notification matrix in architecture.md lacks: deadline proposal made (and
-      accepted-immediately), proposal expired (also sent to out powers — decide), deadline
-      passed with seats unfilled, game ended by concession/dummy toggle, password-reset
-      DM; row details for schedule (⏰ prefix), quit (eliminated variant), join (joiner
-      excluded), waiting list ("🎮 Game N created!" + buttons), draw vote (vacant-seat
-      hint). data_spec.md's `process_turn` example and field list lack `resolution.units`.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
