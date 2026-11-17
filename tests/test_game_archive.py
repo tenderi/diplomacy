@@ -391,3 +391,16 @@ def test_seating_the_last_power_of_an_imported_scheduled_game_arms_its_deadline(
     assert client.post(f"/games/{new_id}/join", json=_as(newcomer, power=seated["power"])).status_code == 200
     deadline = game_service.meta(new_id)["deadline"]
     assert deadline is not None and (deadline.weekday(), f"{deadline:%H:%M}") == (0, "16:00")
+
+
+def test_a_snapshot_without_a_phase_code_takes_its_boards(client: TestClient, played_game: tuple[str, str, str]) -> None:
+    """An exported snapshot that lost its ``phase_code`` is stored with its board's
+    phase, so an admin rollback to it does not fail on an empty one."""
+    game_id, _, _ = played_game
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    for snap in doc["snapshots"]:
+        snap.pop("phase_code", None)
+    imported = client.post("/games/import", json=doc, headers=ADMIN)
+    assert imported.status_code == 200, imported.text
+    again = client.get(f"/games/{imported.json()['game_id']}/export", headers=ADMIN).json()
+    assert sorted((s["turn"], s["phase_code"]) for s in again["snapshots"]) == [(0, "S1901M"), (1, "F1901M")]
