@@ -94,3 +94,76 @@ def test_walk_summary_notes_per_phase() -> None:
         "Skipped: 1. If you order too few disbands, the server chooses the rest by the "
         "civil-disorder rule (farthest from home first)."
     )
+
+
+# -- #460: the order helper's notes -------------------------------------------------
+
+CONVOY = "A LON - NWY needs a convoy: it can succeed only if France's F NTH convoys it"
+
+
+def test_results_show_the_helper_notes_once() -> None:
+    results = [
+        {
+            "success": True,
+            "order": "A LON - NWY",
+            "stored": "A LON - NWY VIA",
+            "note": CONVOY,
+            "notes": [{"kind": "warning", "code": "needs_convoy", "text": CONVOY}],
+        },
+        {
+            "success": False,
+            "order": "F EDI - PAR",
+            "error": "F EDI cannot reach PAR",
+            "notes": [{"kind": "impossible", "code": "fleet_inland", "text": "a fleet cannot go inland"}],
+        },
+        {
+            "success": True,
+            "order": "F NTH S A LON - NWY",
+            "notes": [{"kind": "warning", "code": "support_mismatch", "text": "but A LON is ordered to hold"}],
+        },
+    ]
+    assert bot_orders.format_order_results(results) == (
+        f"✅ A LON - NWY VIA {CONVOY}\n"
+        "❌ F EDI - PAR\n   Error: F EDI cannot reach PAR\n   💡 A fleet cannot go inland\n"
+        "✅ F NTH S A LON - NWY\n   💡 But A LON is ordered to hold"
+    )
+
+
+def _walk(**extra) -> dict:
+    return {
+        "power": "ENGLAND", "phase": "S1901M", "adjust": False, "action": None,
+        "steps": ["A LON", "F NTH"], "chosen": {"A LON": "A LON - NWY"}, "user_id": "5", **extra,
+    }
+
+
+def test_the_walk_summary_asks_for_notes_on_the_picks_before_submitting() -> None:
+    sent: list[str] = []
+
+    async def send(text: str, reply_markup=None) -> None:
+        sent.append(text)
+
+    context = Mock()
+    context.user_data = {bot_orders._WALK: {"1": _walk()}}
+    answer = {
+        "orders": [{"order": "A LON - NWY", "ok": True, "notes": [{"kind": "warning", "code": "needs_convoy", "text": CONVOY}]}],
+        "notes": [{"kind": "warning", "code": "unordered", "text": "F NTH has no order, so it will hold"}],
+    }
+    with patch.object(bot_orders, "api_post", return_value=answer) as post:
+        asyncio.run(bot_orders._show_walk_summary(send, context, "1"))
+    post.assert_called_once_with(
+        "/games/1/orders/ENGLAND/notes", {"orders": ["A LON - NWY"], "merge": True, "telegram_id": "5"}
+    )
+    assert sent[0].endswith(
+        "\n\n💡 *Before you submit:*\n• " + CONVOY + "\n• F NTH has no order, so it will hold"
+    )
+
+
+def test_a_replace_walk_asks_without_merging_and_a_failure_shows_nothing() -> None:
+    with patch.object(bot_orders, "api_post", return_value={"orders": [], "notes": []}) as post:
+        assert bot_orders.walk_helper_notes("1", _walk(replace=True)) == []
+    assert post.call_args.args[1]["merge"] is False
+    with patch.object(bot_orders, "api_post", side_effect=requests.ConnectionError("down")):
+        assert bot_orders.walk_helper_notes("1", _walk()) == []
+    with patch.object(bot_orders, "api_post") as post:
+        assert bot_orders.walk_helper_notes("1", _walk(chosen={})) == []
+    post.assert_not_called()

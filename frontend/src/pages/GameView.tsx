@@ -59,6 +59,7 @@ import {
   toUnitOut,
   unitKey,
 } from '@/components/OrderEntry'
+import { OrderNotes } from '@/components/OrderNotes'
 
 /** A seat from GET /games/{id}/players. An anonymous game sends `seated` but no `user_id` or name. */
 type Player = { power: string; user_id: number | null; is_active: boolean; nickname?: string | null; seated?: boolean; out?: boolean }
@@ -1451,6 +1452,19 @@ export default function GameView() {
                     us.map((u) => [u.location.split('/')[0], pw] as const)
                   )
                 )}
+              />
+            )}
+            {gameId && (
+              <OrderNotes
+                gameId={gameId}
+                power={myPower}
+                orders={
+                  useOrdersFallback
+                    ? ordersFallbackText.split('\n').map((o) => o.trim()).filter(Boolean)
+                    : phase === 'Adjustment'
+                      ? buildOrderSlots.filter(Boolean)
+                      : Object.values(orderByUnit).filter(Boolean)
+                }
               />
             )}
           </section>
