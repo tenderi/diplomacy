@@ -133,7 +133,6 @@ class GameModel(Base):
     # moves the link rather than adding a second.
     channel_id = Column(String(255), nullable=True)
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
-    observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate
     # When the current ``phase_code`` began (naive UTC). Set on creation and every
     # time the phase changes (``GameRepo.save_state`` / ``restore_state``).
     # The bot sends the wall-clock time an order was
@@ -151,7 +150,6 @@ class GameModel(Base):
     players = relationship("PlayerModel", back_populates="game", cascade="all, delete-orphan")
     map_snapshots = relationship("MapSnapshotModel", back_populates="game", cascade="all, delete-orphan")
     messages = relationship("MessageModel", back_populates="game", cascade="all, delete-orphan")
-    spectators = relationship("SpectatorModel", back_populates="game", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("uq_games_channel_id", channel_id, unique=True, postgresql_where=text("channel_id IS NOT NULL")),
@@ -464,82 +462,6 @@ class MessageModel(Base):
     game = relationship("GameModel", back_populates="messages")
     sender = relationship("UserModel", foreign_keys=[sender_user_id], back_populates="messages_sent")
     # Note: recipient_user_id doesn't exist in database schema, only recipient_power
-
-
-class TournamentModel(Base):
-    """Tournaments table (for bracket/tournament organization)."""
-    __tablename__ = 'tournaments'
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    status = Column(String(20), nullable=False, default='pending')  # 'pending', 'active', 'completed', 'cancelled'
-    bracket_type = Column(String(50), nullable=True)  # 'single_elimination', 'double_elimination', 'round_robin'
-    start_date = Column(DateTime, nullable=True)
-    end_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
-    updated_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW, onupdate=utcnow_naive)
-
-    # Relationships
-    games = relationship("TournamentGameModel", back_populates="tournament", cascade="all, delete-orphan")
-    players = relationship("TournamentPlayerModel", back_populates="tournament", cascade="all, delete-orphan")
-
-
-class TournamentGameModel(Base):
-    """Tournament games (links games to tournaments and rounds)."""
-    __tablename__ = 'tournament_games'
-
-    id = Column(Integer, primary_key=True)
-    tournament_id = Column(Integer, ForeignKey('tournaments.id', ondelete='CASCADE'), nullable=False)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    round_number = Column(Integer, nullable=False, default=1)
-    bracket_position = Column(String(50), nullable=True)  # e.g. '1', '2', 'semifinal_1'
-    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
-
-    __table_args__ = (
-        UniqueConstraint('tournament_id', 'game_id', name='uq_tournament_game'),
-        Index('ix_tournament_games_tournament', 'tournament_id'),
-    )
-
-    tournament = relationship("TournamentModel", back_populates="games")
-    game = relationship("GameModel")
-
-
-class TournamentPlayerModel(Base):
-    """Tournament players (participants with optional seed/rank)."""
-    __tablename__ = 'tournament_players'
-
-    id = Column(Integer, primary_key=True)
-    tournament_id = Column(Integer, ForeignKey('tournaments.id', ondelete='CASCADE'), nullable=False)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True)
-    seed = Column(Integer, nullable=True)
-    final_rank = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
-
-    __table_args__ = (
-        UniqueConstraint('tournament_id', 'user_id', name='uq_tournament_user'),
-        Index('ix_tournament_players_tournament', 'tournament_id'),
-    )
-
-    tournament = relationship("TournamentModel", back_populates="players")
-    user = relationship("UserModel")
-
-
-class SpectatorModel(Base):
-    """Spectators table: users who observe a game without playing."""
-    __tablename__ = 'spectators'
-
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    joined_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW, nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint('game_id', 'user_id', name='uq_spectator_game_user'),
-        Index('ix_spectators_game', 'game_id'),
-    )
-
-    game = relationship("GameModel")
-    user = relationship("UserModel")
 
 
 def create_database_schema(database_url: str):
