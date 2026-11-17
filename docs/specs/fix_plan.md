@@ -19,7 +19,7 @@
 - **Last updated:** 2026-11-17.
 - **Open tracks:** F (a human playing the game end to end — the first play-throughs are
   under way — and host chores, which are the maintainer's). Finished tracks are removed;
-  `git log` and the `v3.0.x` commit messages carry what each one did.
+  `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
 
