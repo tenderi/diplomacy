@@ -1059,6 +1059,9 @@ describe('GameView — orders status', () => {
       expect(within(container).getByText('FRANCE has nothing to order this phase.')).toBeInTheDocument()
     })
     expect(within(container).queryByText(/You still need to submit orders/)).toBeNull()
+    // DP2: and no empty Orders form with a live Submit button under that line.
+    expect(container.querySelector('#orders-panel')).toBeNull()
+    expect(within(container).queryByRole('button', { name: /Submit orders/ })).toBeNull()
   })
 })
 
@@ -2454,8 +2457,8 @@ describe('GameView — polish (CH4)', () => {
     }
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { lastResolution }))
     const { container } = renderGame()
-    await within(container).findByText('Other powers\' results (4)')
-    const text = container.querySelector('details')!.textContent ?? ''
+    const summary = await within(container).findByText('Other powers\' results (4)')
+    const text = summary.closest('details')!.textContent ?? ''
     const order = ['F TRI H', 'A BER H', 'F KIE H', 'A SMY H'].map((o) => text.indexOf(o))
     expect(order.every((i) => i >= 0)).toBe(true)
     expect([...order].sort((a, b) => a - b)).toEqual(order)

@@ -117,7 +117,7 @@ export function DeadlineCard({
   const row = 'flex flex-wrap items-center gap-2'
 
   return (
-    <div className="space-y-4 border-t pt-4" data-testid="deadline-card">
+    <div className="space-y-3 border-t pt-3" data-testid="deadline-card">
       {proposal && (
         <div className="space-y-2 rounded-md border p-3" data-testid="deadline-proposal">
           <p className="text-sm font-medium">
@@ -160,6 +160,13 @@ export function DeadlineCard({
         </div>
       )}
 
+      {/* DP4: the three controls and their help are the bulk of the turn status; they
+          stay folded behind one line until a player wants to change the deadline. */}
+      <details className="group" data-testid="deadline-controls">
+        <summary className="cursor-pointer text-sm font-medium text-primary min-h-11 sm:min-h-0 flex items-center">
+          Change the deadline or schedule
+        </summary>
+      <div className="mt-3 space-y-4">
       <div className="space-y-1">
         <p className="text-sm font-medium">Set this phase&apos;s deadline</p>
         <div className={row}>
@@ -250,6 +257,8 @@ export function DeadlineCard({
           )}
         </div>
       </div>
+      </div>
+      </details>
     </div>
   )
 }
