@@ -185,7 +185,7 @@ _initialize_database_schema()
 _API_DOCS = os.environ.get("DIPLOMACY_API_DOCS", "1") != "0"
 app = FastAPI(
     title="Diplomacy Server API",
-    version="3.0.0",
+    version="4.0.0",
     lifespan=lifespan,
     docs_url="/docs" if _API_DOCS else None,
     redoc_url="/redoc" if _API_DOCS else None,

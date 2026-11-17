@@ -87,12 +87,16 @@ whenever you are deciding whether to start something new.
    files, and at most one of them adds an Alembic migration. Keep each item small (see
    "Small steps" below): split a large one into steps and give a worker only the first.
    Take the next free versions
-   from `origin/main`'s tags (`git ls-remote --tags origin 'v3.0.*'`) and give each worker
-   its own, in the order you intend to merge.
+   from `origin/main`'s tags (`git ls-remote --tags origin 'v4.*'`) and give each worker
+   its own, in the order you intend to merge. The kind of change picks the number
+   (patch or minor; see "Semantic versioning" in `CLAUDE.md`). Never a major: that is
+   the maintainer's call. After merging a minor, publish its GitHub Release
+   (`gh release create vX.Y.0 -R tenderi/diplomacy --notes-file ...`) covering every
+   patch since the previous release.
 6. **Delegate.** Start one `worker` subagent per item, in parallel, each with
    `isolation: "worktree"`. Give each one a brief it can act on cold. It needs:
    - the goal, plus why it matters and what "done" looks like;
-   - the branch name and the version (`v3.0.N`);
+   - the branch name and the version (`vX.Y.Z`);
    - its own database: `diplomacy_w1` … `diplomacy_w4` (they already exist; the URL is
      `$TEST_DB_BASE/diplomacy_wK`);
    - any context you already gathered (files, root cause), so it doesn't redo that work.
@@ -110,7 +114,7 @@ whenever you are deciding whether to start something new.
    which keeps its context. Merge only what you would defend in the journal.
 8. **Merge one at a time.** Strict mode means each PR has to be up to date with `main`
    before it can merge. Follow the steps in `CLAUDE.md`: rebase, push, `gh pr checks
-   --watch`, merge with `--merge`, tag the merge commit `v3.0.N`, push the tag. You can't
+   --watch`, merge with `--merge`, tag the merge commit `vX.Y.Z`, push the tag. You can't
    disable `enforce_admins` (your token has no admin rights), so a red CI gets fixed, not
    bypassed.
 9. **Verify the deploy.** After each merge to `main`, the Deploy workflow runs:
@@ -250,7 +254,7 @@ end of the week are carried over again.
 ```
 ## Run <date> — <trigger>
 **Health:** <one line>
-**Shipped:** v3.0.N — <what> (#PR) …
+**Shipped:** vX.Y.Z — <what> (#PR) …
 **Investigated, not shipped:** <what and why>
 **Discovery lenses used:** <list>
 **For next run:** <unfinished work, suspicions, broken things — most important first>
