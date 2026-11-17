@@ -9,7 +9,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from server.api import shared as api_shared
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
@@ -28,7 +30,7 @@ HELSINKI = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \((Mon|Tue|Wed|Thu|Fri|Sat|Sun) \
 
 
 def test_the_set_deadline_notice_shows_the_schedules_local_time() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _schedule_game(
         client, VOTE_POWERS, deadline_schedule="Mon,Wed,Fri 16:00", deadline_timezone="Europe/Helsinki"
     )
@@ -48,7 +50,7 @@ def test_the_set_deadline_notice_shows_the_schedules_local_time() -> None:
 
 
 def test_the_proposal_passed_notice_shows_the_schedules_local_time() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _schedule_game(
         client, VOTE_POWERS, deadline_schedule="Mon,Wed,Fri 16:00", deadline_timezone="Europe/Helsinki"
     )
@@ -72,7 +74,7 @@ def test_the_proposal_passed_notice_shows_the_schedules_local_time() -> None:
 
 
 def test_a_deadline_turn_names_the_powers_that_had_not_ordered() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, row_id, users = _seeded_game(client)
     assert REQUIRED_POWERS[1] == "FRANCE"
     resp = client.post(
@@ -100,7 +102,7 @@ def test_a_deadline_turn_names_the_powers_that_had_not_ordered() -> None:
 
 
 def test_the_unordered_sentence_is_dropped_when_only_its_own_powers_are_left() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, row_id, _users = _seeded_game(client)
     everyone = sorted(REQUIRED_POWERS)
     assert api_shared.unordered_held_line(game_id, row_id, 0) == (
@@ -112,7 +114,7 @@ def test_the_unordered_sentence_is_dropped_when_only_its_own_powers_are_left() -
 
 
 def test_a_manual_turn_does_not_name_unordered_powers() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, _row_id, users = _seeded_game(client)
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/process_turn", headers=users[0][0]).status_code == 200

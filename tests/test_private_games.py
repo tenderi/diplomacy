@@ -9,7 +9,9 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from tests.conftest import _get_db_url
 from tests.test_quit_and_replace import BOT_SECRET, _as, _register_and_login, _telegram_user
 
@@ -22,7 +24,7 @@ PASSWORD = "open sesame"
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _private_game(client: TestClient) -> tuple[str, dict]:

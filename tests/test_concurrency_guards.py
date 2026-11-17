@@ -16,9 +16,11 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.serialization import state_to_dict
 from persistence.game_repo import PhaseInputsChangedError
-from server.api import app
+from server._api_module import app
 from server.api.shared import game_service
 from server.game_service import _ADJUDICATION_ATTEMPTS
 from tests.conftest import _get_db_url
@@ -32,7 +34,7 @@ ALL_DRAWN = "drawn between AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TUR
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _end_in_a_draw(game_id: str) -> None:

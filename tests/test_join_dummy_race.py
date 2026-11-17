@@ -15,9 +15,11 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from persistence import database_service as database_service_module
 from server import game_service as game_service_module
-from server.api import app
+from server._api_module import app
 from server.api.shared import db_service, game_service
 from server.game_service import OrderError
 from server.response_cache import clear_response_cache
@@ -30,7 +32,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Da
 @pytest.fixture
 def client() -> TestClient:
     clear_response_cache()
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _holder(game_id: str, power: str) -> Optional[int]:
@@ -55,7 +57,7 @@ def _race_a_seat_write_against_the_toggle(
 
     def take_the_seat() -> None:
         try:
-            other.append(TestClient(app).post(path, json=body))
+            other.append(BotTestClient(app).post(path, json=body))
         except Exception as e:  # noqa: BLE001 -- handed to the main thread's assertion
             other.append(e)
         finally:

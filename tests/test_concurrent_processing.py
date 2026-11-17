@@ -16,9 +16,11 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from persistence.database import GameModel
 from persistence.game_repo import StaleGameError
-from server.api import app
+from server._api_module import app
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
 from tests.conftest import _get_db_url
@@ -33,7 +35,7 @@ BOT = {"X-Bot-Secret": BOT_SECRET}
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _game_with_an_order(client: TestClient) -> tuple[str, str]:

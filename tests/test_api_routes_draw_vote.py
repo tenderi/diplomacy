@@ -8,7 +8,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
 
@@ -18,7 +20,7 @@ BOT_SECRET = "test_bot_secret_for_tests"
 @pytest.fixture
 def client():
     """Create test client."""
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _register_and_login(client, prefix="drawvote"):

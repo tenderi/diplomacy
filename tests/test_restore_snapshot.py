@@ -12,7 +12,10 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import ADMIN_TOKEN, app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
 from server.deadline_schedule import parse_schedule
@@ -30,7 +33,7 @@ ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
 @pytest.fixture
 def client() -> TestClient:
     clear_response_cache()
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _game(client: TestClient) -> tuple[str, str]:

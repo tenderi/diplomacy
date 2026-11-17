@@ -9,9 +9,12 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.bot_client import BotTestClient
 from sqlalchemy.exc import OperationalError
 
-from server.api import ADMIN_TOKEN, app
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api import shared as api_shared
 from server.api.routes import auth as auth_routes
 from server.api.routes import maps as maps_routes
@@ -25,7 +28,7 @@ ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
 
 @pytest.fixture
 def crash_client() -> TestClient:
-    return TestClient(app, raise_server_exceptions=False)
+    return BotTestClient(app, raise_server_exceptions=False)
 
 
 def _boom(*_: Any, **__: Any) -> Any:

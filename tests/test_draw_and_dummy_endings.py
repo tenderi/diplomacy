@@ -16,9 +16,11 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.serialization import state_to_dict
 from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
-from server.api import app
+from server._api_module import app
 from server.api.shared import GroupPost, db_service, game_service
 from server.response_cache import clear_response_cache
 from tests.conftest import _get_db_url
@@ -34,7 +36,7 @@ SHARERS = ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "RUSSIA", "TURKEY"]  # all
 @pytest.fixture
 def client() -> TestClient:
     clear_response_cache()
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _listed_status(client: TestClient, tg: str, game_id: str) -> list[str]:

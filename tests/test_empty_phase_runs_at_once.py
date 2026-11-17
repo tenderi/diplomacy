@@ -13,10 +13,13 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.serialization import resolution_from_dict
 from engine.types import PhaseType, Season
 from persistence.game_repo import StaleGameError
-from server.api import ADMIN_TOKEN, app
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
 from server.daide import tokens as t
@@ -32,7 +35,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.skipif(not _get_db_url(), rea
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _unit(kind: str, power: str, prov: str) -> dict[str, Any]:

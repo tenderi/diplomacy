@@ -155,21 +155,13 @@ async def _start_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, k
         await show_hub(send, user_id, game_id)
 
 
+REGISTER_REPLY = "/register is gone: /start registers you."
+
+
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/register -- kept for players who learned it; /start registers already."""
-    user = update.effective_user
-    if not user or not update.message:
-        return
-    try:
-        ensure_registered(user)
-    except requests.RequestException as e:
-        await update.message.reply_text(f"Registration error: {e}")
-        return
-    await update.message.reply_text(
-        "✅ You're registered. Tap 🎲 Find a game to start playing.\n"
-        "Other players see your power, plus a nickname if you set one: /nickname <name>.",
-        reply_markup=main_keyboard(),
-    )
+    """/register -- removed in 4.0.0; a one-line pointer to /start, which registers."""
+    if update.message:
+        await update.message.reply_text(REGISTER_REPLY)
 
 
 async def nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

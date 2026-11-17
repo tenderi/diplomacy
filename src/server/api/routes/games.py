@@ -14,7 +14,7 @@ from datetime import datetime
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import IntegrityError
 from .admin import require_admin
-from .auth import require_bot_or_game_member, require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer, supplied_bot_secret
+from .auth import require_bot_or_game_member, require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
 from .channels import link_or_409
 from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_password
 from .orders import _authorize_power
@@ -67,7 +67,6 @@ class CreateGameRequest(BaseModel):
     # The bot's way of saying who is creating the game (a browser caller is the
     # Bearer user); recorded as the game's creator.
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
     # Bot only: the Telegram group /newgame was typed in. The game is created
     # linked to it, or not at all (409) -- never left behind unlinked.
     channel_id: Optional[str] = None
@@ -78,7 +77,6 @@ class AutoProcessRequest(BaseModel):
     """Body for ``POST /games/{game_id}/auto_process`` (W10)."""
     enabled: bool
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 
 class WaitFlagRequest(BaseModel):
@@ -86,7 +84,6 @@ class WaitFlagRequest(BaseModel):
     power: str
     waiting: bool = True
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 
 class SetDummyRequest(BaseModel):
@@ -94,7 +91,6 @@ class SetDummyRequest(BaseModel):
     power: str
     dummy: bool = True
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 class AddPlayerRequest(BaseModel):
     """Request model for adding a player to a game."""
@@ -112,7 +108,6 @@ class SetDeadlineRequest(BaseModel):
     # "deadline set" fan-out (they get the reply). A browser caller is the
     # Bearer user.
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 class DeadlineScheduleRequest(BaseModel):
     """Body for ``POST /games/{game_id}/deadline/schedule``."""
@@ -120,7 +115,6 @@ class DeadlineScheduleRequest(BaseModel):
     schedule: Optional[str] = None
     timezone: str = "UTC"  # IANA name the slot times are read in
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 class JoinGameRequest(BaseModel):
     """Body for ``POST /games/{game_id}/join``.
@@ -135,7 +129,6 @@ class JoinGameRequest(BaseModel):
     outright would have made Pydantic reject them all.
     """
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
-    bot_secret: Optional[str] = None
     game_id: Optional[int] = None  # redundant with the path; validated to agree if sent
     # Required, except in a random-powers game, where it must be left out: the
     # server picks the power and returns it in the response.
@@ -144,12 +137,10 @@ class JoinGameRequest(BaseModel):
 
 class QuitGameRequest(BaseModel):
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
     power: Optional[str] = None  # Optional: if provided, must match user's power
 
 class ReplacePlayerRequest(BaseModel):
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
     power: str
     join_password: Optional[str] = None  # W8: required for a private game
 
@@ -158,7 +149,6 @@ class JoinPasswordRequest(BaseModel):
     """Body for ``POST /games/{game_id}/join_password`` (W8). Null opens the game."""
     join_password: Optional[str] = None
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 
 # W8: wrong-password guesses per user per game, as tight as the login limit.
@@ -226,7 +216,6 @@ class DrawVoteRequest(BaseModel):
     power: str
     vote: bool
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
-    bot_secret: Optional[str] = None
 
 
 class ProposeDeadlineRequest(BaseModel):
@@ -238,7 +227,6 @@ class ProposeDeadlineRequest(BaseModel):
     # then only resolves by majority or being withdrawn).
     vote_hours: Optional[float] = None
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 
 class DeadlineProposalVoteRequest(BaseModel):
@@ -246,21 +234,18 @@ class DeadlineProposalVoteRequest(BaseModel):
     power: str
     vote: bool
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 
 class WithdrawDeadlineProposalRequest(BaseModel):
     """Request model for the proposer withdrawing their pending deadline proposal."""
     power: str
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 
 class ConcedeRequest(BaseModel):
     """Request model for a power conceding (voluntarily leaving) a game."""
     power: str
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
-    bot_secret: Optional[str] = None
 
 # --- Game Management Endpoints ---
 REQUIRED_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
@@ -294,7 +279,7 @@ def create_game(
     than left unlinked in the public list. ``replaced_game_id`` names the game
     that lost the group.
     """
-    if req.channel_id is not None and not (is_bot_secret(supplied_bot_secret(x_bot_secret, req.bot_secret))):
+    if req.channel_id is not None and not (is_bot_secret(x_bot_secret)):
         raise HTTPException(status_code=403, detail="Only the bot creates a game for a Telegram group.")
     if req.phase_length_seconds is not None and req.phase_length_seconds < 0:
         raise HTTPException(
@@ -311,7 +296,7 @@ def create_game(
     # telegram_id. A bare X-Bot-Secret (the demo seeder) creates an ownerless game.
     creator_id: Optional[int] = None
     if credentials is not None or req.telegram_id:
-        creator = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
+        creator = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
         creator_id = int(creator.id)
     try:
         game_id = game_service.create_game(
@@ -354,7 +339,7 @@ def set_join_password(
     if meta is None:
         raise HTTPException(status_code=404, detail="Game not found")
     if not is_admin_token(x_admin_token):
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
         if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
             raise HTTPException(status_code=403, detail="Only the game's creator can change its join password.")
     game_service.set_join_password_hash(game_id, _checked_join_password(req.join_password))
@@ -382,7 +367,7 @@ def set_auto_process(
         raise HTTPException(status_code=404, detail="Game not found")
     caller_telegram_id = None
     if not is_admin_token(x_admin_token):
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
         if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
             raise HTTPException(status_code=403, detail="You are not a player in this game.")
         caller_telegram_id = getattr(user, "telegram_id", None)
@@ -419,7 +404,7 @@ def set_wait_flag(
     deadline, or a player pressing /processturn. Lowering the last flag
     processes the turn at once if everything else is ready.
     """
-    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, x_bot_secret)
     game = db_service.get_game_by_game_id(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -461,7 +446,7 @@ def set_dummy_power(
     if meta is None:
         raise HTTPException(status_code=404, detail="Game not found")
     if not is_admin_token(x_admin_token):
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
         if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
             raise HTTPException(status_code=403, detail="Only the game's creator can change its dummy powers.")
     try:
@@ -794,7 +779,7 @@ def submit_draw_vote(
     still has a unit has now voted yes -- the game is finalized as a draw
     immediately; the response's ``quorum_reached``/``game_status`` reflect that.
     """
-    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, x_bot_secret)
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     api_shared.require_started(game_id)
@@ -843,7 +828,7 @@ def concede_game(
     the remaining powers play on; the conceding power's units are removed and
     it is picked up by the normal elimination check once it also holds no
     supply centers."""
-    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, x_bot_secret)
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     api_shared.require_started(game_id)
@@ -921,8 +906,10 @@ def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
             # Spring 1901 whatever its real phase.
             "current_turn": g.current_turn,
             "current_year": g.current_year,
-            "current_season": g.current_season,
-            "current_phase": g.current_phase,
+            # Season and phase type come from the board itself (4.0.0 dropped
+            # the two columns that copied them): "Spring"/"Movement" as before.
+            "current_season": str((g.state_json or {}).get("season", "SPRING")).capitalize(),
+            "current_phase": str((g.state_json or {}).get("phase_type", "MOVEMENT")).capitalize(),
             "phase_code": g.phase_code,
             "status": g.status,
             # Seats a person holds now: a seat its player quit keeps its row
@@ -957,16 +944,6 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
         raise HTTPException(status_code=404, detail="Game not found")
     return player_rows(game)
 
-
-@router.get("/games/{game_id}/observer_state")
-@cached_response(ttl=30, key_params=["game_id"])
-def get_observer_state(game_id: str) -> Dict[str, Any]:
-    """Game state for observers: the same as ``/state``, which no longer carries
-    anyone's pending orders. Kept for backward compatibility."""
-    view = game_service.view(game_id)
-    if view is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    return view
 
 
 def _take_chosen_seat(game_id: int, user_id: int, power: str) -> Any:
@@ -1051,8 +1028,8 @@ def join_game(
                 f"The body field is optional -- omit it and the path is used."
             ),
         )
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
-    _require_group_join_via_bot(str(game_id), user, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
+    _require_group_join_via_bot(str(game_id), user, x_bot_secret)
     view = game_service.view(str(game_id))
     random_powers = bool(view and view.get("random_powers"))
     if random_powers:
@@ -1135,7 +1112,7 @@ def quit_game(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
     # If power is specified, check that user owns that power
     if req.power:
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
@@ -1209,8 +1186,8 @@ def replace_player(
     x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Replace a vacated power in a game."""
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
-    _require_group_join_via_bot(str(game_id), user, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
+    _require_group_join_via_bot(str(game_id), user, x_bot_secret)
     view = game_service.view(str(game_id))
     _refuse_if_ended(view, game_id)
     _refuse_if_dummy(view, req.power, game_id)
@@ -1335,7 +1312,7 @@ def propose_deadline(
     ``POST .../deadline/vote`` reaches one, its own ``vote_hours`` expires, or
     the proposer withdraws it via ``POST .../deadline/withdraw``.
     """
-    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, x_bot_secret)
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -1393,7 +1370,7 @@ def vote_deadline_proposal(
 ) -> Dict[str, Any]:
     """Cast (or change) this power's yes/no vote on the pending deadline
     proposal. Only the assigned user for ``power`` may vote it."""
-    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    caller_user, _ = _authorize_power(credentials, game_id, req.power, req.telegram_id, x_bot_secret)
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -1452,7 +1429,7 @@ def withdraw_deadline_proposal(
 ) -> Dict[str, Any]:
     """Cancel the pending deadline proposal. Only its original proposer may."""
     # ``_authorize_power`` answers a missing game with 404.
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, x_bot_secret)
     _refuse_deadline_change_if_over(db_service.get_game_by_game_id(game_id))
     try:
         result = api_shared.withdraw_deadline_proposal(game_id, req.power)
@@ -1480,7 +1457,7 @@ def set_deadline_schedule(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     user = resolve_user_or_telegram(
-        credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret)
+        credentials, req.telegram_id, bot_secret=x_bot_secret
     )
     if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
         raise HTTPException(status_code=403, detail="You are not a player in this game.")
@@ -1540,7 +1517,7 @@ def set_deadline(
     # must hold a power in this game. Until v2.7.79 (Track T) a Bearer caller
     # could omit telegram_id and set any game's deadline unchecked.
     user = resolve_user_or_telegram(
-        credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret)
+        credentials, req.telegram_id, bot_secret=x_bot_secret
     )
     member = db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id))
     if member is None:
@@ -1788,43 +1765,3 @@ def get_legal_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
     return legal_orders_for_power(game_service.map, game.state, _require_power(power))
-
-
-@router.get("/games/{game_id}/legal_orders/{power}/{unit}")
-def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
-    """Legal order strings for one unit: a lookup into the power-level route.
-
-    Kept for backward compatibility with existing clients; the power-level
-    route above is primary — ``%2F`` in a coast-bearing unit string like
-    ``F STP/SC`` is awkward as a path segment, so new clients should prefer
-    it. Behaviour preserved: 404 for an unknown game, 400 for a malformed
-    unit string. A unit that exists but belongs to another power, or doesn't
-    exist at all (or has no legal orders this phase), returns ``{"orders": []}``
-    with 200 — never a 404, which would trip the frontend's fallback path.
-    Accepts both ``"A PAR"`` and ``"F STP/SC"``; a bare ``"F STP"`` for a unit
-    actually standing on a named coast falls back to a province-only match.
-    """
-    game = game_service.load(game_id)
-    if game is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    parts = unit.upper().strip().split()
-    if len(parts) < 2 or parts[0] not in ("A", "F"):
-        raise HTTPException(status_code=400, detail=f"Invalid unit format: '{unit}'")
-    kind, loc_token = parts[0], parts[1]
-    province = loc_token.split("/")[0]
-
-    data = legal_orders_for_power(game_service.map, game.state, _require_power(power))
-    orders_by_unit: Dict[str, List[str]] = data["orders_by_unit"]
-
-    exact_key = f"{kind} {loc_token}"
-    if exact_key in orders_by_unit:
-        return {"orders": orders_by_unit[exact_key]}
-
-    # Fall back to a province-only match (e.g. "F STP" for a unit that
-    # actually stands on a named coast, "F STP/SC").
-    prefix = f"{kind} {province}"
-    for key, orders in orders_by_unit.items():
-        if key == prefix or key.startswith(prefix + "/"):
-            return {"orders": orders}
-
-    return {"orders": []}

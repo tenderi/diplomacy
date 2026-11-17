@@ -34,7 +34,7 @@ import requests
 
 from server.telegram_bot import app as bot_app
 from server.telegram_bot.api_client import ApiError, api_get, api_post
-from server.telegram_bot.games import join, players, register
+from server.telegram_bot.games import join, players, start
 from server.telegram_bot.messages import messages
 from server.telegram_bot.orders import order, processturn, run_process_turn
 from tests.reliability_helpers import delivered
@@ -172,13 +172,14 @@ class TestApiClientErrorDetail:
 
 class TestMarkdownEscaping:
     @patch("server.telegram_bot.games.api_post")
-    def test_register_neither_sends_nor_echoes_the_telegram_name(self, mock_post):
-        """The system holds no real names: registration sends only the Telegram id,
-        and the confirmation does not repeat the profile name."""
+    def test_registration_neither_sends_nor_echoes_the_telegram_name(self, mock_post):
+        """The system holds no real names: /start's registration sends only the
+        Telegram id, and the welcome does not repeat the profile name."""
         mock_post.return_value = {"status": "ok"}
-        update, context, message = _make_update_and_context(first_name="John_Snow*Bot")
+        update, context, message = _make_update_and_context(first_name="John_Snow*Bot", args=[])
+        update.effective_chat = Mock(type="private")
 
-        asyncio.run(register(update, context))
+        asyncio.run(start(update, context))
 
         mock_post.assert_called_once_with("/users/persistent_register", {"telegram_id": str(update.effective_user.id)})
         assert "John" not in message.reply_text.call_args[0][0]
@@ -186,11 +187,12 @@ class TestMarkdownEscaping:
     @patch("server.telegram_bot.games.api_post")
     def test_a_failed_registration_says_so(self, mock_post):
         mock_post.side_effect = requests.ConnectionError("down")
-        update, context, message = _make_update_and_context(first_name="X")
+        update, context, message = _make_update_and_context(first_name="X", args=[])
+        update.effective_chat = Mock(type="private")
 
-        asyncio.run(register(update, context))
+        asyncio.run(start(update, context))
 
-        assert "Registration error" in message.reply_text.call_args[0][0]
+        assert "The game server isn't answering right now" in message.reply_text.call_args[0][0]
 
     @patch("server.telegram_bot.games.api_get")
     @patch("server.telegram_bot.game_context.api_get")

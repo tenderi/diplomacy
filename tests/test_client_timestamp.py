@@ -14,8 +14,10 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from persistence.database import utcnow_naive
-from server.api import app
+from server._api_module import app
 from server.api import shared as api_shared
 from server.api.client_timestamp import FUTURE_TOLERANCE, MAX_AGE, normalize_client_timestamp, sent_at_suffix
 from tests.conftest import _get_db_url
@@ -88,7 +90,7 @@ def _seed(client):
 @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
 class TestMessages:
     def test_message_is_stored_with_the_time_it_was_composed(self):
-        client = TestClient(app)
+        client = BotTestClient(app)
         game_id, fr, de, _h = _seed(client)
         composed = (utcnow_naive() - timedelta(hours=2)).replace(microsecond=0)
         r = client.post(f"/games/{game_id}/message",
@@ -101,7 +103,7 @@ class TestMessages:
 
     def test_recipient_notification_mentions_the_original_time(self):
         from tests.reliability_helpers import OutboxProbe
-        client = TestClient(app)
+        client = BotTestClient(app)
         game_id, fr, de, _h = _seed(client)
         composed = utcnow_naive() - timedelta(hours=1)
         with OutboxProbe() as probe:
@@ -114,7 +116,7 @@ class TestMessages:
         assert f"(sent {composed:%H:%M} UTC)" in got[de][0]
 
     def test_message_without_timestamp_is_stamped_now(self):
-        client = TestClient(app)
+        client = BotTestClient(app)
         game_id, fr, _de, _h = _seed(client)
         before = utcnow_naive() - timedelta(seconds=1)
         r = client.post(f"/games/{game_id}/broadcast", json={"telegram_id": fr, "bot_secret": SECRET, "text": "now"})
@@ -127,7 +129,7 @@ class TestMessages:
 @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
 class TestStaleOrders:
     def test_phase_started_at_is_stamped_on_create_and_on_process_turn(self):
-        client = TestClient(app)
+        client = BotTestClient(app)
         game_id, _fr, _de, headers = _seed(client)
         row = api_shared.db_service.get_game_by_game_id(game_id)
         assert row.phase_started_at is not None
@@ -139,7 +141,7 @@ class TestStaleOrders:
         assert row.phase_started_at > created_stamp
 
     def test_orders_composed_before_the_phase_began_are_refused(self):
-        client = TestClient(app)
+        client = BotTestClient(app)
         game_id, fr, _de, headers = _seed(client)
         fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=headers).status_code == 200
@@ -168,7 +170,7 @@ class TestStaleOrders:
         assert pending["orders"] == ["A PAR H"]
 
     def test_orders_with_a_future_timestamp_are_refused(self):
-        client = TestClient(app)
+        client = BotTestClient(app)
         game_id, fr, _de, _headers = _seed(client)
         future = (utcnow_naive() + timedelta(days=2)).isoformat()
         r = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR H"],
@@ -186,7 +188,7 @@ class TestStaleOrders:
         assert r.status_code == 200, r.text
 
     def test_set_orders_and_clear_on_a_missing_game_are_404_naming_the_game(self):
-        client = TestClient(app)
+        client = BotTestClient(app)
         _game_id, fr, _de, _headers = _seed(client)
         r = client.post("/games/set_orders", json={"game_id": "99999999", "power": "FRANCE", "orders": ["A PAR H"],
                                                    "telegram_id": fr, "bot_secret": SECRET})
@@ -195,7 +197,7 @@ class TestStaleOrders:
         assert (r.status_code, r.json()["detail"]) == (404, "Game 99999999 not found")
 
     def test_orders_without_a_timestamp_are_unaffected(self):
-        client = TestClient(app)
+        client = BotTestClient(app)
         game_id, fr, _de, headers = _seed(client)
         fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=headers).status_code == 200

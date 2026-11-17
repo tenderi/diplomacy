@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server._api_module import app
 from server.api import shared as api_shared
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
@@ -40,7 +40,7 @@ def _game_with_two_bot_players(client):
     sender, other = f"71{digits}", f"72{digits}"
     for tid, name in ((sender, "Sender"), (other, "Other")):
         r = client.post("/users/persistent_register",
-                        json={"telegram_id": tid, "bot_secret": SECRET})
+                        json={"telegram_id": tid}, headers=BOT)
         assert r.status_code == 200, r.text
     reg = client.post("/auth/register", json={"email": f"idem_{stamp}@example.com", "password": "testpass123"})
     headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
@@ -48,7 +48,7 @@ def _game_with_two_bot_players(client):
                               headers=headers).json()["game_id"])
     for tid, power in ((sender, "FRANCE"), (other, "GERMANY")):
         r = client.post(f"/games/{game_id}/join",
-                        json={"telegram_id": tid, "bot_secret": SECRET, "game_id": game_id, "power": power})
+                        json={"telegram_id": tid, "game_id": game_id, "power": power}, headers=BOT)
         assert r.status_code == 200, r.text
     return game_id, sender, other
 
@@ -61,7 +61,7 @@ def _messages(client, game_id, telegram_id):
 def test_same_key_applies_once_and_replays_the_stored_response(client):
     game_id, sender, other = _game_with_two_bot_players(client)
     key = str(uuid.uuid4())
-    body = {"telegram_id": sender, "bot_secret": SECRET, "text": "peace in our time"}
+    body = {"telegram_id": sender, "text": "peace in our time"}
     before = len(_messages(client, game_id, sender))
 
     with OutboxProbe() as probe:
@@ -79,16 +79,16 @@ def test_same_key_applies_once_and_replays_the_stored_response(client):
 
 
 def test_key_is_ignored_without_the_bot_secret_header(client):
+    """Only the bot (``X-Bot-Secret``) arms idempotency. Without the header the
+    key is ignored: nothing is stored and a repeat is answered afresh."""
     game_id, sender, _other = _game_with_two_bot_players(client)
     key = str(uuid.uuid4())
-    body = {"telegram_id": sender, "bot_secret": SECRET, "text": "twice"}
-    before = len(_messages(client, game_id, sender))
-    # bot_secret in the body authenticates the *route*; the header is what
-    # arms idempotency, and it is deliberately absent here.
+    body = {"telegram_id": sender, "text": "twice"}
     for _ in range(2):
         r = client.post(f"/games/{game_id}/broadcast", json=body, headers={"Idempotency-Key": key})
-        assert r.status_code == 200
-    assert len(_messages(client, game_id, sender)) == before + 2
+        assert r.status_code == 401
+        assert r.headers.get("Idempotent-Replayed") is None
+    assert api_shared.db_service.get_idempotent_response(key) is None
 
 
 def test_a_4xx_is_stored_and_replayed(client):
@@ -96,11 +96,11 @@ def test_a_4xx_is_stored_and_replayed(client):
     key = str(uuid.uuid4())
     # An unknown telegram_id -> 401, a definitive answer the bot must relay.
     r1 = client.post(f"/games/{game_id}/broadcast",
-                     json={"telegram_id": "999999999", "bot_secret": SECRET, "text": "x"},
+                     json={"telegram_id": "999999999", "text": "x"},
                      headers={**BOT, "Idempotency-Key": key})
     assert r1.status_code == 401, r1.text
     r2 = client.post(f"/games/{game_id}/broadcast",
-                     json={"telegram_id": "999999999", "bot_secret": SECRET, "text": "x"},
+                     json={"telegram_id": "999999999", "text": "x"},
                      headers={**BOT, "Idempotency-Key": key})
     assert r2.status_code == r1.status_code and r2.headers.get("Idempotent-Replayed") == "true"
     assert api_shared.db_service.get_idempotent_response(key)["status_code"] == r1.status_code
@@ -116,7 +116,7 @@ def test_a_route_that_raises_stores_nothing(client):
     with patch.object(api_shared.db_service, "create_message", side_effect=RuntimeError("db hiccup")):
         with pytest.raises(RuntimeError, match="db hiccup"):
             client.post(f"/games/{game_id}/broadcast",
-                        json={"telegram_id": sender, "bot_secret": SECRET, "text": "y"},
+                        json={"telegram_id": sender, "text": "y"},
                         headers={**BOT, "Idempotency-Key": key})
     assert api_shared.db_service.get_idempotent_response(key) is None
 
@@ -153,7 +153,7 @@ def test_a_replay_arriving_while_the_first_request_runs_does_not_run_the_route_a
     first finishes, a replay gets its stored response."""
     game_id, sender, _other = _game_with_two_bot_players(client)
     key = str(uuid.uuid4())
-    body = {"telegram_id": sender, "bot_secret": SECRET, "text": "only once"}
+    body = {"telegram_id": sender, "text": "only once"}
     before = len(_messages(client, game_id, sender))
     entered, release = threading.Event(), threading.Event()
     original = api_shared.db_service.create_message

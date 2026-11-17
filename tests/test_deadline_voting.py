@@ -23,9 +23,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from persistence import database_service
 from persistence.database import GameModel
-from server.api import app
+from server._api_module import app
 from server.api import shared as api_shared
 
 pytestmark = [pytest.mark.integration, pytest.mark.database]
@@ -61,7 +63,7 @@ def _seeded_game(client: TestClient) -> tuple[str, dict[str, dict]]:
 
 
 def test_propose_casts_the_proposers_own_yes_vote():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     resp = client.post(
         f"/games/{game_id}/deadline/propose",
@@ -76,7 +78,7 @@ def test_propose_casts_the_proposers_own_yes_vote():
 
 
 def test_only_one_proposal_pending_at_a_time():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     assert client.post(
         f"/games/{game_id}/deadline/propose",
@@ -91,7 +93,7 @@ def test_only_one_proposal_pending_at_a_time():
 
 
 def test_majority_yes_applies_the_deadline_and_clears_the_proposal():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     assert client.post(
         f"/games/{game_id}/deadline/propose",
@@ -121,7 +123,7 @@ def test_majority_yes_applies_the_deadline_and_clears_the_proposal():
 
 
 def test_majority_no_rejects_without_changing_anything():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     assert client.post(
         f"/games/{game_id}/deadline/propose",
@@ -152,7 +154,7 @@ def test_majority_no_rejects_without_changing_anything():
 
 def test_clearing_deadline_via_majority_vote():
     """value_hours=None (propose "clear") applies as clearing the deadline."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     # Give it a deadline first, unilaterally, the old way.
     assert client.post(
@@ -171,7 +173,7 @@ def test_clearing_deadline_via_majority_vote():
 
 
 def test_only_the_proposer_can_withdraw():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     assert client.post(
         f"/games/{game_id}/deadline/propose",
@@ -193,7 +195,7 @@ def test_only_the_proposer_can_withdraw():
 
 
 def test_only_the_assigned_player_may_propose_or_vote_for_a_power():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     resp = client.post(
         f"/games/{game_id}/deadline/propose",
@@ -212,7 +214,7 @@ def test_only_the_assigned_player_may_propose_or_vote_for_a_power():
 
 
 def test_vote_with_no_pending_proposal_is_refused():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     resp = client.post(
         f"/games/{game_id}/deadline/vote", json={"power": "FRANCE", "vote": True}, headers=users["FRANCE"]
@@ -221,7 +223,7 @@ def test_vote_with_no_pending_proposal_is_refused():
 
 
 def test_expired_proposal_is_cleared_without_a_majority():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     resp = client.post(
         f"/games/{game_id}/deadline/propose",
@@ -242,7 +244,7 @@ def test_expired_proposal_is_cleared_without_a_majority():
 
 
 def test_proposal_with_no_vote_hours_never_expires():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     resp = client.post(
         f"/games/{game_id}/deadline/propose", json={"power": "ITALY", "hours": 5.0}, headers=users["ITALY"],
@@ -281,7 +283,7 @@ def _accept(client: TestClient, game_id: str, users: dict[str, dict]) -> dict:
     ],
 )
 def test_out_of_range_hours_are_refused_up_front(field: str, raw: str):
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     body = '{"power": "FRANCE", "hours": 24, "%s": %s}' % (field, raw)
     resp = client.post(
@@ -294,7 +296,7 @@ def test_out_of_range_hours_are_refused_up_front(field: str, raw: str):
 
 
 def test_accepted_proposal_returns_the_deadline_it_set():
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     before = datetime.now(timezone.utc).replace(tzinfo=None)
     client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 12.0}, headers=users["FRANCE"])
@@ -310,7 +312,7 @@ def test_accepted_proposal_returns_the_deadline_it_set():
 def test_accepted_proposal_rearms_the_ten_minute_reminder():
     """A reminder already sent for the old deadline must not suppress the new one's,
     exactly as a unilateral POST .../deadline already guaranteed."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     numeric_id = int(api_shared.db_service.get_game_by_game_id(game_id).id)
     old = datetime.now(timezone.utc) + timedelta(minutes=5)
@@ -324,7 +326,7 @@ def test_accepted_proposal_rearms_the_ten_minute_reminder():
 def test_finished_game_takes_no_deadline_writes():
     from tests.test_api_game_over import BOT_SECRET, _drawn_game
 
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, tg = _drawn_game(client)
     auth = {"telegram_id": tg, "bot_secret": BOT_SECRET}
     propose = client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 1, **auth})
@@ -341,7 +343,7 @@ def test_a_failed_apply_leaves_the_proposal_pending(monkeypatch):
     """The deciding vote used to clear the proposal *before* writing the deadline,
     so a failing write lost the vote with nothing changed and nobody told. Both
     are one transaction now; the failure is injected into its deadline write."""
-    client = TestClient(app, raise_server_exceptions=False)
+    client = BotTestClient(app, raise_server_exceptions=False)
     game_id, users = _seeded_game(client)
     client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 12.0}, headers=users["FRANCE"])
     for power in ("ENGLAND", "GERMANY"):
@@ -363,7 +365,7 @@ def test_two_votes_cast_together_are_both_counted():
     committed while GERMANY's was in flight, was erased -- a majority could be
     reached and never noticed. Here a second session holds the row and records
     ITALY's vote while GERMANY's waits."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 12.0}, headers=users["FRANCE"])
     other = api_shared.db_service.session_factory()
@@ -390,7 +392,7 @@ def test_two_votes_cast_together_are_both_counted():
 def test_proposal_notice_says_the_hours_count_from_when_it_passes(hours, expected):
     from unittest.mock import patch
 
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users = _seeded_game(client)
     with patch("server.api.routes.games.notify_players") as notify:
         resp = client.post(
