@@ -1,8 +1,7 @@
 # Diplomacy
 
 Play the board game **Diplomacy** over Telegram or in the browser. Behind both is a
-rules engine that passes 148 of the 154 DATC adjudication tests (the other six are
-documented expected failures).
+rules engine that passes all 160 DATC adjudication test cases, with no expected failures.
 
 **Play:** [@IronChancellorBot](https://t.me/IronChancellorBot) on Telegram (send it `/start`), or
 https://diplomacy.xn--jalluthti-02a.fi. **New here? Read the [new player guide](https://diplomacy-docs.xn--jalluthti-02a.fi/NEW_USER_GUIDE/)** (all docs:
