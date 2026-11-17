@@ -1187,15 +1187,6 @@ export default function GameView() {
             )}
           </CardHeader>
           <CardContent className="space-y-2">
-            {myPower && !iAmOut && gameId && (
-              <DeadlineCard
-                gameId={gameId}
-                power={myPower}
-                proposal={deadlineProposal}
-                hasSchedule={!!scheduleText}
-                onChanged={refreshDeadline}
-              />
-            )}
             {myPower && !iAmOut && (
               <p
                 className={cn(
@@ -1267,6 +1258,15 @@ export default function GameView() {
                   </Button>
                 )}
               </div>
+            )}
+            {myPower && !iAmOut && gameId && (
+              <DeadlineCard
+                gameId={gameId}
+                power={myPower}
+                proposal={deadlineProposal}
+                hasSchedule={!!scheduleText}
+                onChanged={refreshDeadline}
+              />
             )}
           </CardContent>
         </Card>
