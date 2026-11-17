@@ -83,6 +83,46 @@ describe('PreviousTurns', () => {
     await waitFor(() => expect(second.container.textContent).toBe(''))
   })
 
+  // DP1: F1901M, then its retreat phase, then the Winter builds.
+  const withRetreat = {
+    '3': { phase: 'W1901A', results: [entry('RUSSIA', 'BUILD', { location: 'MOS' }, 'BUILD A MOS', 'BUILD')] },
+    '2': {
+      phase: 'F1901R',
+      results: [{ ...entry('GERMANY', 'DISBAND', { unit: 'BUR' }, 'D A BUR', 'DISBAND'), civil_disorder: true }],
+    },
+    '1': {
+      phase: 'F1901M',
+      results: [
+        entry('RUSSIA', 'MOVE', { unit: 'UKR', dest: 'RUM' }, 'A UKR - RUM', 'OK'),
+        entry('GERMANY', 'HOLD', { unit: 'BUR' }, 'A BUR H', 'DISLODGED', true),
+      ],
+    },
+    '0': { phase: 'S1901M', results: [entry('RUSSIA', 'MOVE', { unit: 'MOS', dest: 'UKR' }, 'A MOS - UKR', 'OK')] },
+  }
+
+  it('opens on the season before last turn, its movement and retreats together (DP1)', async () => {
+    stub({ resolutions: withRetreat })
+    const { container } = render(<PreviousTurns gameId="7" phase="S1902M" myPower="RUSSIA" />)
+    const select = (await within(container).findByLabelText('Previous turn')) as HTMLSelectElement
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      'Fall 1901 movement and retreats',
+      'Spring 1901 movement',
+    ])
+    expect(within(container).getByText('A UKR - RUM')).toBeInTheDocument()
+    expect(within(container).getByRole('heading', { name: 'Retreats' })).toBeInTheDocument()
+    expect(within(container).getByText('RUSSIA had no units to retreat.')).toBeInTheDocument()
+  })
+
+  it('does not repeat a movement turn that last turn already shows with its retreats (DP1)', async () => {
+    const { '3': _winter, ...upToRetreat } = withRetreat
+    void _winter
+    stub({ resolutions: upToRetreat })
+    const { container } = render(<PreviousTurns gameId="7" phase="W1901A" myPower="RUSSIA" />)
+    const select = (await within(container).findByLabelText('Previous turn')) as HTMLSelectElement
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Spring 1901 movement'])
+    expect(within(container).queryByText('A UKR - RUM')).toBeNull()
+  })
+
   it('tells a viewer without a power to join one', async () => {
     stub({ resolutions })
     const { container } = render(<PreviousTurns gameId="7" phase="S1903M" myPower={null} />)

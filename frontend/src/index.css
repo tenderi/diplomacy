@@ -124,3 +124,30 @@
     font-family: var(--font-sans, system-ui, sans-serif);
   }
 }
+/* The game page (DP4): one column on a portrait phone; from 640px wide (a landscape
+   phone) up, the map on the left, sticky, and the turn status, the orders (with room for
+   their notes) and the results in a column beside it. */
+@media (min-width: 640px) {
+  .game-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
+    grid-template-areas:
+      "map status"
+      "map side"
+      "map results";
+    column-gap: 1.25rem;
+    align-items: start;
+  }
+  .game-columns > .game-status { grid-area: status; }
+  .game-columns > .game-side { grid-area: side; }
+  .game-columns > .game-results { grid-area: results; }
+  .game-columns > .game-map {
+    grid-area: map;
+    position: sticky;
+    top: 0.5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .game-columns { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); column-gap: 2rem; }
+}

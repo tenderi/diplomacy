@@ -16,8 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-11-16.
-- **Open tracks:** DP (web play-through findings, DP1–DP4). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Last updated:** 2026-11-17.
+- **Open tracks:** DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
@@ -44,28 +44,6 @@ the suggested direction.
       only.
 - [ ] DH5 (#405): an adjacent move with only a partial chain of convoy orders fails
       `NO_CONVOY` instead of walking. **Waiting for the maintainer's ruling** on the issue.
-
-# Track DP — Web play-through at desktop and landscape widths (2026-11-16)
-
-A play-through at 1440x900 and 844x390 (movement, retreat, adjustment; register, login,
-reset, Telegram linking). No layout overflow; auth and linking flows behave. Findings:
-
-- [ ] DP1: game page — "Previous turns" repeats "What happened last turn" and defaults to
-      the wrong turn (Russia's S1902 page: last turn is the Winter build, the dropdown
-      opens on "Fall 1901 retreat"). Default it to the turn before the one shown above, or
-      fold the two into one block.
-- [ ] DP2: game page — a power with nothing to order in a retreat or adjustment phase gets
-      an empty "Orders" form with a live Submit button, under a status card that correctly
-      says it has nothing to order. Hide the form.
-- [ ] DP3: game page — an adjustment phase's "What happened last turn" shows only the
-      movement results to powers that had no retreat, with no sign a retreat phase ran in
-      between; an unordered build shows "WAIVE — Build was waived" exactly like a deliberate
-      waive. A unit disbanded because its retreat order was refused reads "Disbanded by civil
-      disorder: no retreat was ordered" — check the wording against what happened.
-- [ ] DP4: game page layout — at 844x390 the map starts at y≈700 (≈1200 in a retreat
-      phase) and at 1440 the page is one ≈860px column; the map and order form are never
-      visible together. The deadline card (three controls, long help) is the bulk above
-      them. Use the width on desktop (map beside orders) and collapse the deadline controls.
 
 # Track F — Manual acceptance and host chores (maintainer)
 

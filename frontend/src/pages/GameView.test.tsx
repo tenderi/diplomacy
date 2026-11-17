@@ -1059,6 +1059,9 @@ describe('GameView — orders status', () => {
       expect(within(container).getByText('FRANCE has nothing to order this phase.')).toBeInTheDocument()
     })
     expect(within(container).queryByText(/You still need to submit orders/)).toBeNull()
+    // DP2: and no empty Orders form with a live Submit button under that line.
+    expect(container.querySelector('#orders-panel')).toBeNull()
+    expect(within(container).queryByRole('button', { name: /Submit orders/ })).toBeNull()
   })
 })
 
@@ -1210,7 +1213,7 @@ describe('GameView — results panel (E4)', () => {
     expect(within(container).queryByText(/what happened last turn/i)).not.toBeInTheDocument()
   })
 
-  it('shows the movement results before the retreat ones, or alone when the power did not retreat (BR3)', async () => {
+  it('shows the movement results before the retreat ones, and the retreats even to a power that had none (BR3, DP3)', async () => {
     const res = (power: string, type: string, order_str: string, result: string, extra = {}) => ({
       order: { type, power, unit: 'PAR', dest: 'BUR' },
       result,
@@ -1236,10 +1239,14 @@ describe('GameView — results panel (E4)', () => {
       </MemoryRouter>
     )
 
-    // FRANCE (the viewer) had no retreat: only the movement block, with its move.
+    // FRANCE (the viewer) had no retreat: its move, then a Retreats block that says so,
+    // with GERMANY's retreat under the other powers' results.
     expect(await within(container).findByText('A PAR - BUR')).toBeInTheDocument()
     expect(within(container).getByRole('heading', { name: 'Movement' })).toBeInTheDocument()
-    expect(within(container).queryByRole('heading', { name: 'Retreats' })).toBeNull()
+    expect(within(container).getByRole('heading', { name: 'Retreats' })).toBeInTheDocument()
+    expect(within(container).getByText('FRANCE had no units to retreat.')).toBeInTheDocument()
+    const retreats = within(container).getByRole('heading', { name: 'Retreats' }).parentElement!
+    expect(retreats.textContent).toContain('A MUN R KIE')
     expect(within(container).queryByText(/had no orders recorded/)).toBeNull()
   })
 
@@ -2454,8 +2461,8 @@ describe('GameView — polish (CH4)', () => {
     }
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { lastResolution }))
     const { container } = renderGame()
-    await within(container).findByText('Other powers\' results (4)')
-    const text = container.querySelector('details')!.textContent ?? ''
+    const summary = await within(container).findByText('Other powers\' results (4)')
+    const text = summary.closest('details')!.textContent ?? ''
     const order = ['F TRI H', 'A BER H', 'F KIE H', 'A SMY H'].map((o) => text.indexOf(o))
     expect(order.every((i) => i >= 0)).toBe(true)
     expect([...order].sort((a, b) => a - b)).toEqual(order)
