@@ -204,8 +204,13 @@ What protects the host and the site, and where it lives:
 
 `.github/workflows/deploy.yml` deploys automatically after the Test Suite is
 green on `main` (or on demand: *Run workflow*, optionally with a SHA, short
-or full, or a tag). Nothing is built on the VPS. The workflow has two jobs:
+or full, or a tag). Nothing is built on the VPS. The workflow has three jobs:
 
+0. **`gate`** skips an automatic deploy whose commit is no longer the tip of
+   `main`. Two merges minutes apart give two Test Suite runs, and the older one
+   can finish last; deploying it would roll the host back. The newer tip has its
+   own Test Suite run and its own deploy. A deploy started by hand (a rollback)
+   is never skipped.
 1. **`images`** builds the four images of our own (`api`, `bot`, `web`, `docs`,
    from `docker/*.Dockerfile`) in GitHub Actions, with the Actions layer cache,
    and pushes them to GHCR as `ghcr.io/tenderi/diplomacy-<service>:<full commit
