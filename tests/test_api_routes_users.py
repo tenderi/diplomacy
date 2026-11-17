@@ -7,7 +7,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from tests.conftest import _get_db_url
 
 
@@ -21,7 +23,7 @@ BOT = {"X-Bot-Secret": "test_bot_secret_for_tests"}
 @pytest.fixture
 def client():
     """Create test client."""
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 @pytest.mark.unit

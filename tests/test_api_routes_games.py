@@ -6,10 +6,13 @@ player management, deadlines, and snapshots.
 """
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.bot_client import BotTestClient
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone, timedelta
 
-from server.api import ADMIN_TOKEN, app
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api.shared import db_service, game_service, server
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
@@ -24,7 +27,7 @@ def client():
     """Create test client with bot/user auth bypassed (tests non-auth behavior)."""
     from server.api.routes.auth import require_bot_or_user
     app.dependency_overrides[require_bot_or_user] = lambda: None
-    yield TestClient(app)
+    yield BotTestClient(app)
     app.dependency_overrides.clear()
 
 
@@ -457,11 +460,10 @@ class TestBE4Edges:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_legal_orders_for_an_unknown_power_is_400(self, client):
         game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
-        for url in (f"/games/{game_id}/legal_orders/MORDOR", f"/games/{game_id}/legal_orders/MORDOR/A%20PAR"):
-            resp = client.get(url)
-            assert (resp.status_code, resp.json()["detail"]) == (
-                400, f"MORDOR is not a power. The powers are {self.POWERS}.",
-            )
+        resp = client.get(f"/games/{game_id}/legal_orders/MORDOR")
+        assert (resp.status_code, resp.json()["detail"]) == (
+            400, f"MORDOR is not a power. The powers are {self.POWERS}.",
+        )
         assert client.get(f"/games/{game_id}/legal_orders/france").status_code == 200
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
@@ -553,21 +555,7 @@ class TestGameSnapshots:
 
 @pytest.mark.unit
 class TestLegalOrders:
-    """Test legal orders endpoints (power-level and per-unit)."""
-
-    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_get_legal_orders_success(self, client):
-        """Per-unit route returns real, non-empty content for an army at Paris."""
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
-        game_id = game_resp.json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN)
-        resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/A PAR")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "orders" in data
-        assert isinstance(data["orders"], list)
-        assert "A PAR H" in data["orders"]
-        assert all(o.startswith("A PAR") for o in data["orders"])
+    """The power-level legal orders route (the per-unit route is gone in 4.0.0)."""
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_legal_orders_for_power(self, client):
@@ -592,43 +580,9 @@ class TestLegalOrders:
         assert resp.status_code == 404
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_get_legal_orders_unknown_unit_returns_empty_not_404(self, client):
-        """A unit that doesn't exist (or belongs to another power) is a 200 with
-
-        an empty orders list -- never a 404, which would trip the frontend's
-        fallback path.
-        """
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
-        game_id = game_resp.json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN)
-        # No unit for FRANCE at Munich (that's a German home center).
-        resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/A MUN")
-        assert resp.status_code == 200
-        assert resp.json() == {"orders": []}
-
-    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_get_legal_orders_bare_province_falls_back_to_coast(self, client):
-        """A bare 'F STP' finds a unit actually standing on 'STP/SC'."""
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
-        game_id = game_resp.json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "RUSSIA"}, headers=ADMIN)
-        resp = client.get(f"/games/{game_id}/legal_orders/RUSSIA/F STP")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["orders"], "expected the STP/SC fleet's orders via province fallback"
-        assert all(o.startswith("F STP/SC") for o in data["orders"])
-
-    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_get_legal_orders_invalid_format(self, client):
-        """Test getting legal orders with invalid unit format."""
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
-        game_id = game_resp.json()["game_id"]
-        resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/invalid")
-        assert resp.status_code == 400
-
-    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_get_legal_orders_game_not_found(self, client):
-        """Test getting legal orders for non-existent game."""
-        resp = client.get("/games/nonexistent/legal_orders/FRANCE/A PAR")
-        assert resp.status_code == 404
+    def test_the_per_unit_route_is_gone(self, client):
+        """4.0.0 removed ``/legal_orders/{power}/{unit}``; clients use the power-level route."""
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/A PAR")
+        assert (resp.status_code, resp.json()) == (404, {"detail": "Not Found"})
 

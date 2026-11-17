@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 from engine.serialization import state_to_dict
 from engine.types import GameState, GameStatus, Location, PhaseType, Season, Unit, UnitKind
-from server.api import app
+from server._api_module import app
 from server.api import shared as api_shared
 from server.response_cache import clear_response_cache
 from tests.reliability_helpers import OutboxProbe

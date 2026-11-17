@@ -20,7 +20,10 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from server.api import ADMIN_TOKEN, app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api.routes.messages import MAX_MESSAGE_LENGTH, text_length
 from server.telegram_bot import api_client
 from server.telegram_bot.messages import recent_messages_text
@@ -36,7 +39,7 @@ TELEGRAM_MAX = 4096
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _bot_reads_through(client: TestClient) -> Any:

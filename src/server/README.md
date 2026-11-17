@@ -57,7 +57,7 @@ match queue; the server creates a game when seven players are waiting.
 - **Endings:** `draw_vote`, `draw_vote_status`, `concede`.
 - **Snapshots:** `snapshot` (the bot, or the game's seated players and creator), `snapshots`,
   `restore/{snapshot_id}` (admin only — it rewinds the game; players are told).
-- **Legal orders:** `GET /games/{id}/legal_orders/{power}` (and a per-unit variant) — the
+- **Legal orders:** `GET /games/{id}/legal_orders/{power}` — the
   phase-aware list of everything legal right now, which the web client and the bot's order
   menus are built on.
 

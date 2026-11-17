@@ -6,10 +6,9 @@ of JSON-serializable values — so it is directly unit-testable without a
 running server or database, and so any caller (the HTTP routes, the
 Telegram bot, a future DAIDE surface) gets the same answer.
 
-The old ``GET /games/{id}/legal_orders/{power}/{unit}`` route enumerated
-moves from map topology alone, ignoring ``state.phase_type`` entirely. That
-meant retreat phases offered movement orders for dislodged units (which fail
-validation) and adjustment phases offered movement orders too — which
+Enumerating moves from map topology alone, ignoring ``state.phase_type``,
+would offer movement orders for dislodged units in a retreat phase (which fail
+validation) and movement orders in an adjustment phase too — which
 *pass* validation and then get silently dropped by the adjustment
 adjudicator, waiving a player's build with no error anywhere. This module
 enumerates the right order shapes per phase:

@@ -18,8 +18,11 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from persistence.database import utcnow_naive
-from server.api import ADMIN_TOKEN, app
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api.shared import db_service, game_service
 from server.response_cache import clear_response_cache
 from tests.conftest import _get_db_url
@@ -33,7 +36,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Da
 @pytest.fixture
 def client() -> TestClient:
     clear_response_cache()
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _game(client: TestClient) -> tuple[str, dict[str, str]]:

@@ -7,9 +7,11 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.bot_client import BotTestClient
 from unittest.mock import patch, MagicMock
 
-from server.api import app
+from server._api_module import app
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
 
@@ -20,7 +22,7 @@ _BOT = {"X-Bot-Secret": BOT_SECRET}  # generate_map* and snapshot need an authen
 @pytest.fixture
 def client():
     """Create test client."""
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _register_and_login(client, prefix="maps"):

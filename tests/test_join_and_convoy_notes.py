@@ -4,7 +4,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from server.api import shared as api_shared
 from tests.reliability_helpers import OutboxProbe
 from tests.test_anonymous_games import _BOT, _as, _telegram_user
@@ -28,7 +30,7 @@ def _seat_all(client: TestClient, *, group: bool) -> tuple[str, dict[str, str], 
 
 
 def test_seating_seven_players_dms_each_one_confirmation_and_the_start_only() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users, probe = _seat_all(client, group=True)
     dms = [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "dm"]
     for p, tg in users.items():
@@ -45,13 +47,13 @@ def test_seating_seven_players_dms_each_one_confirmation_and_the_start_only() ->
 
 
 def test_a_join_without_a_group_is_not_announced_to_the_table() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     _game_id, _users, probe = _seat_all(client, group=False)
     assert not any("has joined" in r["message"] for r in probe.rows())
 
 
 def test_a_vacated_seat_filled_mid_game_is_dmed_to_the_table() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users, _probe = _seat_all(client, group=False)
     assert client.post(f"/games/{game_id}/quit", json=_as(users["FRANCE"], power="FRANCE")).status_code == 200
     newcomer = _telegram_user(client, "Neu")[0]
@@ -63,7 +65,7 @@ def test_a_vacated_seat_filled_mid_game_is_dmed_to_the_table() -> None:
 
 
 def test_a_non_adjacent_army_move_is_accepted_with_a_convoy_note() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users, _probe = _seat_all(client, group=False)
     body = _as(users["ITALY"], game_id=game_id, power="ITALY")
     resp = client.post("/games/set_orders", json={**body, "orders": ["A VEN - TUN", "A ROM - APU", "F NAP - ION"]})
@@ -81,7 +83,7 @@ def test_a_non_adjacent_army_move_is_accepted_with_a_convoy_note() -> None:
 def test_order_notes_explain_a_draft_and_show_only_the_players_own_orders() -> None:
     """#460: the read route explains a draft before submitting, and another power's
     pending orders change nothing in it."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users, _probe = _seat_all(client, group=False)
     italy = _as(users["ITALY"], game_id=game_id, power="ITALY")
     austria = _as(users["AUSTRIA"], game_id=game_id, power="AUSTRIA")
@@ -110,7 +112,7 @@ def test_order_notes_explain_a_draft_and_show_only_the_players_own_orders() -> N
 
 def test_a_support_onto_the_supporters_own_unit_is_accepted_with_a_note() -> None:
     """CA4: legal, but void unless that unit moves away -- said at submission."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     game_id, users, _probe = _seat_all(client, group=False)
     body = _as(users["AUSTRIA"], game_id=game_id, power="AUSTRIA")
     resp = client.post("/games/set_orders", json={**body, "orders": ["A VIE S A VEN - TRI", "A BUD S A VIE - GAL"]})

@@ -321,7 +321,7 @@ def cleanup_temp_files():
 def api_client():
     """Return a FastAPI TestClient for integration tests that need a running app."""
     from fastapi.testclient import TestClient
-    from server.api import app
+    from server._api_module import app
     return TestClient(app)
 
 

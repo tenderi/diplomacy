@@ -7,7 +7,10 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import ADMIN_TOKEN, app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api import shared as api_shared
 from tests.reliability_helpers import OutboxProbe
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
@@ -19,7 +22,7 @@ ADMIN_LINK = {**BOT, "X-Admin-Token": ADMIN_TOKEN}
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _linked_game(client: TestClient, level: str) -> tuple[str, str]:

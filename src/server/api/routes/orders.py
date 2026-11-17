@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
-from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer, supplied_bot_secret
+from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
 from ..client_timestamp import FUTURE_TOLERANCE, normalize_client_timestamp
 from .. import shared as api_shared
 from ...response_cache import invalidate_cache
@@ -26,7 +26,6 @@ class SetOrdersRequest(BaseModel):
     power: str
     orders: list[str]
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
-    bot_secret: Optional[str] = None
     # When the player composed these orders (ISO-8601 UTC). The bot sends it on
     # every submission; see ``_refuse_if_stale``.
     client_timestamp: Optional[datetime] = None
@@ -122,7 +121,7 @@ def set_orders(
     left without an order) -- computed from the board and this power's own
     orders only.
     """
-    _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, x_bot_secret)
     if not any(o.strip() for o in req.orders):
         raise HTTPException(status_code=400, detail="No orders given: send at least one order.")
     api_shared.require_started(str(req.game_id))
@@ -166,7 +165,6 @@ class OrderNotesRequest(BaseModel):
     orders: Optional[list[str]] = None
     merge: bool = False
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 
 @router.post("/games/{game_id}/orders/{power}/notes")
@@ -185,7 +183,7 @@ def get_order_notes(
     for the set as a whole, computed from the board and this power's own
     orders only -- never another power's pending orders.
     """
-    _, player = _authorize_power(credentials, game_id, power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    _, player = _authorize_power(credentials, game_id, power, req.telegram_id, x_bot_secret)
     try:
         notes = game_service.order_notes(game_id, player.power_name, req.orders, merge=req.merge)
     except OrderError as e:
@@ -280,7 +278,6 @@ def get_orders_for_power(
 
 class ClearOrdersRequest(BaseModel):
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
     client_timestamp: Optional[datetime] = None
 
 
@@ -293,7 +290,7 @@ def clear_orders_for_power(
     x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, str]:
     """Clear a power's pending orders. Only the assigned user may clear them."""
-    _authorize_power(credentials, str(game_id), power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    _authorize_power(credentials, str(game_id), power, req.telegram_id, x_bot_secret)
     # A queued "clear" that arrives after the phase moved on would wipe orders
     # the player entered for the *new* phase (e.g. from the browser).
     _refuse_if_stale(str(game_id), req.client_timestamp)

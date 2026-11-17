@@ -572,9 +572,10 @@ caller's own private messages. On this and every other request, GET or write, th
 the secret only in the `X-Bot-Secret` header: never in the URL, where it would end up in
 access logs and in error text, and never in a JSON body, which its offline queue stores on
 disk. A `bot_secret` query parameter is ignored, so a secret in a URL authenticates
-nothing (no credentials leak into logs from a request that works). A `bot_secret` body field
-is still accepted on writes from older callers (the bot's queued writes on disk may carry
-it; writes read it through `auth.supplied_bot_secret`, and the header wins when both are sent);
+nothing (no credentials leak into logs from a request that works), and so is a `bot_secret`
+in a JSON body: the header is the only place a route reads it. A write the bot queued on disk
+under an older release, whose stored body still holds one, delivers anyway, because the bot
+drops it and sends the header at delivery time;
 credentials that are present but don't check out (an
 invalid or expired token, a `telegram_id` without the secret) are a 401, never a silent
 fall-back to the broadcasts-only view.

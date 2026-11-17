@@ -12,9 +12,11 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.serialization import state_to_dict
 from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
-from server.api import app
+from server._api_module import app
 from server.api.shared import game_service
 from tests.conftest import _get_db_url
 
@@ -25,7 +27,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Da
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _register_and_login(client, prefix):

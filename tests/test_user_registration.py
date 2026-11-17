@@ -11,6 +11,8 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
@@ -22,7 +24,7 @@ except ImportError:
     pass
 
 try:
-    from server.api import app
+    from server._api_module import app
 except Exception:
     pytest.skip("FastAPI app not importable; skipping registration tests", allow_module_level=True)
 
@@ -41,7 +43,7 @@ class TestPersistentUserRegistration:
         """Ensure database schema exists before each test."""
         import uuid
         self.unique_id = f"test_user_{uuid.uuid4().hex[:8]}"
-        self.client = TestClient(app)
+        self.client = BotTestClient(app)
         yield
         # Cleanup handled by test database fixtures
     
@@ -173,7 +175,7 @@ class TestUserRegistrationErrorHandling:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup test client."""
-        self.client = TestClient(app)
+        self.client = BotTestClient(app)
     
     def test_register_invalid_json(self):
         """Test registration with invalid JSON."""

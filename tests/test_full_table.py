@@ -10,7 +10,10 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app, process_due_deadlines
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
+from server.api.shared import process_due_deadlines
 from server.api import shared
 from server.api.shared import GroupPost, db_service, game_buttons, game_service
 from server.daide.server import DaideServer
@@ -25,7 +28,7 @@ OTHERS = ["AUSTRIA", "ENGLAND", "FRANCE", "ITALY", "RUSSIA", "TURKEY"]
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _game(client: TestClient, dummies: list[str], seated: list[str], **create: object) -> tuple[str, str]:

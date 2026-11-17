@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.bot_client import BotTestClient
 from sqlalchemy.exc import IntegrityError
 
 from persistence.database import MapSnapshotModel
-from server.api import ADMIN_TOKEN, app
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
 from server.response_cache import clear_response_cache
@@ -31,7 +34,7 @@ ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
 @pytest.fixture
 def client() -> TestClient:
     clear_response_cache()
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _game(client: TestClient) -> tuple[str, int]:

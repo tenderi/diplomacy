@@ -5,9 +5,12 @@ Tests administrative endpoints for managing games, users, caches, and system sta
 """
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.bot_client import BotTestClient
 from unittest.mock import patch, MagicMock
 
-from server.api import app, ADMIN_TOKEN
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api.shared import db_service, server, BOT_SECRET
 from tests.conftest import _get_db_url
 
@@ -15,7 +18,7 @@ from tests.conftest import _get_db_url
 @pytest.fixture
 def client():
     """Create test client."""
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 @pytest.fixture

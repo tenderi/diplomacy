@@ -13,7 +13,8 @@ from typing import Any, Dict
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import ADMIN_TOKEN, app
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api import shared as api_shared
 from server.api.shared import BOT_SECRET, db_service
 from tests.conftest import _get_db_url

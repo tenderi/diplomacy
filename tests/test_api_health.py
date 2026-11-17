@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
-from server.api import app
+from server._api_module import app
 from server.api.shared import db_service
 
 ROOT = Path(__file__).parent.parent
