@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 
 from server.api import app
 from server.api import shared as api_shared
-from server.game_service import NEEDS_CONVOY_NOTE
 from tests.reliability_helpers import OutboxProbe
 from tests.test_anonymous_games import _BOT, _as, _telegram_user
 from tests.test_draw_concede_notifications import GROUP
@@ -70,9 +69,43 @@ def test_a_non_adjacent_army_move_is_accepted_with_a_convoy_note() -> None:
     resp = client.post("/games/set_orders", json={**body, "orders": ["A VEN - TUN", "A ROM - APU", "F NAP - ION"]})
     results = resp.json()["results"]
     assert [r["success"] for r in results] == [True, True, True]
-    assert results[0]["note"] == NEEDS_CONVOY_NOTE
+    # No fleet stands at sea on the opening board, so no convoy can carry it (#460).
+    no_route = "A VEN - TUN cannot succeed this turn: no chain of fleets at sea reaches from VEN to TUN, so no convoy can carry it"
+    assert results[0]["note"] == no_route
+    assert results[0]["notes"] == [{"kind": "impossible", "code": "no_convoy_route", "text": no_route}]
     assert results[1].get("note") is None
     assert results[2].get("note") is None
+    assert resp.json()["notes"] == []  # all three Italian units have an order
+
+
+def test_order_notes_explain_a_draft_and_show_only_the_players_own_orders() -> None:
+    """#460: the read route explains a draft before submitting, and another power's
+    pending orders change nothing in it."""
+    client = TestClient(app)
+    game_id, users, _probe = _seat_all(client, group=False)
+    italy = _as(users["ITALY"], game_id=game_id, power="ITALY")
+    austria = _as(users["AUSTRIA"], game_id=game_id, power="AUSTRIA")
+    url = f"/games/{game_id}/orders/ITALY/notes"
+
+    before = client.post(url, json={**italy, "orders": ["A VEN - TRI", "A ROM - VEN"]})
+    assert before.status_code == 200
+    # Austria orders its fleet out of Trieste: secret, so Italy's notes must not change.
+    assert client.post("/games/set_orders", json={**austria, "orders": ["F TRI - ALB"]}).status_code == 200
+    after = client.post(url, json={**italy, "orders": ["A VEN - TRI", "A ROM - VEN"]})
+    assert after.json() == before.json()
+    assert after.json()["power"] == "ITALY"
+    assert after.json()["notes"] == [{"kind": "warning", "code": "unordered", "text": "F NAP has no order, so it will hold"}]
+
+    # merge lays a pick over the stored orders, as the bot submits it.
+    assert client.post("/games/set_orders", json={**italy, "orders": ["A VEN H", "A ROM H", "F NAP H"]}).status_code == 200
+    merged = client.post(url, json={**italy, "orders": ["A ROM S A VEN - TUS"], "merge": True}).json()
+    assert [e["order"] for e in merged["orders"]] == ["A VEN H", "F NAP H", "A ROM S A VEN - TUS"]
+    assert merged["orders"][2]["notes"][0]["text"] == "A ROM supports A VEN - TUS, but A VEN is ordered to hold"
+    stored = client.post(url, json=italy).json()
+    assert [e["order"] for e in stored["orders"]] == ["A VEN H", "A ROM H", "F NAP H"]
+
+    # Only the power's own player may ask.
+    assert client.post(url, json={**austria, "orders": ["A VEN H"]}).status_code == 403
 
 
 def test_a_support_onto_the_supporters_own_unit_is_accepted_with_a_note() -> None:

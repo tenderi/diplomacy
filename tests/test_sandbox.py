@@ -110,7 +110,18 @@ def test_adjudicate_resolves_every_power_and_reports_refused_orders(client: Test
     })
 
     assert body["order_results"]["ENGLAND"] == [
-        {"order": "A LVP - PAR", "ok": False, "reason": "PAR is not adjacent to LVP"}
+        {
+            "order": "A LVP - PAR",
+            "ok": False,
+            "reason": "PAR is not adjacent to LVP",
+            "notes": [
+                {
+                    "kind": "impossible",
+                    "code": "inland_destination",
+                    "text": "A LVP cannot reach PAR this turn: PAR is inland, so no fleet can convoy it there",
+                }
+            ],
+        }
     ]
     assert all(r["ok"] for r in body["order_results"]["FRANCE"] + body["order_results"]["GERMANY"])
     outcome = {r["order_str"]: (r["power"], r["result"]) for r in body["resolution"]["results"]}
@@ -143,8 +154,8 @@ def test_a_board_steps_through_retreat_and_adjustment_to_the_next_spring(client:
     built = _adjudicate(client, retreated["state"], {"FRANCE": ["A PAR B", "F BRE B"]})
 
     assert built["order_results"]["FRANCE"] == [
-        {"order": "A PAR B", "ok": True, "reason": None, "stored": "BUILD A PAR"},
-        {"order": "F BRE B", "ok": True, "reason": None, "stored": "BUILD F BRE"},
+        {"order": "A PAR B", "ok": True, "reason": None, "stored": "BUILD A PAR", "notes": []},
+        {"order": "F BRE B", "ok": True, "reason": None, "stored": "BUILD F BRE", "notes": []},
     ]
     assert built["view"]["phase"] == "S1902M"
     assert sorted(f"{u['kind']} {u['location']}" for u in built["view"]["units_by_power"]["FRANCE"]) == [
