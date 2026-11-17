@@ -303,7 +303,11 @@ messages; credentials that don't check out are a 401. `POST /games/{id}/message`
 `/broadcast` refuse blank text and text over 3500 UTF-16 units with a 400
 (`docs/specs/architecture.md` §Notifications, "Message text"). A client
 finds its own seat in an anonymous game from `GET /users/me/games` (or
-`/users/{telegram_id}/games`).
+`/users/{telegram_id}/games`). Each row there carries `game_id`, `map_name`, `power`,
+`current_turn`, `phase_code` (the game's phase, e.g. `S1901M`; the web list shows it as
+"Spring 1901"), `status` and `is_creator`. `POST /auth/me/link_code` returns `{code, expires_in_seconds, expires_at,
+bot_username}`; `bot_username` is the bot's Telegram username (`DIPLOMACY_BOT_USERNAME`, default
+`IronChancellorBot`), which the `/link-telegram` page links as `t.me/<it>`.
 
 **The view carries no pending orders.** It is public (`GET /games/{id}/state` needs no
 login, and game ids are sequential), and orders are secret until the turn is processed.

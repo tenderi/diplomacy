@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-16.
-- **Open tracks:** DP (web play-through findings, DP1–DP6). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
+- **Open tracks:** DP (web play-through findings, DP1–DP4). DH (the maintainer's bug reports #404–#408): only DH1 and DH5 are left, and both
   wait on the maintainer's rulings on their issues. Then F (a human playing the game end to end, and host chores, which are
   the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
@@ -66,12 +66,6 @@ reset, Telegram linking). No layout overflow; auth and linking flows behave. Fin
       phase) and at 1440 the page is one ≈860px column; the map and order form are never
       visible together. The deadline card (three controls, long help) is the bulk above
       them. Use the width on desktop (map beside orders) and collapse the deadline controls.
-- [ ] DP5: auth pages — a used/bogus reset token still shows the password form and only
-      fails on submit, with no link to request a new one; `/link-telegram` says "send
-      /link <code>" without naming the bot or linking `t.me/<bot>`; register shows
-      pydantic's "Value error, " prefix on a bad nickname.
-- [ ] DP6: games list — rows say "turn 0" instead of the phase ("Spring 1901"); the create
-      form offers the creator's own power as a civil-disorder power.
 
 # Track F — Manual acceptance and host chores (maintainer)
 

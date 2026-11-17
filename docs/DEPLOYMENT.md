@@ -51,7 +51,7 @@ Telegram will not let it message you.
 
 `DIPLOMACY_BOT_USERNAME` (optional, not a secret) is the bot's Telegram username, without
 the `@`; blank means `IronChancellorBot`. The web game page's "Link a Telegram group"
-opens `https://t.me/<it>?startgroup=link_<game_id>`, so set it if you run your own bot.
+opens `https://t.me/<it>?startgroup=link_<game_id>`, so set it if you run your own bot. The `/link-telegram` page reads it from the API too.
 
 ## What "no message is ever lost" means
 
