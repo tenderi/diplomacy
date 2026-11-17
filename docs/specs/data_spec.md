@@ -669,6 +669,14 @@ explains a draft before submitting it -- the whole set, the stored set (`orders:
 or picks laid over the stored orders (`merge: true`, as the bot submits). It stores
 nothing. The sandbox's `order_results` carry the same `notes`.
 
+Where players see them: the web game page lists the draft's notes under the order form
+as it changes (`components/OrderNotes.tsx`, the read route, debounced; nothing when the
+draft is empty or the helper is unreachable). The bot shows a result's notes as `💡` lines
+under its `✅`/`❌` line (`format_order_results`, every submission path and the queued
+delivery report), on a single pick's reply, and on the `/orderall` summary before
+**Submit** (the read route with the picks, `merge` as the walk will submit). A note the
+result's `note` already says is not repeated.
+
 ## 6. Out of scope here
 
 Full DB migration history: `alembic/versions/`. Route-by-route request/response models: the
