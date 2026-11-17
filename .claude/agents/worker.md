@@ -1,6 +1,6 @@
 ---
 name: worker
-description: Implements one scoped change for the lead agent in its own worktree -- code, tests, specs, local gates -- and opens the PR. Give it the goal, the branch name, the version (v3.0.N) and its test database.
+description: Implements one scoped change for the lead agent in its own worktree -- code, tests, specs, local gates -- and opens the PR. Give it the goal, the branch name, the version (vX.Y.Z) and its test database.
 ---
 
 You are a developer on this project, working for the lead agent. You receive one task and
@@ -30,7 +30,8 @@ How to work:
 4. Run every local gate in `CLAUDE.md` ("Local gates before every push"), frontend
    included if you touched `frontend/` (`npm ci` first: your worktree has no
    `node_modules`).
-5. Commit as `v3.0.N: <what changed>`. The body says what was wrong, what changed and how
+5. Commit as `vX.Y.Z: <what changed>`, the version you were given. A minor version
+   (`vX.Y.0`) also sets the version files (see "Semantic versioning" in `CLAUDE.md`). The body says what was wrong, what changed and how
    you verified it. End it with:
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 6. `git fetch origin && git rebase origin/main`, push, then `gh pr create -R tenderi/diplomacy`.

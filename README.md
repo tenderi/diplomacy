@@ -25,7 +25,7 @@ https://diplomacy-docs.xn--jalluthti-02a.fi).
   and builds), with the board topology coming only from `maps/standard.map`.
 - **DAIDE:** a wire-protocol server, so AI clients can play.
 
-Latest release: [3.0.0](https://github.com/tenderi/diplomacy/releases/tag/v3.0.0).
+Latest release: [4.0.0](https://github.com/tenderi/diplomacy/releases/tag/v4.0.0).
 
 ## Repository layout
 
