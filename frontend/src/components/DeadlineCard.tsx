@@ -163,7 +163,8 @@ export function DeadlineCard({
       {/* DP4: the three controls and their help are the bulk of the turn status; they
           stay folded behind one line until a player wants to change the deadline. */}
       <details className="group" data-testid="deadline-controls">
-        <summary className="cursor-pointer text-sm font-medium text-primary min-h-11 sm:min-h-0 flex items-center">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-primary sm:min-h-0 [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="inline-block transition-transform group-open:rotate-90">▸</span>
           Change the deadline or schedule
         </summary>
       <div className="mt-3 space-y-4">

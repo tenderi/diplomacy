@@ -158,3 +158,16 @@ describe('DeadlineCard', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+describe('DeadlineCard folding (DP4)', () => {
+  it('keeps the three controls behind a closed summary and a pending proposal outside it', () => {
+    setup({ proposal: PROPOSAL })
+    const folded = screen.getByTestId('deadline-controls') as HTMLDetailsElement
+    expect(folded.tagName).toBe('DETAILS')
+    expect(folded.open).toBe(false)
+    expect(folded.querySelector('summary')!.textContent).toContain('Change the deadline or schedule')
+    expect(folded.contains(screen.getByLabelText('Deadline in hours'))).toBe(true)
+    expect(folded.contains(screen.getByLabelText('Schedule days'))).toBe(true)
+    expect(folded.contains(screen.getByRole('button', { name: 'Vote yes' }))).toBe(false)
+  })
+})
