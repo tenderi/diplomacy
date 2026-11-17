@@ -322,7 +322,46 @@ def format_order_results(results: list[dict[str, Any]]) -> str:
             lines.append(f"✅ {r.get('stored') or r['order']}{note}")
         else:
             lines.append(f"❌ {r['order']}\n   Error: {r.get('error')}")
+        lines.extend(f"   💡 {text}" for text in helper_note_texts(r))
     return "\n".join(lines)
+
+
+def helper_note_texts(result: dict[str, Any]) -> list[str]:
+    """The order helper's notes (#460) on one ``set_orders`` result, as sentences,
+    leaving out one the result's ``note`` already says (the convoy note is both)."""
+    shown = {str(result.get("note") or "")}
+    out = []
+    for n in result.get("notes") or []:
+        text = str(n.get("text") or "")
+        if text and text not in shown:
+            shown.add(text)
+            out.append(text[0].upper() + text[1:])
+    return out
+
+
+def walk_helper_notes(game_id: str, walk: dict[str, Any]) -> list[str]:
+    """The order helper's notes on a walk's chosen orders before they are submitted:
+    ``POST /games/{id}/orders/{power}/notes`` with the picks, merged over the stored
+    orders as the walk's submit will be. Any failure just leaves the notes out."""
+    orders = [walk["chosen"][s] for s in walk["steps"] if s in walk["chosen"]]
+    user_id = walk.get("user_id")
+    if not orders or not user_id:
+        return []
+    try:
+        resp = api_post(
+            f"/games/{game_id}/orders/{walk['power']}/notes",
+            {"orders": orders, "merge": not bool(walk.get("replace")), "telegram_id": str(user_id)},
+        )
+    except requests.RequestException:
+        return []
+    if not isinstance(resp, dict):
+        return []
+    texts: list[str] = []
+    for n in [*(n for o in resp.get("orders", []) for n in o.get("notes", [])), *resp.get("notes", [])]:
+        text = str(n.get("text") or "")
+        if text and text[0].upper() + text[1:] not in texts:
+            texts.append(text[0].upper() + text[1:])
+    return texts
 
 
 def _orders_received(
@@ -1105,6 +1144,7 @@ async def start_order_walk(
         "chosen": {},
         "existing": existing,
         "replace": replace,
+        "user_id": str(user_id),
     }
     await show_walk_step(send, context, game_id)
 
@@ -1195,6 +1235,9 @@ async def _show_walk_summary(send: Sender, context: ContextTypes.DEFAULT_TYPE, g
         # earlier survives, a skipped slot included.
         note += "\n\nSubmitting replaces the builds or disbands you ordered earlier"
         note += ", and a skipped slot does not keep its earlier order." if skipped else "."
+    helper = walk_helper_notes(game_id, walk)
+    if helper:
+        note += "\n\n💡 *Before you submit:*\n" + "\n".join(f"• {escape_markdown(t)}" for t in helper)
     count = len(walk["chosen"])
     keyboard = []
     if count:
@@ -1573,6 +1616,7 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
         if results[0].get("note"):
             # A build or disband past the count pushed an older one out.
             extra += f"\n↩️ This {escape_markdown(results[0]['note'])}"
+        extra += "".join(f"\n💡 {escape_markdown(t)}" for t in helper_note_texts(results[0]))
         if (outcome.response or {}).get("auto_processed"):
             extra += "\n\n⚡ That completed the turn -- it has been processed."
         await query.edit_message_text(
@@ -1585,7 +1629,8 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
         await query.edit_message_text(
             f"❌ *Order Failed*\n\n"
             f"📋 Order: `{order_text}`\n"
-            f"❌ Error: {error_msg}",
+            f"❌ Error: {error_msg}"
+            + "".join(f"\n💡 {escape_markdown(t)}" for t in (helper_note_texts(results[0]) if results else [])),
             reply_markup=next_steps,
             parse_mode='Markdown'
         )

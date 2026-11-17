@@ -90,6 +90,13 @@ none of its business and stay where they are.
 
    **⬅️ Back** and **⏭ Skip** are on every step. At the end you see all your orders
    together. Tap **✅ Submit**.
+
+   **💡 The order helper** looks over your orders before you submit and again in the
+   reply: what a move depends on ("A LON - NWY needs a convoy: it can succeed only if
+   F NTH convoys it"), a support for one of your units that you ordered to do something
+   else, two of your units sent to the same province, and units still without an order.
+   A typed order that can't work says why and what would ("F GAS can reach only SPA/NC
+   of SPA"). It reads only the board and your own orders -- never anyone else's.
 3. **Changed your mind?** Enter orders again: a new order for a unit replaces its old one.
    **📋 My orders** in the game menu shows what you've sent, and can clear it.
 4. **The turn runs** as soon as every player has sent orders for all their units, or at
@@ -136,7 +143,7 @@ Deals are not binding, and neither are promises. That's the game.
 At **https://diplomacy.xn--jalluthti-02a.fi** you can see your games with a large,
 zoomable map (the board, your pending orders, or the last resolution), what happened to
 every order last turn and in earlier turns, the deadline in your own time zone, messages,
-order entry, draw votes, and quit or concede. You can also create a game there, and try
+order entry (with the same order helper under the form), draw votes, and quit or concede. You can also create a game there, and try
 orders for all seven powers in the **Sandbox** without touching a real game. All of it is
 described in the [browser client guide](BROWSER_CLIENT.md). A message to everyone can be sent as a **rumour**: tick *Send anonymously (rumour)* and
 nobody is told who sent it. It shows as "🕵️ Rumour" in everyone's message list, and every
@@ -158,7 +165,7 @@ Group games can't be joined from the website. Join them through the group's butt
 ## 8. Good to know
 
 - **You can't break anything.** The bot only offers legal orders, and a typed order that
-  isn't legal is rejected with the reason.
+  isn't legal is rejected with the reason (and, from the order helper, what would work).
 - **Several games?** Your commands act on your *current game*: the one you last opened
   or were notified about. Switch with **🎮 My games** or `/game N`.
 - **The server restarting** (after an update, usually a minute) doesn't lose anything:
