@@ -6,7 +6,10 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import ADMIN_TOKEN, app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
 from tests.reliability_helpers import OutboxProbe
@@ -22,7 +25,7 @@ ADMIN_LINK = {**BOT, "X-Admin-Token": ADMIN_TOKEN}
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _web_user(client: TestClient, name: str) -> dict:

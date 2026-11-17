@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server._api_module import app
 from server.api import shared as api_shared
 from tests.reliability_helpers import OutboxProbe
 

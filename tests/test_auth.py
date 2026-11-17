@@ -2,6 +2,7 @@
 Tests for auth routes: register, login, refresh, me, link_code, telegram/link.
 Also tests game routes using Bearer token (join, set_orders).
 """
+from tests.bot_client import BotTestClient
 import os
 import time
 import pytest
@@ -30,8 +31,8 @@ def _unique_email(prefix="auth"):
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
-    from server.api import app
-    return TestClient(app)
+    from server._api_module import app
+    return BotTestClient(app)
 
 
 def _skip_if_no_db():

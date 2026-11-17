@@ -15,7 +15,10 @@ import pytest
 from tests.table_helpers import fill_with_dummies
 from fastapi.testclient import TestClient
 
-from server.api import ADMIN_TOKEN, app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api.shared import db_service
 from server.telegram_bot.channels import format_historical_timeline, format_player_dashboard
 from tests.conftest import _get_db_url
@@ -175,7 +178,7 @@ needs_db = pytest.mark.skipif(not _get_db_url(), reason="Database URL not config
 class TestRoutesQueueForTheGroup:
     @pytest.fixture
     def client(self) -> TestClient:
-        return TestClient(app)
+        return BotTestClient(app)
 
     def _linked_game(self, client: TestClient) -> tuple[str, str]:
         creator = _telegram_user(client, "Ann-Marie")

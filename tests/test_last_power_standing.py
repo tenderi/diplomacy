@@ -14,9 +14,11 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.serialization import state_from_dict, state_to_dict
 from engine.types import GameState, GameStatus, Location, PhaseType, Season, Unit, UnitKind
-from server.api import app
+from server._api_module import app
 from server.api.shared import GroupPost, game_service
 from server.game_service import GameService
 from server.response_cache import clear_response_cache
@@ -32,7 +34,7 @@ OTHERS = ("AUSTRIA", "ENGLAND", "ITALY", "RUSSIA", "TURKEY")
 @pytest.fixture
 def client() -> TestClient:
     clear_response_cache()
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _france_and_germany(client: TestClient) -> tuple[str, dict[str, str]]:
@@ -184,7 +186,7 @@ def test_the_last_two_conceding_together_end_the_game_without_a_winner(client: T
 
 def test_a_turn_with_no_power_left_says_nobody_wins() -> None:
     """``notify_turn_processed`` for a game that ended with no winners."""
-    game_id, seats = _game(TestClient(app), ["FRANCE"])
+    game_id, seats = _game(BotTestClient(app), ["FRANCE"])
     _put(game_id, GameState(
         1901, Season.SPRING, PhaseType.MOVEMENT, status=GameStatus.COMPLETED, winners=frozenset(),
     ))

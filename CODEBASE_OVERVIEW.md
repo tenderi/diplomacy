@@ -146,7 +146,7 @@ unit and dislodged-unit positions; `place_unit_anchors.py` and `place_dislodged_
 | `api/error_log.py` | `ServerErrorLogMiddleware`: every 5xx the API returns is logged at ERROR with its method and path (a route's own `HTTPException(500)` included), so it reaches the journal and the maintainer's alerts. |
 | `api/access_log.py` | Keeps healthy `/healthz`, `/health` and empty `GET /bot/outbox` lines out of uvicorn's access log (a filter on `uvicorn.access` plus a middleware that marks an empty poll); errors on those paths are still logged. |
 | `api/long_poll.py` | The wait behind `GET /bot/outbox?wait=N`: woken by an outbox insert in this process, or by a periodic re-query for rows another worker committed. Holds no DB connection while waiting. |
-| `response_cache.py` | In-memory response cache (TTL, LRU) behind `@cached_response` on `GET /games/{id}/state`, `/players`, `/observer_state` and `/users/{id}/games`; every write that changes one calls `invalidate_cache`. |
+| `response_cache.py` | In-memory response cache (TTL, LRU) behind `@cached_response` on `GET /games/{id}/state`, `/players` and `/users/{id}/games`; every write that changes one calls `invalidate_cache`. |
 | `daide/` | The DAIDE protocol package — see §6. |
 
 ### API route modules (`src/server/api/routes/`)
@@ -183,10 +183,8 @@ Two modes coexist: **JWT Bearer** (browser) and **`telegram_id` plus the bot sec
 (Telegram bot). `resolve_user_or_telegram` turns either into a user; `require_bot_or_user`,
 `require_bot_secret` and `require_bot_or_game_member` (the bot, or a user seated in or
 creator of the path's game: `POST .../snapshot`, `.../generate_map`) are the dependencies; per-power authorization is enforced in route
-handlers. The bot sends its secret only in the `X-Bot-Secret` header, on every method; a
-write route taking a `telegram_id` reads it with `supplied_bot_secret(x_bot_secret,
-req.bot_secret)`, which prefers the header and falls back to the legacy `bot_secret` body
-field.
+handlers. The bot sends its secret only in the `X-Bot-Secret` header, on every method, and
+that header is the only place any route reads it (there is no `bot_secret` body field).
 
 ---
 
@@ -221,7 +219,7 @@ The primary player interface, built on `python-telegram-bot` 22.x. A **thin HTTP
 | `outbox.py` | The SQLite durable queue (`DIPLOMACY_BOT_DATA_DIR/outbox.sqlite3`): pending/inflight/delivered/rejected entries with backoff, plus the per-user games cache and each player's **current game**. |
 | `game_context.py` | `resolve_game_and_power(user_id, game_id=None)` + `fetch_user_games` — the one place a command figures out which game and power it is acting on. A named game becomes the player's current game (`set_current_game`), and a bare command in a multi-game player's hands acts on it. Falls back to the cached games list when the API is unreachable so orders can still be queued. |
 | `hub.py` | The **game menu**: `/games`, `/game [id]`, `/findgame`, `/cancel`, and the `g\|{game_id}\|{action}[\|arg]` callback router behind every game-menu button *and* the buttons on server notifications (`api.shared.game_buttons`; a trailing `\|n` answers in a new message). Also `handle_awaited_text`: a message to a power, or a private game's password, typed as the next plain message. |
-| `games.py` | `/start` (registers silently; three-key keyboard), `/register`, `/join`, `/quit`, `/replace`, `/wait`, `/leavequeue`, `/status`, `/players`, the ready/deadline commands — and the helpers the hub shares with them (`status_text`, `set_wait_flag`, `propose_deadline`/`vote_deadline`/`withdraw_deadline`, `join_game`, `ensure_registered`). The queue is server state. |
+| `games.py` | `/start` (registers silently; three-key keyboard), `/register` (only points to `/start`), `/join`, `/quit`, `/replace`, `/wait`, `/leavequeue`, `/status`, `/players`, the ready/deadline commands — and the helpers the hub shares with them (`status_text`, `set_wait_flag`, `propose_deadline`/`vote_deadline`/`withdraw_deadline`, `join_game`, `ensure_registered`). The queue is server state. |
 | `orders.py` | `/orders` (= `/order`), `/orderall`, `/selectunit`, `/myorders`, `/clearorders`, `/clear`, `/orderhistory`, `/processturn` (creator only, enforced by the API) — interactive unit and move selection via inline keyboards driven by `legal_orders`. |
 | `messages.py`, `maps.py` | `/message`, `/broadcast`, `/rumour` (`/rumor`), `/messages` (game id optional; `send_diplomatic_message`, `recent_messages_text`); `/map`, `/viewmap`, `/replay`. |
 | `ui.py`, `admin.py` | `/help`, `/rules`, `/examples`, `/refresh` (rebuild the keyboard menu), plain-text routing (private chats only); the solo demo (`start_demo_game`: six civil-disorder seats in a `map_name="demo"` game, where the server plays them with `engine.simple_ai`), `/debug`. |

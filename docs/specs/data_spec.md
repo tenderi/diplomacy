@@ -188,7 +188,7 @@ The columns that matter for game state (all nullable):
 
 Plus denormalized convenience columns kept in sync for code that doesn't want to parse
 `state_json` (deadline scheduler, game listings, channel posts): `map_name`,
-`current_turn`, `current_year`, `current_season`, `current_phase`, `phase_code`,
+`current_turn`, `current_year`, `phase_code`,
 `status`, `deadline`, `channel_settings`, `created_at`,
 `updated_at`. `current_turn` counts processed turns: `save_state` adds one and keys the
 turn's `order_history`/`resolution_history` entries by the number it leaves behind, and

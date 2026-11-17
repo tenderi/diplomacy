@@ -62,7 +62,7 @@ logger = logging.getLogger("diplomacy.telegram_bot.main")
 # usefulness, not a dump of every handler: most actions are buttons in the
 # game menu (/game), so the menu lists the commands worth typing. Left off,
 # but still working: aliases (/order, /clear, /wait, /unwait), /register
-# (/start registers), /processturn (the game creator's "Process turn now"
+# (only says /start registers), /processturn (the game creator's "Process turn now"
 # button), game-creator settings (/dummy, /autoprocess), rarely used commands
 # (/orderhistory, /replay, /refresh, /examples, /cancel, /players, /replace)
 # and admin/channel commands.

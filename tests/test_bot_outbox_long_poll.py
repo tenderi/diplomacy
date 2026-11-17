@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
 from persistence import database_service as dal
-from server.api import app
+from server._api_module import app
 from server.api import long_poll
 from server.api import shared as api_shared
 from server.api.access_log import QuietAccessLogFilter

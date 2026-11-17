@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from persistence.database import utcnow_naive
 from .admin import require_admin
-from .auth import http_bearer, resolve_user_or_telegram, supplied_bot_secret
+from .auth import http_bearer, resolve_user_or_telegram
 from .. import shared as api_shared
 from ..shared import db_service, game_service, notify_user
 
@@ -33,7 +33,6 @@ class FeedbackRequest(BaseModel):
     game_id: Optional[str] = None
     source: Literal["telegram", "web"] = "web"
     telegram_id: Optional[str] = None
-    bot_secret: Optional[str] = None
 
 
 @router.post("/feedback")
@@ -42,7 +41,7 @@ def send_feedback(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
     text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Feedback is empty.")

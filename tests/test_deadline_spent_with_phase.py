@@ -17,7 +17,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
 from tests.conftest import _get_db_url
@@ -33,7 +35,7 @@ NO_DEADLINE = "No deadline is set for Fall 1901 movement. To set one, use /deadl
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def test_a_spent_deadline_does_not_process_the_phase_after_it(client: TestClient) -> None:

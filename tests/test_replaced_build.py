@@ -21,9 +21,11 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.serialization import state_to_dict
 from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
-from server.api import app
+from server._api_module import app
 from server.api.shared import game_service
 from server.telegram_bot import api_client
 from server.telegram_bot.api_client import drain_outbox_once
@@ -41,7 +43,7 @@ BOT = {"X-Bot-Secret": BOT_SECRET}
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 @pytest.fixture(autouse=True)

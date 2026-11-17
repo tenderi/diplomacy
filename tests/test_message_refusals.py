@@ -6,7 +6,9 @@ and an unregistered Telegram id got a bare "Not authenticated".
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
 from tests.test_seat_guards import _as, _game
@@ -18,7 +20,7 @@ SENDS = [("message", {"recipient_power": "GERMANY"}), ("broadcast", {})]
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 @pytest.mark.parametrize("endpoint,extra", SENDS)

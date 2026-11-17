@@ -13,7 +13,10 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import ADMIN_TOKEN, app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api import shared as api_shared
 from server.api.routes.feedback import MAX_FEEDBACK_CHARS, MAX_FEEDBACK_PER_HOUR
 from persistence.database import BotOutboxModel
@@ -31,7 +34,7 @@ db = pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 @pytest.fixture

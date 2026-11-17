@@ -130,8 +130,6 @@ def _write_state(
     if turn_processed:
         row.current_turn = int(row.current_turn or 0) + 1
     row.current_year = state_json.get("year", row.current_year)
-    row.current_season = str(state_json.get("season", "SPRING")).capitalize()
-    row.current_phase = str(state_json.get("phase_type", "MOVEMENT")).capitalize()
     row.updated_at = utcnow_naive()
 
 
@@ -341,8 +339,6 @@ class GameRepo:
                 status="active",
                 current_turn=0,
                 current_year=state_json.get("year", 1901),
-                current_season=str(state_json.get("season", "SPRING")).capitalize(),
-                current_phase=str(state_json.get("phase_type", "MOVEMENT")).capitalize(),
                 phase_started_at=utcnow_naive(),
                 phase_length_seconds=phase_length_seconds,
                 created_by_user_id=created_by_user_id,

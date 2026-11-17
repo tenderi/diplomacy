@@ -1,21 +1,26 @@
 """The bot authenticates telegram_id writes with the ``X-Bot-Secret`` header alone.
 
 The bot never puts the secret in a request body (its queued writes are stored
-on disk). Every write route that takes a ``telegram_id`` reads the header
-through ``supplied_bot_secret``; the legacy ``bot_secret`` body field is still
-accepted when no header is sent. GET routes read the header only: a
-``bot_secret`` query parameter would land in access logs, so it is ignored.
+on disk). Every route that takes a ``telegram_id`` reads the header only: 4.0.0
+removed the old ``bot_secret`` body field, so a body secret authenticates
+nothing, and a ``bot_secret`` query parameter (it would land in access logs) is
+ignored too. A write the bot queued on disk before the upgrade still delivers,
+because the bot adds the header at send time and drops a stored body secret.
 """
 from __future__ import annotations
 
 import re
 import time
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server._api_module import app
+from server.telegram_bot import api_client
+from server.telegram_bot.outbox import DELIVERED, reset_outbox_for_tests
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
 
@@ -115,8 +120,8 @@ class TestHeaderOnly:
         })
         assert (r.status_code, r.json()["detail"]) == (403, "You are not authorized to act for this power.")
 
-    def test_the_header_wins_over_a_stale_body_secret(self, client: TestClient, seated: tuple[str, str, str]) -> None:
-        """A write queued before a secret rotation carries the old secret in its body."""
+    def test_a_stale_body_secret_is_ignored(self, client: TestClient, seated: tuple[str, str, str]) -> None:
+        """A body ``bot_secret`` (an old client's) neither helps nor hurts: the header decides."""
         game_id, fr, _ = seated
         r = client.post(f"/games/{game_id}/broadcast", headers=HEADER, json={
             "telegram_id": fr, "text": "replayed", "bot_secret": "the-old-secret",
@@ -152,18 +157,48 @@ class TestHeaderOnly:
         r = client.get(f"/games/{game_id}/messages", params={"telegram_id": fr}, headers=HEADER)
         assert r.status_code == 200, r.text
 
-    def test_the_legacy_body_field_alone_still_works(self, client: TestClient, seated: tuple[str, str, str]) -> None:
+    def test_a_body_secret_alone_is_401(self, client: TestClient, seated: tuple[str, str, str]) -> None:
+        """4.0.0 removed the ``bot_secret`` body field: the right secret in a body is no secret."""
         game_id, fr, _ = seated
         r = client.post(f"/games/{game_id}/broadcast", json={"telegram_id": fr, "text": "x", "bot_secret": BOT_SECRET})
-        assert r.status_code == 200, r.text
+        assert (r.status_code, r.json()["detail"]) == (401, "Not authenticated: bot_secret required for telegram_id auth")
+        r = client.post("/users/persistent_register", json={"telegram_id": "cv_body_only", "bot_secret": BOT_SECRET})
+        assert r.status_code == 401
+
+    def test_a_write_queued_on_disk_before_the_upgrade_still_delivers(
+        self, client: TestClient, seated: tuple[str, str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An outbox row written by an older bot holds ``bot_secret`` in its stored
+        payload. Replayed through the bot's real delivery path against the real
+        API, it is accepted: the header carries the secret, the body never does."""
+        game_id, fr, _ = seated
+        outbox = reset_outbox_for_tests(tmp_path / "outbox.sqlite3")
+        endpoint = "/games/set_orders"
+        legacy = {"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"], "telegram_id": fr,
+                  "bot_secret": "the-secret-of-an-older-release"}
+        entry = outbox.enqueue(int(time.time()), endpoint, legacy, "orders")
+        sent: list[dict[str, Any]] = []
+
+        def via_test_client(url: str, json: dict[str, Any], headers: dict[str, str], timeout: float) -> Any:
+            sent.append(json)
+            return client.post(url.removeprefix(api_client.API_URL), json=json, headers=headers)
+
+        monkeypatch.setattr(api_client, "BOT_SECRET", BOT_SECRET)
+        with patch.object(api_client.requests, "post", side_effect=via_test_client):
+            result = api_client.attempt_delivery(entry)
+        assert (result.status, result.error) == ("delivered", None)
+        assert outbox.get(entry.id).state == DELIVERED
+        assert "bot_secret" not in sent[0]
+        assert [o["success"] for o in result.response["results"]] == [True]
 
 
-def test_every_body_secret_read_goes_through_supplied_bot_secret() -> None:
-    """A route reading ``req.bot_secret`` directly would ignore the header."""
+def test_no_route_reads_a_body_secret() -> None:
+    """The ``bot_secret`` body field is gone: no request model declares it and
+    no handler reads ``req.bot_secret``, so only the header authenticates."""
     stray = [
         f"{path.name}:{n}"
         for path in sorted(ROUTES.glob("*.py"))
         for n, line in enumerate(path.read_text().splitlines(), 1)
-        if re.search(r"req\.bot_secret", line.replace("supplied_bot_secret(x_bot_secret, req.bot_secret)", ""))
+        if re.search(r"req\.bot_secret|^\s+bot_secret: Optional\[str\] = None$|supplied_bot_secret", line)
     ]
     assert stray == []

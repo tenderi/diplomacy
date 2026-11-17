@@ -11,10 +11,13 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from telegram.error import BadRequest
 
 from rendering.view_adapter import units_for_render
-from server.api import ADMIN_TOKEN, app
+from server._api_module import app
+from server.api.shared import ADMIN_TOKEN
 from server.api.shared import game_service, phase_label
 from server.telegram_bot import notifications
 from server.telegram_bot.api_client import ApiUnreachableError
@@ -68,7 +71,7 @@ needs_db = pytest.mark.skipif(not _get_db_url(), reason="Database URL not config
 class TestTheGroupSeesEachTurn:
     @pytest.fixture
     def client(self) -> TestClient:
-        return TestClient(app)
+        return BotTestClient(app)
 
     def _group_game(self, client: TestClient, settings: dict | None = None) -> str:
         creator = _telegram_user(client, "mapper")
