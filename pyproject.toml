@@ -13,6 +13,4 @@ line-length = 100
 extend-select = ["BLE001"]  # blind `except Exception` (Track BF)
 
 [tool.ruff.lint.per-file-ignores]
-# Out of scope, kept for back-compat (permanent):
-"src/server/api/routes/tournaments.py" = ["BLE001"]
 # Track BF (docs/specs/fix_plan.md): each step removes its files from this list.

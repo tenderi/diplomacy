@@ -96,9 +96,8 @@ coherent* to use.
 
 ## Out of scope
 
-- Tournaments, Discord, observer/spectator mode, AI-powered analysis. `tournaments.py`,
-  `discord_bot/`, `run_discord_bot.py` and the spectator routes are kept for backward
-  compatibility: don't extend, don't delete.
+- Tournaments, Discord, observer/spectator mode, AI-powered analysis. 4.0.0 removed the
+  old tournament, Discord and spectator code and tables (#461).
 - An interactive map component, animation, or a new layout engine.
 - Map variants beyond `standard`.
 - An admin web page: the host is administered over SSH (`docs/DEPLOYMENT.md`).

@@ -52,7 +52,7 @@ src/engine/          # PURE rules core — stdlib only, no I/O, no DB, no render
 src/persistence/       # SQLAlchemy models + DAL
   database.py            # ORM models (GameModel, UserModel, PlayerModel, ...)
   database_service.py     # DatabaseService — CRUD for players/users/messages/channels/
-                          #   tournaments/etc.; game *state* itself is delegated to...
+                          #   etc.; game *state* itself is delegated to...
   game_repo.py             # ...GameRepo: state_json/pending_orders/last_resolution/
                             #   order and resolution histories
 
@@ -68,8 +68,7 @@ src/server/             # FastAPI app, CLI Server, DAIDE, Telegram bot
                             # wraps engine.Game + serialization + parser/validation over
                             # GameRepo. Routes/CLI/DAIDE never touch engine internals directly.
   api/routes/               # games, orders, users, auth, messages, maps, channels, admin,
-                             # tournaments, waiting_list, bot_outbox, archive, feedback,
-                             # sandbox
+                             # waiting_list, bot_outbox, archive, feedback, sandbox
   legal_orders.py           # pure: every legal order for a power this phase
   order_notes.py            # pure: why an order is impossible / what it depends on,
                             #   from the board and the power's own orders only
