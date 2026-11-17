@@ -43,6 +43,10 @@ export interface OrderResultEntry {
    * had no order (that one keeps its `retreat_options`). Absent on results stored
    * before v3.0.82. */
   civil_disorder?: boolean
+  /** True on a result whose order the engine made up because the power sent none: an
+   * implicit hold, an unordered disband, or a waive for a build left unused (stored
+   * from v3.0.327; an older unused build reads as a plain waive). */
+  unordered?: boolean
   /** Why the order failed, when the code alone would mislead: a void support
    * onto the supporter's own unit ("it would dislodge your own F TRI") or a
    * convoy broken by a dislodged fleet ("F NTH was dislodged"). Derived by the
@@ -101,7 +105,7 @@ export function describeResult(entry: OrderResultEntry, allResults: OrderResultE
     case 'DISBAND':
       if (entry.civil_disorder) {
         return entry.retreat_options.length > 0
-          ? 'Disbanded by civil disorder: no retreat was ordered.'
+          ? 'Disbanded: it had no valid retreat order when the phase was processed.'
           : 'Disbanded by civil disorder: too few disbands were ordered, so the unit farthest from its home centres was removed.'
       }
       return orderType === 'RETREAT'
@@ -110,7 +114,7 @@ export function describeResult(entry: OrderResultEntry, allResults: OrderResultE
     case 'BUILD':
       return 'Build succeeded.'
     case 'WAIVE':
-      return 'Build was waived.'
+      return entry.unordered ? 'Build was waived: no build was ordered for it.' : 'Build was waived.'
     default:
       return String(entry.result)
   }
@@ -163,8 +167,10 @@ export function isAdjustmentResults(results: OrderResultEntry[]): boolean {
 
 /** What to say when `power` has no entry in a turn's results. The engine records a result
  * for every build (an unused entitlement is an implicit waive) and every disband (a
- * shortfall is civil disorder), so in an adjustment phase a power with none owed nothing. */
-export function noResultsText(power: string, results: OrderResultEntry[]): string {
+ * shortfall is civil disorder), so in an adjustment phase a power with none owed nothing;
+ * in a retreat phase (`retreat`: the caller knows it is one) it had no unit dislodged. */
+export function noResultsText(power: string, results: OrderResultEntry[], retreat = false): string {
+  if (retreat) return `${power} had no units to retreat.`
   return isAdjustmentResults(results)
     ? `${power} had nothing to build or disband.`
     : `${power} had no orders recorded for that turn.`

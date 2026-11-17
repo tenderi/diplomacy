@@ -12,6 +12,7 @@ advances the phase (the phase machine inserts retreat/adjustment phases as neede
 from __future__ import annotations
 
 import random
+from collections import Counter
 from dataclasses import replace
 from typing import Any, Optional
 
@@ -544,6 +545,15 @@ class GameService:
             unit = r["order"].get("unit")
             if unit is not None and (r["order"]["power"], unit.split("/")[0]) not in ordered:
                 r["unordered"] = True
+        # DP3: a waive has no unit. The engine puts a power's own WAIVE orders first and
+        # the builds it left unused after them, so those beyond its own count are unordered.
+        own_waives = Counter(o.power for o in orders if isinstance(o, Waive))
+        for r in resolution_dict["results"]:
+            if r["order"]["type"] == "WAIVE" and r["result"] == "WAIVE":
+                if own_waives[r["order"]["power"]] > 0:
+                    own_waives[r["order"]["power"]] -= 1
+                else:
+                    r["unordered"] = True
         resolution_dict["centres"] = _centre_changes(game.state.ownership, next_game.state.ownership)
         deadline_spent = self._repo.save_state(
             game_id,

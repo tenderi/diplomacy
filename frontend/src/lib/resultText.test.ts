@@ -89,7 +89,7 @@ describe('describeResult', () => {
           order_str: 'D A WAR',
         })
       )
-    ).toBe('Disbanded by civil disorder: no retreat was ordered.')
+    ).toBe('Disbanded: it had no valid retreat order when the phase was processed.')
   })
 
   it('says a civil-disorder disband was not ordered', () => {
@@ -172,5 +172,17 @@ describe('noResultsText', () => {
   })
   it('keeps the missed-turn wording for other phases', () => {
     expect(noResultsText('AUSTRIA', [entry()])).toBe('AUSTRIA had no orders recorded for that turn.')
+  })
+  it('says a power had nothing to retreat in a retreat phase (DP3)', () => {
+    const disband = entry({ order: { type: 'DISBAND', power: 'GERMANY' }, result: 'DISBAND', order_str: 'D A BUR' })
+    expect(noResultsText('RUSSIA', [disband], true)).toBe('RUSSIA had no units to retreat.')
+  })
+})
+
+describe('waives (DP3)', () => {
+  const waive = entry({ order: { type: 'WAIVE', power: 'RUSSIA' }, result: 'WAIVE', order_str: 'WAIVE' })
+  it('tells an unused build from a waive the power ordered', () => {
+    expect(describeResult({ ...waive, unordered: true })).toBe('Build was waived: no build was ordered for it.')
+    expect(describeResult(waive)).toBe('Build was waived.')
   })
 })

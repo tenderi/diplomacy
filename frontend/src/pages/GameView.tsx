@@ -208,17 +208,15 @@ function ResultsSection({
   if (!resolution || resolution.results.length === 0) return null
 
   // After a retreat phase the movement phase's results come first: they say why a power
-  // has builds or disbands. The retreat's follow only when the viewer had retreat orders.
+  // has builds or disbands. The retreats follow for every viewer, so a power that had
+  // none still sees that a retreat phase ran (DP3).
   const movement = resolution.movement?.results.length ? resolution.movement : null
-  const hasOwnRetreat = !!myPower && resolution.results.some((r) => r.power === myPower)
   // The movement block of a post-retreat page is history: its dislodged units have
   // already retreated (or not), so it must not say they "must retreat next phase".
   const blocks: { title: string | null; results: OrderResultEntry[]; retreatPending: boolean }[] = movement
     ? [
         { title: 'Movement', results: movement.results, retreatPending: false },
-        ...(hasOwnRetreat || !myPower
-          ? [{ title: 'Retreats', results: resolution.results, retreatPending: true }]
-          : []),
+        { title: 'Retreats', results: resolution.results, retreatPending: true },
       ]
     : [{ title: null, results: resolution.results, retreatPending: true }]
 
@@ -238,7 +236,7 @@ function ResultsSection({
                 <ResultList entries={mine} allResults={results} provinceNames={provinceNames} retreatPending={retreatPending} />
               ) : (
                 <p className="text-sm text-muted-foreground mb-2">
-                  {noResultsText(myPower, results)}
+                  {noResultsText(myPower, results, title === 'Retreats')}
                 </p>
               )
             ) : (
