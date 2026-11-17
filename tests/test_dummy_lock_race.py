@@ -13,10 +13,12 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.serialization import state_to_dict
 from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
 from server import game_service as game_service_module
-from server.api import app
+from server._api_module import app
 from server.api.shared import game_service
 from server.game_service import GameOverError
 from server.response_cache import clear_response_cache
@@ -30,7 +32,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Da
 @pytest.fixture
 def client() -> TestClient:
     clear_response_cache()
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def test_two_seats_made_dummies_at_once_both_stay(client: TestClient) -> None:

@@ -45,8 +45,6 @@ class GameModel(Base):
     map_name = Column(String(50), nullable=False, default='standard')
     current_turn = Column(Integer, nullable=False, default=0)
     current_year = Column(Integer, nullable=False, default=1901)
-    current_season = Column(String(10), nullable=False, default='Spring')
-    current_phase = Column(String(20), nullable=False, default='Movement')
     phase_code = Column(String(10), nullable=False, default='S1901M')
     status = Column(String(20), nullable=False, default='active')
     # New engine (M6): the whole GameState serialized via engine.serialization, plus the

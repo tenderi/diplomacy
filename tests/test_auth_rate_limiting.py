@@ -38,7 +38,7 @@ def _unique_email(prefix="ratelimit"):
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
-    from server.api import app
+    from server._api_module import app
     return TestClient(app)
 
 
@@ -46,7 +46,7 @@ def _client_with_ip(ip: str):
     """A TestClient whose ASGI scope reports a distinct client IP, so tests
     can exercise the per-IP bucket independently of the per-email bucket."""
     from fastapi.testclient import TestClient
-    from server.api import app
+    from server._api_module import app
     return TestClient(app, client=(ip, 12345))
 
 

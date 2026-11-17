@@ -39,7 +39,7 @@ first, because a bare number there would be ambiguous.)
 | `/rules` | Basic Diplomacy rules and order syntax. |
 | `/examples` | Order syntax examples. |
 | `/refresh` | Rebuild the keyboard menu if it gets out of sync. |
-| `/register` | Still works, but `/start`, joining and queueing register you automatically. |
+| `/register` | Gone in 4.0.0: it only answers that `/start` registers you (joining and queueing do too). |
 | `/nickname [name]` | Show your nickname, set it (`/nickname Talleyrand`), or clear it (`/nickname -`). Other players see your power, plus this nickname if you set one. 2–24 letters, digits, spaces, `.`, `_` or `-`; unique. Your Telegram name is never stored. |
 | `/cancel` | Stop writing a message or password the bot asked for. |
 | `/feedback <text>` | Send a report or an idea to the maintainer; your current game and its phase are attached. |

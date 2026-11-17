@@ -27,7 +27,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from server.api import shared as api_shared
 from server.api.routes.waiting_list import WAITING_LIST_SIZE
 from tests.reliability_helpers import OutboxProbe
@@ -98,7 +100,7 @@ def _assigned_power(messages: list[str]) -> str:
 
 
 def test_partial_queue_creates_no_game() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     for i in range(WAITING_LIST_SIZE - 1):
         result = _join(client, _register(client, f"p{i}"))
         assert result["game_created"] is False
@@ -116,7 +118,7 @@ def test_filling_the_queue_notifies_everyone_in_it() -> None:
     The old `notify_callback` only wrote a log line, so the six already-queued
     players learned nothing — the 7th's reply came from `wait()` itself.
     """
-    client = TestClient(app)
+    client = BotTestClient(app)
     ids = [_register(client, f"p{i}") for i in range(WAITING_LIST_SIZE)]
 
     for telegram_id in ids[:-1]:
@@ -139,7 +141,7 @@ def test_filling_the_queue_notifies_everyone_in_it() -> None:
 
 
 def test_queue_is_emptied_by_a_successful_fill() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     ids = [_register(client, f"p{i}") for i in range(WAITING_LIST_SIZE)]
     with OutboxProbe():
         for telegram_id in ids:
@@ -158,7 +160,7 @@ def test_an_eighth_player_is_held_for_the_next_game_not_dropped() -> None:
     """
     from server.api.routes.waiting_list import try_fill_waiting_list
 
-    client = TestClient(app)
+    client = BotTestClient(app)
     ids = [_register(client, f"p{i}") for i in range(WAITING_LIST_SIZE + 1)]
     for telegram_id in ids:
         assert api_shared.db_service.add_to_waiting_list(telegram_id)
@@ -192,7 +194,7 @@ def test_a_failure_mid_fill_leaves_the_queue_intact_and_mints_no_orphan() -> Non
     threshold again and minted another orphan. Claiming the entries first, then
     validating, means a failure re-queues exactly what it took.
     """
-    client = TestClient(app)
+    client = BotTestClient(app)
     ids = [_register(client, f"p{i}") for i in range(WAITING_LIST_SIZE)]
     for telegram_id in ids[:-1]:
         _join(client, telegram_id)
@@ -235,7 +237,7 @@ def test_a_failure_mid_fill_leaves_the_queue_intact_and_mints_no_orphan() -> Non
 
 
 def test_joining_twice_does_not_take_two_slots() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     telegram_id = _register(client, "dup")
     first = _join(client, telegram_id)
     second = _join(client, telegram_id)
@@ -245,7 +247,7 @@ def test_joining_twice_does_not_take_two_slots() -> None:
 
 
 def test_leaving_the_queue() -> None:
-    client = TestClient(app)
+    client = BotTestClient(app)
     telegram_id = _register(client, "leaver")
     _join(client, telegram_id)
     resp = client.post(
@@ -268,7 +270,7 @@ def test_leaving_the_queue() -> None:
 
 def test_unregistered_telegram_id_is_refused() -> None:
     """Queueing someone with no account would fail later, at game creation."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     resp = _auth_join(client, "999999999999")
     assert resp.status_code == 404, resp.text
     assert "register" in resp.json()["detail"].lower()
@@ -284,7 +286,7 @@ def test_queue_survives_a_process_restart() -> None:
     from persistence.database_service import DatabaseService
     from server.db_config import SQLALCHEMY_DATABASE_URL
 
-    client = TestClient(app)
+    client = BotTestClient(app)
     ids = [_register(client, f"p{i}") for i in range(3)]
     for telegram_id in ids:
         _join(client, telegram_id)
@@ -339,7 +341,7 @@ def test_a_browser_account_cannot_queue_or_dequeue_a_telegram_id() -> None:
     """Track S: a Bearer token is free via /auth/register, so ``require_bot_or_user``
     let any browser account enqueue -- or kick out -- an arbitrary telegram_id.
     The queue is the bot's; only the bot secret may write it."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     telegram_id = _register(client, "victim")
     assert _join(client, telegram_id)["status"] == "queued"
     stranger = client.post(
@@ -359,7 +361,7 @@ def test_a_browser_account_cannot_queue_or_dequeue_a_telegram_id() -> None:
 def test_every_seated_player_sees_the_new_game_straight_away() -> None:
     """The fill notification carries a game-menu button; the bot resolves it from the
     player's (cached) game list, which must not still say "no games"."""
-    client = TestClient(app)
+    client = BotTestClient(app)
     ids = [_register(client, f"c{i}") for i in range(WAITING_LIST_SIZE)]
     bot = {"X-Bot-Secret": "test_bot_secret_for_tests"}
     for telegram_id in ids:
@@ -377,7 +379,7 @@ def test_a_quit_and_join_at_turn_0_does_not_announce_the_start_again() -> None:
     whole table hear "has started!" a second time (architecture §DF3)."""
     from tests.test_quit_and_replace import _as, _telegram_user
 
-    client = TestClient(app)
+    client = BotTestClient(app)
     ids = [_register(client, f"r{i}") for i in range(WAITING_LIST_SIZE)]
     for telegram_id in ids[:-1]:
         _join(client, telegram_id)

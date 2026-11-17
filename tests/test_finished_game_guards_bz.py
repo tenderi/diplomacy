@@ -11,10 +11,12 @@ from dataclasses import replace
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.serialization import state_to_dict
 from engine.types import GameStatus
 from persistence.database_service import DeadlineProposalChange
-from server.api import app
+from server._api_module import app
 from server.api.shared import db_service, game_service
 from tests.conftest import _get_db_url
 from tests.test_concurrency_guards import _end_in_a_draw
@@ -34,7 +36,7 @@ PROPOSAL = {
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _seed_proposal(game_id: str) -> None:

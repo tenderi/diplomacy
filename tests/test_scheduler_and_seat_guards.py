@@ -17,8 +17,10 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from persistence.database_service import DeadlineProposalChange
-from server.api import app
+from server._api_module import app
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
 from server.deadline_schedule import parse_schedule
@@ -34,7 +36,7 @@ MISSING = "987654321"
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _stored_deadline(game_id: str) -> Optional[datetime]:

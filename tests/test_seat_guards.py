@@ -14,8 +14,10 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.bot_client import BotTestClient
+
 from engine.types import GameStatus
-from server.api import app
+from server._api_module import app
 from server.api.shared import GroupPost, db_service, game_service
 from server.api.routes.auth import _create_access_token
 from server.game_service import GameService
@@ -32,7 +34,7 @@ _tg_seq = 0
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def _telegram_user(client: TestClient) -> str:
@@ -343,7 +345,7 @@ class TestTheLastPowerStandingWins:
         would write GERMANY's units back and crown it; the check reads the board
         on the locked row instead. With nobody left, GERMANY's concession ended
         the game without a winner (BL6)."""
-        game_id, _ = _game(TestClient(app), ["FRANCE", "GERMANY"])
+        game_id, _ = _game(BotTestClient(app), ["FRANCE", "GERMANY"])
         fill_with_dummies(game_id)
         for power in ("AUSTRIA", "ENGLAND", "ITALY", "RUSSIA", "TURKEY"):
             game_service.concede(game_id, power)

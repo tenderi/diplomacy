@@ -75,7 +75,7 @@ def test_display_names_are_not_registered_as_parseable_aliases() -> None:
 
 @pytest.mark.unit
 def test_provinces_endpoint_serves_the_names() -> None:
-    from server.api import app
+    from server._api_module import app
 
     client = TestClient(app)
     resp = client.get("/maps/standard/provinces")
@@ -97,7 +97,7 @@ def test_provinces_endpoint_serves_the_names() -> None:
 
 @pytest.mark.unit
 def test_provinces_endpoint_404s_on_an_unknown_map() -> None:
-    from server.api import app
+    from server._api_module import app
 
     assert TestClient(app).get("/maps/nope/provinces").status_code == 404
 

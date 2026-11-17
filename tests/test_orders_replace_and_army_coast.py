@@ -4,7 +4,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from tests.bot_client import BotTestClient
+
+from server._api_module import app
 from server.api.shared import game_service
 from tests.conftest import _get_db_url
 from tests.test_quit_and_replace import _as
@@ -15,7 +17,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Da
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return BotTestClient(app)
 
 
 def test_all_refused_non_merge_submission_keeps_the_earlier_orders(client: TestClient) -> None:

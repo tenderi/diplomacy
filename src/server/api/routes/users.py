@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
-from .auth import get_current_user, get_current_user_optional, http_bearer, set_nickname_or_409, supplied_bot_secret
+from .auth import get_current_user, get_current_user_optional, http_bearer, set_nickname_or_409
 from server.nickname import normalize_nickname
 from ..shared import db_service, is_bot_secret
 from ...response_cache import cached_response
@@ -21,7 +21,6 @@ class RegisterPersistentUserRequest(BaseModel):
     no real names). A nickname is set separately, by the player."""
 
     telegram_id: str
-    bot_secret: Optional[str] = None
 
     @field_validator("telegram_id")
     @classmethod
@@ -34,7 +33,7 @@ class RegisterPersistentUserRequest(BaseModel):
 @router.post("/users/persistent_register")
 def persistent_register_user(req: RegisterPersistentUserRequest, x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
     """Register a user persistently in the database. Requires the bot secret in X-Bot-Secret (only the Telegram bot may call this)."""
-    if not is_bot_secret(supplied_bot_secret(x_bot_secret, req.bot_secret)):
+    if not is_bot_secret(x_bot_secret):
         from fastapi import status
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     # Check if user already exists
@@ -59,7 +58,6 @@ def persistent_register_user(req: RegisterPersistentUserRequest, x_bot_secret: O
 
 class BotNicknameRequest(BaseModel):
     telegram_id: str
-    bot_secret: Optional[str] = None
     #: ``None`` or blank clears it.
     nickname: Optional[str] = None
 
@@ -73,7 +71,7 @@ class BotNicknameRequest(BaseModel):
 def set_nickname_from_bot(req: BotNicknameRequest, x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
     """The bot's ``/nickname``: set or clear the caller's nickname. Bot secret only;
     409 if another account has it, 422 if it breaks the rules."""
-    if not is_bot_secret(supplied_bot_secret(x_bot_secret, req.bot_secret)):
+    if not is_bot_secret(x_bot_secret):
         raise HTTPException(status_code=401, detail="Not authenticated")
     user = db_service.get_user_by_telegram_id(req.telegram_id)
     if user is None:

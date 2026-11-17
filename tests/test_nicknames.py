@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server._api_module import app
 from server.api.shared import db_service
 from server.nickname import display_name, normalize_nickname, sender_label
 from server.telegram_bot.games import nickname as nickname_command
@@ -17,6 +17,7 @@ from tests.conftest import _get_db_url
 from tests.test_bot_commands import _command, _http_error, _run
 
 BOT_SECRET = "test_bot_secret_for_tests"
+BOT = {"X-Bot-Secret": BOT_SECRET}
 needs_db = pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
 
 
@@ -31,7 +32,7 @@ def _nick(prefix: str = "Nick") -> str:
 
 def _telegram(client: TestClient) -> str:
     tg = str(int(time.time() * 1_000_000) % 10**12)
-    assert client.post("/users/persistent_register", json={"telegram_id": tg, "bot_secret": BOT_SECRET}).status_code == 200
+    assert client.post("/users/persistent_register", json={"telegram_id": tg}, headers=BOT).status_code == 200
     return tg
 
 
@@ -69,7 +70,7 @@ class TestStoring:
         """An old bot (or anything else) sending the Telegram name must not get it stored."""
         tg = str(uuid.uuid4().int % 10**12)
         resp = client.post("/users/persistent_register",
-                           json={"telegram_id": tg, "bot_secret": BOT_SECRET, "full_name": "Ada Lovelace", "username": "ada"})
+                           json={"telegram_id": tg, "full_name": "Ada Lovelace", "username": "ada"}, headers=BOT)
         assert resp.status_code == 200 and resp.json()["nickname"] is None
         assert db_service.get_user_by_telegram_id(tg).nickname is None
 
@@ -99,20 +100,20 @@ class TestStoring:
         tg, other = _telegram(client), _telegram(client)
         nick = _nick()
         assert client.post("/users/nickname", json={"telegram_id": tg, "nickname": nick}).status_code == 401
-        assert client.post("/users/nickname", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "nickname": nick}).status_code == 200
+        assert client.post("/users/nickname", json={"telegram_id": tg, "nickname": nick}, headers=BOT).status_code == 200
         assert db_service.get_user_by_telegram_id(tg).nickname == nick
-        clash = client.post("/users/nickname", json={"telegram_id": other, "bot_secret": BOT_SECRET, "nickname": nick.lower()})
+        clash = client.post("/users/nickname", json={"telegram_id": other, "nickname": nick.lower()}, headers=BOT)
         assert clash.status_code == 409
-        unknown = client.post("/users/nickname", json={"telegram_id": "no-such-user", "bot_secret": BOT_SECRET, "nickname": _nick()})
+        unknown = client.post("/users/nickname", json={"telegram_id": "no-such-user", "nickname": _nick()}, headers=BOT)
         assert unknown.status_code == 404
 
     def test_the_players_list_shows_the_nickname_and_nothing_else(self, client: TestClient) -> None:
         tg = _telegram(client)
         nick = _nick()
-        client.post("/users/nickname", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "nickname": nick})
-        game_id = client.post("/games/create", json={"map_name": "standard", "telegram_id": tg, "bot_secret": BOT_SECRET},
+        client.post("/users/nickname", json={"telegram_id": tg, "nickname": nick}, headers=BOT)
+        game_id = client.post("/games/create", json={"map_name": "standard", "telegram_id": tg},
                               headers={"X-Bot-Secret": BOT_SECRET}).json()["game_id"]
-        assert client.post(f"/games/{game_id}/join", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "power": "FRANCE"}).status_code == 200
+        assert client.post(f"/games/{game_id}/join", json={"telegram_id": tg, "power": "FRANCE"}, headers=BOT).status_code == 200
         france = next(p for p in client.get(f"/games/{game_id}/players").json() if p["power"] == "FRANCE")
         assert france["nickname"] == nick and "full_name" not in france
 

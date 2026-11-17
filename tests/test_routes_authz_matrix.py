@@ -13,7 +13,7 @@ from typing import Any, Dict
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server._api_module import app
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
 
