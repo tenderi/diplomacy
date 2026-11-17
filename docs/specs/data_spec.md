@@ -533,7 +533,7 @@ wins: `the unit in WAR is an army, not a fleet`, as for every other order.
 
 Moves and convoys. A non-adjacent **army** move between two coastal provinces is a convoyed
 move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is accepted like
-`A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). The submission result carries the note "needs a convoy: ..." (accepted, but it fails unless fleets convoy it). A support of a move onto the supporter's own unit is accepted (it is legal) with the note "your own F TRI is there: this support has no effect unless it moves away" (DATC 6.D.10). Any other
+`A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). The submission result carries the order helper's convoy note (below) as its `note`: the fleets that could carry it ("A LON - NWY needs a convoy: it can succeed only if F NTH convoys it"), or that none can this turn; none when the player's own convoy orders already carry it. A support of a move onto the supporter's own unit is accepted (it is legal) with the note "your own F TRI is there: this support has no effect unless it moves away" (DATC 6.D.10). Any other
 non-adjacent move is refused (`BEL is not adjacent to MUN`). A move into a province that
 borders the unit's but that the unit cannot enter says why instead, through
 `retreats.unreachable_reason` (topology from `MapData` only): `A MAR cannot reach LYO: an army
@@ -579,7 +579,7 @@ are refused (`ENGLAND has 1 build; 2 builds/waives submitted`). When orders are 
 stored waives first, then the oldest — so the stored list never exceeds the count: a
 `WAIVE` sent after `BUILD F KIE` replaces it, as a build sent after a waive does. The
 player is told (`POST /games/set_orders` with no order in it is a 400; `GET /games/{id}/legal_orders/{power}` for a name that is not a power is a 400 naming the powers): each `POST /games/set_orders` result is
-`{order, success, error, replaced, note, superseded_by, stored}`, where `stored` is the canonical
+`{order, success, error, replaced, note, superseded_by, stored, notes}`, where `stored` is the canonical
 form kept for an accepted order (`F SPA R POR` -> `F SPA/SC R POR`; `null` when refused or superseded) and the
 bot echoes it in place of the typed text, and `replaced` lists the stored orders that
 accepted order pushed out (stored form, oldest first; `[]` when none) and `note` says so
@@ -632,6 +632,42 @@ disbanded"), sends that default explicitly for every unit left blank (`A PAR H`,
 the text fallback are sent as written.
 The route adds `unseated`: the powers with neither a seat nor dummy status, while which no
 turn is processed (empty for the DAIDE listener's game, `games.daide`).
+
+
+### Order helper notes
+
+`server/order_notes.py` (pure, beside `legal_orders.py`) explains orders as the player
+gives them: `order_notes(map, state, power, orders)` takes the board and the power's
+**own** order set (a later valid order for a unit replaces an earlier one) and returns
+`{orders: [{order, ok, notes}], notes}`. Each note is `{kind, code, text}`:
+
+- `kind: "impossible"` -- refused, or accepted but unable to succeed whatever anyone
+  orders, with what would work: an army move across water names the fleet chains that
+  could convoy it (`needs_convoy`, alternatives joined by "or if"; `no_convoy_route` when
+  no chain of fleets at sea links the two coasts; `inland_army`, `inland_destination`),
+  `fleet_inland`, `army_to_sea`, `not_an_army` (a fleet moving VIA), `name_coast` /
+  `wrong_coast` (the coasts the fleet can reach), `support_out_of_reach` (and the player's
+  units that could give it), `convoy_from_coast`, `convoy_by_army`, `convoy_no_army`,
+  `convoy_of_fleet`, `convoy_inland`, `convoy_off_route` (no possible route passes the
+  fleet), `retreat_refused` (why, from `retreat_refusal`, and the retreats there are),
+  `no_build_due`, `build_site`, `build_wrong_unit` (the builds there are).
+- `kind: "warning"` -- accepted, but it depends on something: `needs_convoy` when no
+  route is carried by the player's own convoy orders (foreign fleets are named with their
+  power, `France's F ENG`), `support_mismatch` / `support_moving_unit` / `convoy_mismatch`
+  (the player's own supported or convoyed unit is ordered otherwise, or has no order),
+  `same_destination` (two own units into one province), `own_unit_support` (a support
+  for an attack on the player's own unit, DATC 6.D.10). Set notes: `unordered` (a unit
+  with no order holds; a dislodged one is disbanded), `builds_left`, `disbands_left`.
+
+**Nothing may reveal another power's pending orders**: the function has no input for
+them, and `GameService.order_notes` reads only the requesting power's stored orders. A
+note may name a foreign unit on the board (every player sees it), never what it was told
+to do. `POST /games/set_orders` gives each result its `notes`, computed against the power's
+whole stored set after the write, and a top-level `notes` for the set;
+`POST /games/{id}/orders/{power}/notes` (`{orders, merge}`, only the power's own player)
+explains a draft before submitting it -- the whole set, the stored set (`orders: null`),
+or picks laid over the stored orders (`merge: true`, as the bot submits). It stores
+nothing. The sandbox's `order_results` carry the same `notes`.
 
 ## 6. Out of scope here
 

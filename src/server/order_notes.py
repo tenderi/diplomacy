@@ -501,7 +501,7 @@ class _Context:
 
     def _convoy_needed(self, order: Move, unit: Unit) -> list[dict[str, str]]:
         src, dst = unit.province, order.dest.province
-        shown = self.show(order)
+        shown = f"{self.label(unit)} - {order.dest}"  # without VIA: the note says it is convoyed
         routes = convoy_routes(self.map, self.state, src, dst)
         if not routes:
             return [

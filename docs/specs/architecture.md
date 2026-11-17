@@ -70,6 +70,9 @@ src/server/             # FastAPI app, CLI Server, DAIDE, Telegram bot
   api/routes/               # games, orders, users, auth, messages, maps, channels, admin,
                              # tournaments, waiting_list, bot_outbox, archive, feedback,
                              # sandbox
+  legal_orders.py           # pure: every legal order for a power this phase
+  order_notes.py            # pure: why an order is impossible / what it depends on,
+                            #   from the board and the power's own orders only
   telegram_bot/              # thin HTTP client over the API — see below
   daide/                      # the DAIDE TCP protocol — see below
   server.py                    # text-command CLI surface (CREATE_GAME, ADD_PLAYER, ...),
@@ -82,6 +85,13 @@ in it knows about SQLAlchemy, FastAPI, Pillow, or JSON serialization frameworks 
 (persistence, rendering, the HTTP/bot/DAIDE surfaces) is an *adapter* around
 `GameService`, which is the only thing that constructs `engine.game.Game` instances,
 calls `adjudicate()`, or reaches into `orders/parser.py` and `orders/validation.py`.
+
+Two pure server-side modules sit beside `GameService` and take `MapData` + `GameState`
+directly: `legal_orders.py` (what a power may order) and `order_notes.py` (the order
+helper: why an order is impossible, or what it depends on; `data_spec.md` §Order helper
+notes). Both answer from the board and one power's own orders, so every client -- the
+web game page, the bot, the sandbox -- shows the same thing. `order_notes` never receives
+another power's pending orders: those are secret until the turn is processed.
 
 ## Engine design decisions (see `adjudication.md` for the algorithm)
 
