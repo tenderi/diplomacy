@@ -18,12 +18,12 @@
 
 - **Last updated:** 2026-11-17.
 - **Open tracks:** F (a human playing the game end to end — the first play-throughs are
-  under way — and host chores, which are the maintainer's). Finished tracks are removed;
+  under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
 
-# Track F — Manual acceptance and host chores (maintainer)
+# Track F — Manual acceptance (maintainer)
 
 No automated test spans a real human playing a real game: it needs a live bot token and a
 human at a Telegram client, so this cannot be delegated to an agent. Every phase has
@@ -54,21 +54,6 @@ coherent* to use.
       that it is good.
 - [ ] **Done when:** the maintainer's opinion is recorded here. Complaints become tasks;
       "it's fine" is a valid outcome.
-
-## F3 — Host chores
-
-- [x] Exercise the bot's queue for real (maintainer, 2026-11-17: works): `docker compose stop diplomacy_api`, send `/order`
-      and `/message` from Telegram, check `/queue`, `docker compose start diplomacy_api`,
-      confirm the delivered reports arrive and the message shows its original time.
-- [ ] Stop the old game stack on the home server (`kattotuuletin.local`:
-      `cd ~/diplomacy/new_implementation && docker compose down`; keep its `pg_data` volume
-      until sure — it held no games). The tunnel and p2p's stack there are not ours.
-- [x] After the `v3.0.118` deploy (issue #225), count the API's access-log lines over an
-      idle hour (2026-10-21: 0 lines in the idle hour) (`docker compose logs --since 1h diplomacy_api | wc -l`). Before: 1,315
-      lines/hour, 1,195 of them `/bot/outbox` polls; the issue's target is at least 90% fewer.
-- [x] Delete the unused `DIPLOMACY_BOT_SECRET` repository secret (gone, 2026-11-17)
-      (`gh secret delete DIPLOMACY_BOT_SECRET -R tenderi/diplomacy`); nothing reads it.
-
 
 ---
 
