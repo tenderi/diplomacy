@@ -221,12 +221,6 @@ class MarkInactiveRequest(BaseModel):
     admin_token: str
 
 
-class SpectateRequest(BaseModel):
-    """Request for spectate endpoints (join/leave)."""
-    telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
-    bot_secret: Optional[str] = None
-
-
 class DrawVoteRequest(BaseModel):
     """Request model for casting a draw vote for a power."""
     power: str
@@ -962,45 +956,6 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     return player_rows(game)
-
-
-@router.post("/games/{game_id}/spectate")
-def spectate_join(
-    game_id: str,
-    req: SpectateRequest = Body(default_factory=SpectateRequest),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
-    x_bot_secret: Optional[str] = Header(None),
-) -> Dict[str, Any]:
-    """Join a game as spectator (non-player observer). Requires auth (Bearer or telegram_id)."""
-    try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
-        db_service.add_spectator(game_id=game_id, user_id=int(user.id))
-        return {"status": "ok", "message": f"Now spectating game {game_id}", "game_id": game_id}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.delete("/games/{game_id}/spectate")
-def spectate_leave(
-    game_id: str,
-    req: SpectateRequest = Body(default_factory=SpectateRequest),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
-    x_bot_secret: Optional[str] = Header(None),
-) -> Dict[str, Any]:
-    """Stop spectating a game."""
-    try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
-        db_service.remove_spectator(game_id=game_id, user_id=int(user.id))
-        return {"status": "ok", "message": f"Stopped spectating game {game_id}", "game_id": game_id}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.get("/games/{game_id}/spectators")
-def get_spectators(game_id: str) -> Dict[str, Any]:
-    """List spectators for a game."""
-    spectators = db_service.get_spectators(game_id)
-    return {"status": "ok", "game_id": game_id, "spectators": spectators}
 
 
 @router.get("/games/{game_id}/observer_state")

@@ -9,6 +9,6 @@ This package contains route modules organized by functionality:
 - maps: Map image generation
 - admin: Administrative endpoints
 """
-from . import games, orders, users, messages, maps, admin, channels, tournaments
+from . import games, orders, users, messages, maps, admin, channels
 
-__all__ = ["games", "orders", "users", "messages", "maps", "admin", "channels", "tournaments"]
+__all__ = ["games", "orders", "users", "messages", "maps", "admin", "channels"]

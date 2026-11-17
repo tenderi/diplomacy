@@ -33,7 +33,7 @@ from .api.error_log import ServerErrorLogMiddleware
 from .api.access_log import QuietAccessLogMiddleware, install_access_log_filter
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, channels, tournaments, auth, waiting_list, bot_outbox, archive, feedback, sandbox
+from .api.routes import games, orders, users, messages, maps, admin, channels, auth, waiting_list, bot_outbox, archive, feedback, sandbox
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -232,7 +232,6 @@ app.include_router(messages.router)
 app.include_router(maps.router)
 app.include_router(admin.router)
 app.include_router(channels.router, tags=["channels"])
-app.include_router(tournaments.router)
 app.include_router(auth.router)
 app.include_router(waiting_list.router, tags=["waiting-list"])
 app.include_router(bot_outbox.router, tags=["bot-outbox"])

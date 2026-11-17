@@ -7,7 +7,7 @@
 >    concerns. This is what adjudication actually operates on.
 > 2. **Persistence** (`src/persistence/`) — a game row stores the *serialized* engine
 >    `GameState` wholesale (`state_json`), not a normalized relational breakdown. A few
->    peripheral tables (players, users, messages, channels, tournaments, ...) remain
+>    peripheral tables (players, users, messages, channels, ...) remain
 >    relational because they aren't engine-coupled.
 >
 > For the algorithm that produces these values, see [`adjudication.md`](adjudication.md).
@@ -189,7 +189,7 @@ The columns that matter for game state (all nullable):
 Plus denormalized convenience columns kept in sync for code that doesn't want to parse
 `state_json` (deadline scheduler, game listings, channel posts): `map_name`,
 `current_turn`, `current_year`, `current_season`, `current_phase`, `phase_code`,
-`status`, `deadline`, `channel_settings`, `observer_mode`, `created_at`,
+`status`, `deadline`, `channel_settings`, `created_at`,
 `updated_at`. `current_turn` counts processed turns: `save_state` adds one and keys the
 turn's `order_history`/`resolution_history` entries by the number it leaves behind, and
 the board it reaches gets the `map_snapshots` row with the new number. A game ended
@@ -237,8 +237,7 @@ is_active}}` for the API view (§4); in an anonymous game the view nulls `user_i
 `users` (`email` + `password_hash` for web login, `telegram_id`, and an optional
 `nickname` — unique ignoring case, chosen by the player; **no real names are stored**, nothing
 is copied from a Telegram profile), `link_codes`, `password_reset_tokens`, `messages`, `map_snapshots` (the board at
-the start of each turn, with its `state_json`), `waiting_list`, the tournament and
-spectator tables — see `database.py` for the full model list. `DatabaseService`
+the start of each turn, with its `state_json`), `waiting_list`, `bot_outbox`, `feedback` — see `database.py` for the full model list. `DatabaseService`
 (`database_service.py`) is the DAL for all of these; only game *state* lives in `GameRepo` +
 `GameService`.
 

@@ -14,8 +14,7 @@ from sqlalchemy import func as sa_func
 import logging
 from .database import (
     GameModel, PlayerModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
-    TournamentModel, TournamentGameModel, TournamentPlayerModel,
-    SpectatorModel, WaitingListModel, BotOutboxModel, IdempotencyKeyModel, FeedbackModel,
+    WaitingListModel, BotOutboxModel, IdempotencyKeyModel, FeedbackModel,
     get_session_factory,
     upsert_map_snapshot,
     utcnow_naive,
@@ -183,10 +182,9 @@ class DatabaseService:
         other way round would mean moving every seat, message and history row.
 
         Safe only when the Telegram account has no web login of its own, and the web
-        account has no Telegram, no seats, no messages, and no tournament or
-        spectator rows -- i.e. it holds nothing but its credentials. The games it
-        created and the feedback it sent are re-pointed; its link codes and reset
-        tokens are deleted with it. Both rows are locked for the duration.
+        account has no Telegram, no seats and no messages -- i.e. it holds nothing
+        but its credentials. The games it created and the feedback it sent are
+        re-pointed; its link codes and reset tokens are deleted with it. Both rows are locked for the duration.
         """
         with self.session_factory() as session:
             rows = {
@@ -204,8 +202,6 @@ class DatabaseService:
             for model, column in (
                 (PlayerModel, PlayerModel.user_id),
                 (MessageModel, MessageModel.sender_user_id),
-                (TournamentPlayerModel, TournamentPlayerModel.user_id),
-                (SpectatorModel, SpectatorModel.user_id),
             ):
                 if session.query(model).filter(column == web_user_id).first() is not None:
                     return False
@@ -1171,7 +1167,7 @@ class DatabaseService:
         The live schema does not match the models here: ``players`` and
         ``messages`` reference ``games`` with ``ON DELETE NO ACTION`` (the models
         say CASCADE; the migrations never did), so those are cleared explicitly;
-        everything else (map snapshots, spectators, ...) cascades. Returns False
+        everything else (map snapshots, ...) cascades. Returns False
         if there was no such game.
         """
         with self.session_factory() as session:
@@ -1187,269 +1183,6 @@ class DatabaseService:
         with self.session_factory() as session:
             session.query(GameModel).delete()
             session.commit()
-
-    # --- Channel Analytics ---
-    # --- Tournaments ---
-    def create_tournament(
-        self,
-        name: str,
-        bracket_type: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
-        """Create a new tournament. Returns tournament dict with id, name, status, etc."""
-        if not name or not name.strip():
-            raise ValueError("Tournament name must be non-empty")
-        with self.session_factory() as session:
-            t = TournamentModel(
-                name=name.strip(),
-                status="pending",
-                bracket_type=bracket_type,
-                start_date=start_date,
-                end_date=end_date,
-            )
-            session.add(t)
-            session.commit()
-            session.refresh(t)
-            return {
-                "id": t.id,
-                "name": t.name,
-                "status": t.status,
-                "bracket_type": t.bracket_type,
-                "start_date": t.start_date.isoformat() if t.start_date else None,
-                "end_date": t.end_date.isoformat() if t.end_date else None,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-            }
-
-    def get_tournament(self, tournament_id: int) -> Optional[Dict[str, Any]]:
-        """Get tournament by id. Returns None if not found."""
-        with self.session_factory() as session:
-            t = session.query(TournamentModel).filter_by(id=tournament_id).first()
-            if not t:
-                return None
-            return {
-                "id": t.id,
-                "name": t.name,
-                "status": t.status,
-                "bracket_type": t.bracket_type,
-                "start_date": t.start_date.isoformat() if t.start_date else None,
-                "end_date": t.end_date.isoformat() if t.end_date else None,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-            }
-
-    def add_game_to_tournament(
-        self,
-        tournament_id: int,
-        game_id: str | int,
-        round_number: int = 1,
-        bracket_position: Optional[str] = None,
-    ) -> None:
-        """Link a game to a tournament. game_id can be string game_id or numeric id."""
-        with self.session_factory() as session:
-            t = session.query(TournamentModel).filter_by(id=tournament_id).first()
-            if not t:
-                raise ValueError(f"Tournament {tournament_id} not found")
-            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
-            if not game_model:
-                raise ValueError(f"Game {game_id} not found")
-            tg = TournamentGameModel(
-                tournament_id=tournament_id,
-                game_id=game_model.id,
-                round_number=round_number,
-                bracket_position=bracket_position,
-            )
-            session.add(tg)
-            session.commit()
-
-    def add_player_to_tournament(
-        self,
-        tournament_id: int,
-        user_id: int,
-        seed: Optional[int] = None,
-    ) -> None:
-        """Add a player to a tournament (by user_id)."""
-        with self.session_factory() as session:
-            t = session.query(TournamentModel).filter_by(id=tournament_id).first()
-            if not t:
-                raise ValueError(f"Tournament {tournament_id} not found")
-            u = session.query(UserModel).filter_by(id=user_id).first()
-            if not u:
-                raise ValueError(f"User {user_id} not found")
-            tp = TournamentPlayerModel(
-                tournament_id=tournament_id,
-                user_id=user_id,
-                seed=seed,
-            )
-            session.add(tp)
-            session.commit()
-
-    def get_tournament_games(self, tournament_id: int) -> List[Dict[str, Any]]:
-        """List games in a tournament with round and bracket_position."""
-        with self.session_factory() as session:
-            t = session.query(TournamentModel).filter_by(id=tournament_id).first()
-            if not t:
-                return []
-            rows = (
-                session.query(TournamentGameModel, GameModel)
-                .join(GameModel, TournamentGameModel.game_id == GameModel.id)
-                .filter(TournamentGameModel.tournament_id == tournament_id)
-                .order_by(TournamentGameModel.round_number, TournamentGameModel.id)
-                .all()
-            )
-            return [
-                {
-                    "game_id": str(g.game_id),
-                    "round_number": tg.round_number,
-                    "bracket_position": tg.bracket_position,
-                }
-                for tg, g in rows
-            ]
-
-    def get_tournament_players(self, tournament_id: int) -> List[Dict[str, Any]]:
-        """List players in a tournament with seed and final_rank."""
-        with self.session_factory() as session:
-            t = session.query(TournamentModel).filter_by(id=tournament_id).first()
-            if not t:
-                return []
-            rows = (
-                session.query(TournamentPlayerModel, UserModel)
-                .outerjoin(UserModel, TournamentPlayerModel.user_id == UserModel.id)
-                .filter(TournamentPlayerModel.tournament_id == tournament_id)
-                .order_by(TournamentPlayerModel.seed, TournamentPlayerModel.id)
-                .all()
-            )
-            return [
-                {
-                    "user_id": tp.user_id,
-                    "seed": tp.seed,
-                    "final_rank": tp.final_rank,
-                    "nickname": u.nickname if u else None,
-                    "email": u.email if u else None,
-                }
-                for tp, u in rows
-            ]
-
-    def get_tournament_bracket(self, tournament_id: int) -> Dict[str, Any]:
-        """Get bracket view: tournament info plus games grouped by round."""
-        tour = self.get_tournament(tournament_id)
-        if not tour:
-            return {"error": "Tournament not found"}
-        games = self.get_tournament_games(tournament_id)
-        players = self.get_tournament_players(tournament_id)
-        rounds: Dict[int, List[Dict[str, Any]]] = {}
-        for g in games:
-            r = g["round_number"]
-            if r not in rounds:
-                rounds[r] = []
-            rounds[r].append(g)
-        return {
-            "tournament": tour,
-            "games_by_round": rounds,
-            "players": players,
-        }
-
-    def update_tournament_status(self, tournament_id: int, status: str) -> None:
-        """Update tournament status (pending, active, completed, cancelled)."""
-        allowed = {"pending", "active", "completed", "cancelled"}
-        if status not in allowed:
-            raise ValueError(f"Status must be one of {allowed}")
-        with self.session_factory() as session:
-            t = session.query(TournamentModel).filter_by(id=tournament_id).first()
-            if not t:
-                raise ValueError(f"Tournament {tournament_id} not found")
-            t.status = status
-            session.commit()
-
-    def list_tournaments(
-        self,
-        status: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """List tournaments, optionally filtered by status."""
-        with self.session_factory() as session:
-            q = session.query(TournamentModel).order_by(TournamentModel.id.desc())
-            if status:
-                q = q.filter(TournamentModel.status == status)
-            tournaments = q.all()
-            return [
-                {
-                    "id": t.id,
-                    "name": t.name,
-                    "status": t.status,
-                    "bracket_type": t.bracket_type,
-                    "start_date": t.start_date.isoformat() if t.start_date else None,
-                    "end_date": t.end_date.isoformat() if t.end_date else None,
-                    "created_at": t.created_at.isoformat() if t.created_at else None,
-                }
-                for t in tournaments
-            ]
-
-    # --- Spectators ---
-    def add_spectator(self, game_id: str | int, user_id: int) -> None:
-        """Add a user as spectator to a game. Idempotent if already spectating."""
-        with self.session_factory() as session:
-            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
-            if not game_model:
-                raise ValueError(f"Game {game_id} not found")
-            user = session.query(UserModel).filter_by(id=user_id).first()
-            if not user:
-                raise ValueError(f"User {user_id} not found")
-            existing = (
-                session.query(SpectatorModel)
-                .filter_by(game_id=game_model.id, user_id=user_id)
-                .first()
-            )
-            if existing:
-                return
-            spec = SpectatorModel(game_id=game_model.id, user_id=user_id)
-            session.add(spec)
-            session.commit()
-
-    def remove_spectator(self, game_id: str | int, user_id: int) -> None:
-        """Remove a user from spectators for a game."""
-        with self.session_factory() as session:
-            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
-            if not game_model:
-                raise ValueError(f"Game {game_id} not found")
-            session.query(SpectatorModel).filter_by(
-                game_id=game_model.id, user_id=user_id
-            ).delete()
-            session.commit()
-
-    def get_spectators(self, game_id: str | int) -> List[Dict[str, Any]]:
-        """List spectators for a game."""
-        with self.session_factory() as session:
-            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
-            if not game_model:
-                return []
-            rows = (
-                session.query(SpectatorModel, UserModel)
-                .join(UserModel, SpectatorModel.user_id == UserModel.id)
-                .filter(SpectatorModel.game_id == game_model.id)
-                .order_by(SpectatorModel.joined_at)
-                .all()
-            )
-            return [
-                {
-                    "user_id": s.user_id,
-                    "joined_at": s.joined_at.isoformat() if s.joined_at else None,
-                    "nickname": u.nickname,
-                    "email": u.email,
-                }
-                for s, u in rows
-            ]
-
-    def is_spectator(self, game_id: str | int, user_id: int) -> bool:
-        """Return True if user is spectating the game."""
-        with self.session_factory() as session:
-            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
-            if not game_model:
-                return False
-            return (
-                session.query(SpectatorModel)
-                .filter_by(game_id=game_model.id, user_id=user_id)
-                .first()
-                is not None
-            )
 
     # --- Bot outbox (server -> bot notifications) ---
     #

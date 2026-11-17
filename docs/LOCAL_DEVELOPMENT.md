@@ -153,10 +153,6 @@ again. In production the bot is its own container next to the API; see
 
 Commands: [TELEGRAM_BOT_COMMANDS.md](TELEGRAM_BOT_COMMANDS.md).
 
-*(A minimal Discord bot exists at `src/server/discord_bot/` — set
-`DIPLOMACY_DISCORD_BOT_TOKEN` and run `PYTHONPATH=src python -m server.run_discord_bot`. It
-is **out of scope** for the current roadmap and is kept only for backward compatibility.)*
-
 ## 7. Run the tests
 
 ```bash
