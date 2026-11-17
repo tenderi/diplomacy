@@ -1374,9 +1374,17 @@ def announce_game_started(game_id: str, numeric_game_id: int) -> bool:
     ``claim_game_start_announcement``, one conditional UPDATE of the committed row,
     so two requests filling the table at once cannot both announce, and a later
     join, replace or dummy toggle never does. A game that has already run a turn
-    started long ago and is not announced. Returns whether it announced."""
+    started long ago and is not announced. Returns whether it announced.
+
+    Arming a weekly schedule does not wait on the claim: a full table with no
+    deadline running (an imported game whose last seat was left unlinked: the
+    import claimed the announcement but could not arm) gets its next slot here
+    whether or not anything is announced."""
     if not seats_filled(game_id, numeric_game_id):
         return False
+    current = db_service.get_game_by_game_id(game_id)
+    if current is not None and current.deadline is None:
+        arm_scheduled_deadline(game_id, numeric_game_id)
     meta = game_service.meta(game_id) or {}
     if meta.get("current_turn", 0) > 0 or meta.get("status") == "completed":
         return False
@@ -1544,6 +1552,15 @@ class DeadlineProposalError(ValueError):
     current state (already one pending, none pending, wrong power, game
     missing). Routes map this to a 400/404; caller identity/authorization is
     checked separately, before any of these functions are called."""
+
+
+def naive_utc(value: datetime) -> datetime:
+    """``value`` as naive UTC, the storage form (a naive input is taken to be UTC
+    already). Handing Postgres an aware value would store it shifted to the
+    connection's session timezone."""
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 def utc_iso(value: Optional[datetime]) -> Optional[str]:

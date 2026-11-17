@@ -1689,9 +1689,15 @@ class GameService:
         pending orders (see ``GameRepo.restore_state``): whatever was pending was
         submitted against the phase being discarded. ``turn``, the snapshot's
         turn number, rewinds the turn counter and the per-turn histories with
-        the board (``GameRepo.restore_state``).
+        the board (``GameRepo.restore_state``). ``phase_code`` must be the
+        board's own phase: the denormalised column is what every later write's
+        ``expected_phase_code`` is checked against, so a mismatch would make the
+        game unprocessable (409 on every turn) -- ``ValueError`` instead.
         """
         self.check_state_json(state_json)
+        actual = self.state_phase(state_json)
+        if phase_code != actual:
+            raise ValueError(f"phase_code {phase_code!r} does not match the board's phase {actual!r}")
         self._repo.restore_state(game_id, state_json, phase_code=phase_code, turn=turn)
 
     @staticmethod
@@ -1707,6 +1713,13 @@ class GameService:
             state_from_dict(state_json)
         except (KeyError, TypeError, ValueError) as e:
             raise ValueError(f"not a game state ({type(e).__name__}: {e})") from e
+
+    @classmethod
+    def state_phase(cls, state_json: dict[str, Any]) -> str:
+        """The phase code (``F1901M``) of a serialized board; ``ValueError`` (as
+        ``check_state_json``) unless it parses."""
+        cls.check_state_json(state_json)
+        return state_from_dict(state_json).phase_name
 
 
 # ---------------------------------------------------------------------------

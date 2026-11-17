@@ -9,7 +9,7 @@ import secrets
 from fastapi import APIRouter, HTTPException, Body, Depends, Header
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import IntegrityError
@@ -1563,13 +1563,6 @@ def set_deadline_schedule(
     }
 
 
-def _naive_utc_value(value: datetime) -> datetime:
-    """``value`` as naive UTC (a naive input is taken to be UTC already)."""
-    if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
-
-
 @router.post("/games/{game_id}/deadline")
 def set_deadline(
     game_id: str,
@@ -1603,7 +1596,7 @@ def set_deadline(
             status_code=400,
             detail="phase_length_seconds must be >= 0 (0 means no automatic deadline)",
         )
-    if req.deadline is not None and _naive_utc_value(req.deadline) <= utcnow_naive():
+    if req.deadline is not None and api_shared.naive_utc(req.deadline) <= utcnow_naive():
         raise HTTPException(
             status_code=422,
             detail="That deadline has already passed. Choose a time in the future.",

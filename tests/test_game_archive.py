@@ -3,12 +3,16 @@ round trip, and the routes stay admin-only because an export holds every private
 message."""
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Any
+
 import pytest
 from fastapi.testclient import TestClient
 
 from server.api import ADMIN_TOKEN, app
-from server.api.shared import game_service
+from server.api.shared import db_service, game_service
 from tests.conftest import _get_db_url
+from tests.reliability_helpers import OutboxProbe
 from tests.table_helpers import fill_with_dummies
 from tests.test_empty_phase_other_triggers import _no_group, _table, _winter
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
@@ -280,3 +284,110 @@ def test_an_imported_empty_phase_waits_for_a_seat_left_unlinked(client: TestClie
     report = client.post("/games/import", json=doc, headers=ADMIN).json()
     assert (report["players_unlinked"], report["auto_processed"]) == (1, 0)
     assert game_service.view(report["game_id"])["phase"] == "W1901A"
+
+
+def _board_only(client: TestClient, season: str) -> dict:
+    """An export of a fresh 3-seat table with its board moved to ``season`` and
+    no ``game.phase_code``: the document a hand-written position looks like."""
+    game_id, _creator, _tgs = _table(client)
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    state = dict(doc["state"], season=season)
+    return {"state": state, "players": doc["players"], "game": {"dummy_powers": doc["game"]["dummy_powers"]}}
+
+
+def test_a_board_only_import_takes_its_phase_from_the_board(client: TestClient) -> None:
+    """DO2: the stored phase was ``game.phase_code or "S1901M"``, so a FALL board
+    without it was stored as S1901M and every later turn was a 409."""
+    report = client.post("/games/import", json=_board_only(client, "FALL"), headers=ADMIN)
+    assert report.status_code == 200, report.text
+    new_id = report.json()["game_id"]
+    assert game_service.meta(new_id)["phase_code"] == "F1901M"
+    processed = client.post(f"/games/{new_id}/process_turn", headers=BOT)
+    assert processed.status_code == 200, processed.text
+    assert game_service.view(new_id)["phase"] == "S1902M"  # nobody changed centres: no winter
+
+
+def _with(doc: dict, part: str, value: object) -> dict:
+    """``doc`` with one part replaced by ``value``."""
+    out = dict(doc)
+    if part == "phase_code":
+        out["game"] = dict(doc["game"], phase_code=value)
+    elif part == "players":
+        out["players"] = value
+    elif part == "messages":
+        out["messages"] = [{"sender_power": "FRANCE", "recipient_power": "GERMANY", "text": "hi", "timestamp": value}]
+    elif part == "snapshot_phase":  # a board that parses, labelled with another phase
+        out["snapshots"] = [{"turn": 1, "phase_code": value, "state": doc["state"]}]
+    else:
+        out["snapshots"] = [{"turn": 1, "phase_code": "F1901M", "state": value}]
+    return out
+
+
+@pytest.mark.parametrize(("part", "value", "detail"), [
+    ("phase_code", "S1901M", "game.phase_code 'S1901M' does not match the board's phase 'F1901M'"),
+    ("players", [{"power": "PRUSSIA", "telegram_id": None}], "Unknown power 'PRUSSIA' in players"),
+    ("players", [{"power": "FRANCE", "telegram_id": None}, {"power": "france", "telegram_id": None}],
+     "Power FRANCE is seated twice in players"),
+    ("messages", "last Tuesday", "Malformed message timestamp 'last Tuesday'"),
+    ("snapshots", {"not": "a board"}, "Malformed state in snapshot 1"),
+    ("snapshot_phase", "S1901M", "Snapshot 1's phase_code 'S1901M' does not match its board's phase 'F1901M'"),
+])
+def test_an_inconsistent_document_is_400_and_creates_nothing(
+    client: TestClient, part: str, value: object, detail: str
+) -> None:
+    body = _with(_board_only(client, "FALL"), part, value)
+    games_before = len(client.get("/games", headers=BOT).json()["games"])
+    resp = client.post("/games/import", json=body, headers=ADMIN)
+    assert resp.status_code == 400 and resp.json()["detail"].startswith(detail), resp.text
+    assert len(client.get("/games", headers=BOT).json()["games"]) == games_before
+
+
+def test_an_aware_message_timestamp_is_stored_as_naive_utc(
+    client: TestClient, played_game: tuple[str, str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Postgres would shift an aware value to the session timezone (CLAUDE.md
+    §Timestamps), so the import hands the DAL naive UTC."""
+    game_id, _, _ = played_game
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    doc["messages"][0]["timestamp"] = "2026-03-01T12:00:00+02:00"
+    written: list[datetime] = []
+    create_message = db_service.create_message
+
+    def recording(**kwargs: Any) -> Any:
+        written.append(kwargs["timestamp"])
+        return create_message(**kwargs)
+
+    monkeypatch.setattr(db_service, "create_message", recording)
+    assert client.post("/games/import", json=doc, headers=ADMIN).status_code == 200
+    assert written == [datetime(2026, 3, 1, 10, 0)]
+
+
+def test_an_imported_game_is_not_announced_as_starting(client: TestClient) -> None:
+    """DO3: an import is a game already under way; its start is claimed on
+    import, so seating the last power never sends "has started!"."""
+    body = _board_only(client, "SPRING")
+    seated = next(p for p in body["players"] if p["telegram_id"])
+    body["players"] = [dict(p, telegram_id=None) if p is seated else p for p in body["players"]]
+    new_id = client.post("/games/import", json=body, headers=ADMIN).json()["game_id"]
+    newcomer = _telegram_user(client, "Archive newcomer")
+    with OutboxProbe() as probe:
+        joined = client.post(f"/games/{new_id}/join", json=_as(newcomer, power=seated["power"]))
+    assert joined.status_code == 200, joined.text
+    assert [m for m in probe.messages() if "has started!" in m] == []
+
+
+def test_seating_the_last_power_of_an_imported_scheduled_game_arms_its_deadline(client: TestClient) -> None:
+    """The import claims the start announcement, but a table left unfull by an
+    unlinked seat could not arm its schedule then: the join that fills it must,
+    or the game waits on its phase forever."""
+    body = _board_only(client, "SPRING")
+    body["game"]["deadline_schedule"] = {"timezone": "UTC", "slots": [{"day": "MON", "time": "16:00"}]}
+    seated = next(p for p in body["players"] if p["telegram_id"])
+    body["players"] = [dict(p, telegram_id=None) if p is seated else p for p in body["players"]]
+    report = client.post("/games/import", json=body, headers=ADMIN).json()
+    new_id = report["game_id"]
+    assert (report["deadline"], game_service.meta(new_id)["deadline"]) == (None, None)
+    newcomer = _telegram_user(client, "Archive scheduled newcomer")
+    assert client.post(f"/games/{new_id}/join", json=_as(newcomer, power=seated["power"])).status_code == 200
+    deadline = game_service.meta(new_id)["deadline"]
+    assert deadline is not None and (deadline.weekday(), f"{deadline:%H:%M}") == (0, "16:00")
