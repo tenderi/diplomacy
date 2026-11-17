@@ -61,4 +61,29 @@ describe('ResetPassword', () => {
       expect(within(container).getByText(/password has been reset/i)).toBeInTheDocument()
     })
   })
+
+  it('offers a new reset link after the server rejects the token', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 400,
+          json: () => Promise.resolve({ detail: 'Invalid or expired reset link' }),
+          text: () => Promise.resolve('{"detail":"Invalid or expired reset link"}'),
+        } as Response)
+      )
+    )
+    const { container } = render(
+      <MemoryRouter initialEntries={['/reset-password?token=used']}>
+        <ResetPassword />
+      </MemoryRouter>
+    )
+    fireEvent.change(container.querySelector('#password')!, { target: { value: 'password123' } })
+    fireEvent.change(container.querySelector('#confirm')!, { target: { value: 'password123' } })
+    fireEvent.click(within(container).getByRole('button', { name: /reset password/i }))
+    const link = await within(container).findByRole('link', { name: 'Request a new reset link' })
+    expect(link).toHaveAttribute('href', '/forgot-password')
+    expect(within(container).getByText('Invalid or expired reset link')).toBeInTheDocument()
+  })
 })

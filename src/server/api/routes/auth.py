@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 
 from server.nickname import normalize_nickname
 
-from ..shared import db_service, invalidate_user_caches, is_bot_secret, notify_user
+from ..shared import BOT_USERNAME, db_service, invalidate_user_caches, is_bot_secret, notify_user
 
 # Password hashing: use bcrypt directly (avoids passlib/bcrypt version quirks)
 try:
@@ -624,6 +624,8 @@ def create_link_code(
     return {
         "code": code,
         "expires_in_seconds": ttl_minutes * 60,
+        # The bot to send /link <code> to (the page links t.me/<it>).
+        "bot_username": BOT_USERNAME,
         "expires_at": expires_at.replace(tzinfo=timezone.utc).isoformat(),  # stored naive UTC
     }
 

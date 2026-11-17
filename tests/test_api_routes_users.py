@@ -108,6 +108,19 @@ class TestGetUserGames:
         assert isinstance(data["games"], list)
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_me_games_rows_carry_phase_code(self, client):
+        """The web games list shows the phase ("Spring 1901"), so each row carries phase_code."""
+        reg = client.post("/auth/register", json={"email": _unique_email(), "password": "pass12345"})
+        assert reg.status_code == 200, reg.text
+        headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+        game_id = int(client.post("/games/create", json={"map_name": "standard"}, headers=headers).json()["game_id"])
+        joined = client.post(f"/games/{game_id}/join", json={"power": "FRANCE"}, headers=headers)
+        assert joined.status_code == 200, joined.text
+        rows = client.get("/users/me/games", headers=headers).json()["games"]
+        row = next(g for g in rows if g["game_id"] == game_id)
+        assert row["phase_code"] == "S1901M"
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_user_games_after_quit(self, client):
         """Test that quit games don't appear in user games list."""
         # Register user
