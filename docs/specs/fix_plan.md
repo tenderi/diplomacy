@@ -50,14 +50,14 @@ the suggested direction.
 A play-through at 1440x900 and 844x390 (movement, retreat, adjustment; register, login,
 reset, Telegram linking). No layout overflow; auth and linking flows behave. Findings:
 
-- [ ] DP1: game page — "Previous turns" repeats "What happened last turn" and defaults to
+- [x] DP1: game page — "Previous turns" repeats "What happened last turn" and defaults to
       the wrong turn (Russia's S1902 page: last turn is the Winter build, the dropdown
       opens on "Fall 1901 retreat"). Default it to the turn before the one shown above, or
       fold the two into one block.
-- [ ] DP2: game page — a power with nothing to order in a retreat or adjustment phase gets
+- [x] DP2: game page — a power with nothing to order in a retreat or adjustment phase gets
       an empty "Orders" form with a live Submit button, under a status card that correctly
       says it has nothing to order. Hide the form.
-- [ ] DP3: game page — an adjustment phase's "What happened last turn" shows only the
+- [x] DP3: game page — an adjustment phase's "What happened last turn" shows only the
       movement results to powers that had no retreat, with no sign a retreat phase ran in
       between; an unordered build shows "WAIVE — Build was waived" exactly like a deliberate
       waive. A unit disbanded because its retreat order was refused reads "Disbanded by civil
