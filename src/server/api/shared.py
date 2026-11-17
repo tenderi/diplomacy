@@ -1829,6 +1829,8 @@ def expire_deadline_proposals(now: datetime) -> None:
                         if mine in powers
                         else None
                     ),
+                    # An out power had no vote on it, as with the proposal itself (CD1).
+                    skip_out=True,
                 )
             except Exception:  # noqa: BLE001 -- boundary: the proposal is already expired; the notice is a side effect
                 scheduler_logger.exception(

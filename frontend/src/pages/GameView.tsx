@@ -208,17 +208,15 @@ function ResultsSection({
   if (!resolution || resolution.results.length === 0) return null
 
   // After a retreat phase the movement phase's results come first: they say why a power
-  // has builds or disbands. The retreat's follow only when the viewer had retreat orders.
+  // has builds or disbands. The retreats follow for every viewer, so a power that had
+  // none still sees that a retreat phase ran (DP3).
   const movement = resolution.movement?.results.length ? resolution.movement : null
-  const hasOwnRetreat = !!myPower && resolution.results.some((r) => r.power === myPower)
   // The movement block of a post-retreat page is history: its dislodged units have
   // already retreated (or not), so it must not say they "must retreat next phase".
   const blocks: { title: string | null; results: OrderResultEntry[]; retreatPending: boolean }[] = movement
     ? [
         { title: 'Movement', results: movement.results, retreatPending: false },
-        ...(hasOwnRetreat || !myPower
-          ? [{ title: 'Retreats', results: resolution.results, retreatPending: true }]
-          : []),
+        { title: 'Retreats', results: resolution.results, retreatPending: true },
       ]
     : [{ title: null, results: resolution.results, retreatPending: true }]
 
@@ -238,7 +236,7 @@ function ResultsSection({
                 <ResultList entries={mine} allResults={results} provinceNames={provinceNames} retreatPending={retreatPending} />
               ) : (
                 <p className="text-sm text-muted-foreground mb-2">
-                  {noResultsText(myPower, results)}
+                  {noResultsText(myPower, results, title === 'Retreats')}
                 </p>
               )
             ) : (
@@ -1033,7 +1031,7 @@ export default function GameView() {
   if (!state) return <div className="p-5">Loading...</div>
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="mx-auto">
       <p className="mb-4 flex flex-wrap gap-x-4 gap-y-1">
         <Link to="/games" className={TAP_LINK}>Back to games</Link>
         <Link
@@ -1173,6 +1171,12 @@ export default function GameView() {
         </Card>
       )}
 
+      {/* DP4: from a landscape phone up, the map sits beside the turn status, the orders
+          and the results (`.game-columns` in index.css), and stays in view while that
+          column scrolls. A portrait phone keeps one column in this DOM order: status,
+          results, map, orders. */}
+      <div className={mapUrl ? 'game-columns' : undefined} data-testid="game-columns">
+      <div className="game-status">
       {state.status === 'ACTIVE' && !notStarted && (
         <Card className="mb-6">
           <CardHeader>
@@ -1183,15 +1187,6 @@ export default function GameView() {
             )}
           </CardHeader>
           <CardContent className="space-y-2">
-            {myPower && !iAmOut && gameId && (
-              <DeadlineCard
-                gameId={gameId}
-                power={myPower}
-                proposal={deadlineProposal}
-                hasSchedule={!!scheduleText}
-                onChanged={refreshDeadline}
-              />
-            )}
             {myPower && !iAmOut && (
               <p
                 className={cn(
@@ -1264,21 +1259,33 @@ export default function GameView() {
                 )}
               </div>
             )}
+            {myPower && !iAmOut && gameId && (
+              <DeadlineCard
+                gameId={gameId}
+                power={myPower}
+                proposal={deadlineProposal}
+                hasSchedule={!!scheduleText}
+                onChanged={refreshDeadline}
+              />
+            )}
           </CardContent>
         </Card>
       )}
+      </div>
 
-      <ResultsSection
-        resolution={resolution}
-        myPower={myPower ?? null}
-        provinceNames={provinceNames}
-      />
-      {gameId && state && (
-        <PreviousTurns gameId={gameId} phase={state.phase} myPower={myPower ?? null} provinceNames={provinceNames} />
-      )}
+      <div className="game-results">
+        <ResultsSection
+          resolution={resolution}
+          myPower={myPower ?? null}
+          provinceNames={provinceNames}
+        />
+        {gameId && state && (
+          <PreviousTurns gameId={gameId} phase={state.phase} myPower={myPower ?? null} provinceNames={provinceNames} />
+        )}
+      </div>
 
       {mapUrl && (
-        <div className="mb-6">
+        <div className="game-map mb-6">
           <div className="flex flex-wrap items-center gap-2 mb-2">
             {(Object.entries(MAP_MODE_LABELS) as [MapMode, string][])
               .filter(([mode]) => mode !== 'orders' || myPower)
@@ -1313,6 +1320,7 @@ export default function GameView() {
         </div>
       )}
 
+      <div className="game-side">
       {!myPower && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Join game</h2>
@@ -1385,7 +1393,7 @@ export default function GameView() {
       {myPower && !iAmOut && (
         <>
           <p className="font-medium mb-4">Your power: {myPower}</p>
-          {state.status === 'ACTIVE' && !notStarted && (
+          {state.status === 'ACTIVE' && !notStarted && !iHaveNothingToDo && (
           <section id="orders-panel" className="mb-6 scroll-mt-4">
             <h2 id="orders-heading" tabIndex={-1} className="text-lg font-medium mb-2 outline-none">
               Orders
@@ -1449,6 +1457,9 @@ export default function GameView() {
           )}
         </>
       )}
+
+      </div>
+      </div>
 
       <section id="messages" ref={setMessagesEl} className="mb-6 scroll-mt-4">
         <h2 className="text-lg font-medium mb-2">Messages</h2>
