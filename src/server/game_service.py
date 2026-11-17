@@ -48,6 +48,7 @@ from engine.types import (
     Waive,
 )
 from server.legal_orders import adjustments_owed, powers_with_orders_to_give
+from server.order_notes import order_notes, own_unit_support_note
 
 __all__ = [
     "DEMO_MAP_NAME",
@@ -96,12 +97,6 @@ def _order_str(result: dict[str, Any]) -> str:
     return str(result.get("order_str") or format_order(order_from_dict(result["order"])))
 
 
-NEEDS_CONVOY_NOTE = "needs a convoy: the army is not next to its destination, so the move fails unless fleets convoy it"
-
-
-def own_unit_support_note(kind: str, location: Location) -> str:
-    """The submission note for a support of a move onto the power's own unit (CA4)."""
-    return f"your own {kind} {location} is there: this support has no effect unless it moves away"
 
 
 class GameService:
@@ -265,7 +260,8 @@ class GameService:
 
         # One locked read-modify-write, and only if the phase these orders were
         # validated against is still the live one (StaleGameError otherwise).
-        self._repo.modify_pending_orders(game_id, store, expected_phase_code=state.phase_name)
+        stored = self._repo.modify_pending_orders(game_id, store, expected_phase_code=state.phase_name)
+        self._attach_notes(state, power, results, stored.get(power, []))
         if not merge and not accepted and kept_orders:
             # Nothing in the replacement was accepted, so the stored orders were
             # left alone; no accepted result exists to carry the news, so the
@@ -354,8 +350,9 @@ class GameService:
                     accepted_keys.add(key)
                 result: dict[str, Any] = {"order": raw, "ok": True, "reason": None, "stored": stored}
                 if needs_convoy:
-                    # Accepted, but it can only succeed if fleets convoy it.
-                    result["note"] = NEEDS_CONVOY_NOTE
+                    # Accepted, but it can only succeed if fleets convoy it:
+                    # ``_attach_notes`` names the fleets (or says none can).
+                    result["needs_convoy"] = True
                 own = state.unit_at(order.dest.province) if isinstance(order, SupportMove) else None
                 if own is not None and own.power == power:
                     # Legal, but void unless that unit moves away (DATC 6.D.10).
@@ -387,6 +384,67 @@ class GameService:
                     accepted_keys.discard(key)
             del accepted[slots:]
         return results, accepted, accepted_keys
+
+    def _attach_notes(
+        self, state: GameState, power: str, results: list[dict[str, Any]], own: list[str]
+    ) -> None:
+        """Give each result its helper ``notes`` (``server.order_notes``), computed
+        against ``own`` -- the power's whole stored order set after this write --
+        and nothing else: no other power's pending orders. A refused order is
+        explained in the context of that set. An accepted move that needs a
+        convoy takes the helper's convoy note as its ``note`` (it names the fleets
+        that could carry it, or says none can); one the player's own convoy
+        orders already carry has none."""
+        refused = [r["order"] for r in results if not r["ok"]]
+        helper = order_notes(self._map, state, power, [*own, *refused])
+        by_order: dict[str, list[dict[str, str]]] = {}
+        for entry in helper["orders"]:
+            by_order.setdefault(entry["order"], entry["notes"])
+        for r in results:
+            if r.get("superseded_by"):
+                r["notes"] = []
+                continue
+            notes = by_order.get(r["stored"] if r["ok"] else r["order"], [])
+            r["notes"] = notes
+            if r.pop("needs_convoy", False) and "note" not in r:
+                convoy = [n for n in notes if n["code"] in ("needs_convoy", "no_convoy_route")]
+                if convoy:
+                    r["note"] = convoy[0]["text"]
+
+    def order_notes(
+        self, game_id: str, power: str, orders: Optional[list[str]] = None, *, merge: bool = False
+    ) -> dict[str, Any]:
+        """Helper notes (``server.order_notes``) for ``power``'s own orders.
+
+        ``orders=None`` explains the power's stored orders; otherwise ``orders``
+        is a draft: the whole set (``merge=False``, the web form) or orders to
+        lay over the stored ones as a merged submission would (``merge=True``,
+        the bot's one-at-a-time picks). Only this power's stored orders are
+        read. Raises ``OrderError`` for an unknown game.
+        """
+        game = self.load(game_id)
+        if game is None:
+            raise OrderError(f"game {game_id} not found")
+        power = power.upper()
+        stored = list(self._repo.get_pending_orders(game_id).get(power, []))
+        if orders is None:
+            own = stored
+        elif merge:
+            keys = set()
+            for raw in orders:
+                parsed = self._parse_stored(raw, power) if raw.strip() else None
+                key = _order_key(parsed) if parsed is not None else None
+                if key is not None:
+                    keys.add(key)
+            kept = []
+            for existing in stored:
+                parsed = self._parse_stored(existing, power)
+                if parsed is None or _order_key(parsed) not in keys:
+                    kept.append(existing)
+            own = kept + list(orders)
+        else:
+            own = list(orders)
+        return order_notes(self._map, game.state, power, own)
 
     def _make_room(self, kept: list[str], n_new: int, slots: int, power: str) -> tuple[list[str], list[str]]:
         """Trim a power's stored adjustment orders so that, with ``n_new`` new
@@ -1201,7 +1259,7 @@ class GameService:
         self, state: GameState, orders: dict[str, list[str]]
     ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[Order]]]:
         """Validate every power's orders against ``state``, as ``submit_orders``
-        would. Returns the per-power ``{order, ok, reason}`` results and the
+        would. Returns the per-power ``{order, ok, reason, notes}`` results and the
         accepted orders, parsed. Raises ``OrderError`` for an unknown power."""
         checks: dict[str, list[dict[str, Any]]] = {}
         parsed: dict[str, list[Order]] = {}
@@ -1210,6 +1268,7 @@ class GameService:
             if power not in self._map.home_centers:
                 raise OrderError(f"Unknown power {raw_power}")
             results, accepted, _ = self._check_orders(state, power, strings)
+            self._attach_notes(state, power, results, accepted)
             checks[power] = results
             if accepted:
                 parsed[power] = [parse_order(s, power=power, map=self._map) for s in accepted]

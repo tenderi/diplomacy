@@ -15,7 +15,7 @@ from .. import shared as api_shared
 from ...response_cache import invalidate_cache
 from ..shared import db_service, game_service, is_bot_secret
 from persistence.database import utcnow_naive
-from server.game_service import GameOverError, StaleGameError
+from server.game_service import GameOverError, OrderError, StaleGameError
 
 router = APIRouter()
 
@@ -111,11 +111,16 @@ def set_orders(
     """Submit orders for a power. Only the assigned user may submit.
 
     Returns per-order validation results ``{order, success, error, replaced,
-    note}``: ``replaced`` lists the stored adjustment orders a merged order
+    note, notes}``: ``replaced`` lists the stored adjustment orders a merged order
     pushed out of the power's build/disband count (``[]`` otherwise), and
     ``note`` says so in a sentence (``"replaced BUILD F BRE (you may build
     1)"``) or is ``null``. ``stored`` is the canonical form kept for an accepted
     order (``F SPA R POR`` is stored ``F SPA/SC R POR``), ``null`` for a refused one.
+    ``notes`` are the order helper's notes for that order (``server.order_notes``:
+    ``{kind, code, text}``, why it is impossible or what it depends on), and the
+    top-level ``notes`` those about the power's whole stored order set (units
+    left without an order) -- computed from the board and this power's own
+    orders only.
     """
     _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     if not any(o.strip() for o in req.orders):
@@ -143,13 +148,49 @@ def set_orders(
             "note": r.get("note"),
             "stored": r.get("stored"),
             "superseded_by": r.get("superseded_by"),
+            "notes": r.get("notes", []),
         }
         for r in raw
     ]
+    set_notes = game_service.order_notes(str(req.game_id), req.power)["notes"]
     invalidate_cache(f"games/{req.game_id}")  # harmless: /state carries no pending orders; drops the games/{id} entries
     # W10: these may have been the last orders the turn was waiting for.
     processed = api_shared.maybe_auto_process(str(req.game_id))
-    return {"results": results, "auto_processed": processed}
+    return {"results": results, "notes": set_notes, "auto_processed": processed}
+
+
+class OrderNotesRequest(BaseModel):
+    """A draft to explain: ``orders`` (``null``: the stored ones), and whether
+    they are laid over the stored orders (``merge``, as the bot submits) or are
+    the whole set (the web form)."""
+    orders: Optional[list[str]] = None
+    merge: bool = False
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+
+@router.post("/games/{game_id}/orders/{power}/notes")
+def get_order_notes(
+    game_id: str,
+    power: str,
+    req: OrderNotesRequest = Body(...),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """The order helper's notes for a power's own orders, before submitting.
+
+    Only the assigned user may ask (the draft and the stored orders are theirs).
+    Stores nothing. Returns ``{power, orders: [{order, ok, notes}], notes}``:
+    ``notes`` are ``{kind, code, text}`` (``server.order_notes``), per order and
+    for the set as a whole, computed from the board and this power's own
+    orders only -- never another power's pending orders.
+    """
+    _, player = _authorize_power(credentials, game_id, power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
+    try:
+        notes = game_service.order_notes(game_id, player.power_name, req.orders, merge=req.merge)
+    except OrderError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"power": player.power_name, **notes}
 
 
 @router.get("/games/{game_id}/orders")

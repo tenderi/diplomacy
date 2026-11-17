@@ -603,7 +603,7 @@ class TestPhaseAwareOrders:
         assert "retreat and disband" in results[0]["reason"]
         # The real retreat still goes through, so the gate is not over-eager.
         results = service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])
-        assert results == [{"order": "A MUN R SIL", "ok": True, "reason": None, "stored": "A MUN R SIL"}]
+        assert results == [{"order": "A MUN R SIL", "ok": True, "reason": None, "stored": "A MUN R SIL", "notes": []}]
 
     def test_orders_status_waits_only_on_the_dislodged_power(self, service):
         gid = self._to_retreat_phase(service)
@@ -983,6 +983,10 @@ class TestAdjustmentCounts:
         assert service.submit_orders(gid, "AUSTRIA", ["BUILD A BUD"]) == [{
             "order": "BUILD A BUD", "ok": False,
             "reason": "AUSTRIA has no build to make: 2 supply centres, 2 units",
+            "notes": [{
+                "kind": "impossible", "code": "no_build_due",
+                "text": "no build is due: you have 2 supply centres and 2 units",
+            }],
         }]
         assert service.pending_orders_view(gid).get("AUSTRIA", []) == []
 
@@ -993,8 +997,8 @@ class TestAdjustmentCounts:
             [Unit(UnitKind.ARMY, "ENGLAND", Location("LVP")), Unit(UnitKind.FLEET, "ENGLAND", Location("NTH"))],
         )
         assert service.submit_orders(gid, "ENGLAND", ["BUILD F LON", "BUILD A EDI"]) == [
-            {"order": "BUILD F LON", "ok": True, "reason": None, "stored": "BUILD F LON"},
-            {"order": "BUILD A EDI", "ok": False, "reason": "ENGLAND has 1 build; 2 builds/waives submitted"},
+            {"order": "BUILD F LON", "ok": True, "reason": None, "stored": "BUILD F LON", "notes": []},
+            {"order": "BUILD A EDI", "ok": False, "reason": "ENGLAND has 1 build; 2 builds/waives submitted", "notes": []},
         ]
         assert service.pending_orders_view(gid)["ENGLAND"] == ["BUILD F LON"]
 
@@ -1007,6 +1011,7 @@ class TestAdjustmentCounts:
         assert service.submit_orders(gid, "GERMANY", ["F DEN D"]) == [{
             "order": "F DEN D", "ok": False,
             "reason": "GERMANY has no unit to disband (4 supply centres, 2 units); it may build 2 units",
+            "notes": [],
         }]
 
     def test_two_waives_for_one_slot(self, service):
@@ -1016,8 +1021,8 @@ class TestAdjustmentCounts:
             [Unit(UnitKind.ARMY, "TURKEY", Location("CON")), Unit(UnitKind.FLEET, "TURKEY", Location("BLA"))],
         )
         assert service.submit_orders(gid, "TURKEY", ["WAIVE", "WAIVE"]) == [
-            {"order": "WAIVE", "ok": True, "reason": None, "stored": "WAIVE"},
-            {"order": "WAIVE", "ok": False, "reason": "TURKEY has 1 build; 2 builds/waives submitted"},
+            {"order": "WAIVE", "ok": True, "reason": None, "stored": "WAIVE", "notes": []},
+            {"order": "WAIVE", "ok": False, "reason": "TURKEY has 1 build; 2 builds/waives submitted", "notes": []},
         ]
         assert service.pending_orders_view(gid)["TURKEY"] == ["WAIVE"]
 
@@ -1058,8 +1063,9 @@ class TestTwoOrdersForOneUnitInOneSubmission:
                 "reason": None,
                 "superseded_by": "A PAR H",
                 "note": "replaced by a later order in this submission: A PAR H",
+                "notes": [],
             },
-            {"order": "A PAR H", "ok": True, "reason": None, "stored": "A PAR H"},
+            {"order": "A PAR H", "ok": True, "reason": None, "stored": "A PAR H", "notes": []},
         ]
         assert service.pending_orders_view(gid)["FRANCE"] == ["A PAR H"]
 
@@ -1098,8 +1104,10 @@ class TestConvoyOrdersSurviveStorage:
         results = service.submit_orders(gid, "ITALY", ["F ION C A ALB - APU", "A ROM - TUS"])
         assert results == [
             {"order": "F ION C A ALB - APU", "ok": False,
-             "reason": "the unit at ALB is a fleet; only an army can be convoyed"},
-            {"order": "A ROM - TUS", "ok": True, "reason": None, "stored": "A ROM - TUS"},
+             "reason": "the unit at ALB is a fleet; only an army can be convoyed",
+             "notes": [{"kind": "impossible", "code": "convoy_of_fleet",
+                        "text": "Austria's F ALB is a fleet: only an army can be convoyed"}]},
+            {"order": "A ROM - TUS", "ok": True, "reason": None, "stored": "A ROM - TUS", "notes": []},
         ]
         assert service.pending_orders_view(gid)["ITALY"] == ["A ROM - TUS"]
 
@@ -1116,6 +1124,9 @@ class TestConvoyOrdersSurviveStorage:
         assert result == {
             "order": "F ION C A ALB - APU", "ok": False,
             "reason": "parse error: malformed convoy order (must carry an army): 'F ION C F ALB - APU'",
+            # The helper validates for itself, so it still explains the real problem.
+            "notes": [{"kind": "impossible", "code": "convoy_of_fleet",
+                       "text": "Austria's F ALB is a fleet: only an army can be convoyed"}],
         }
         assert service.pending_orders_view(gid).get("ITALY", []) == []
 

@@ -28,6 +28,10 @@ def test_all_refused_non_merge_submission_keeps_the_earlier_orders(client: TestC
         "order": "BUILD A MUN", "success": False, "error": "MUN is not a home supply center of FRANCE",
         "replaced": [], "superseded_by": None, "stored": None,
         "note": "none of these orders was accepted, so nothing was changed. Your earlier orders stand: BUILD F BRE",
+        "notes": [{
+            "kind": "impossible", "code": "build_site",
+            "text": "you cannot build in MUN: MUN is not one of your home supply centres. You can build A BRE, A PAR or F BRE",
+        }],
     }]
     assert game_service.pending_orders_view(game_id)["FRANCE"] == ["BUILD F BRE"]
 
