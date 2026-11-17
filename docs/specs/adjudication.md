@@ -121,6 +121,11 @@ are the actual substance of DATC §6.D:
   the same empty province): both `1 + supports`, with **no** own-power exemption (DATC
   defines only attack strength that way). A move that itself loses a head-to-head battle prevents nothing
   against third parties (`_prevent_strength`'s head-to-head short-circuit).
+  **Only a head-to-head** zeroes it (DATC issue 4.A.7, choice (b), the DATC's preference
+  over the literal rulebook IX.7): a *convoyed* move dislodged by the unit leaving its
+  destination is not in a head-to-head, so it still stands a third unit off there (DATC
+  6.G.10, 6.G.14, 6.G.15). This is a deliberate choice, made by the maintainer on
+  2026-11-17 (issue #404): the DATC is the authority where it and the rulebook text part.
 
 A move succeeds (`_move_succeeds`) when: its convoy path (if any) works; its attack
 strength beats every competing move's prevent strength into the same destination
@@ -192,7 +197,11 @@ move — under specific conditions (`_uses_convoy`):
   convoy intent is inferred from the army's **own power's** convoy order, swap or not
   (DATC 4.A.3 choice d) — a foreign fleet cannot "kidnap" a friendly army onto a convoy it
   never asked for (DATC 6.G.2/6.G.4). A convoy order on no possible route is `VOID` and
-  lends no intent (6.G.7); one that also creates a cycle is the 6.G.11 paradox. So that
+  lends no intent (6.G.7); one that also creates a cycle is the 6.G.11 paradox. Intent
+  needs only that own-power convoy order on a possible route (below), not a complete chain
+  of convoy orders: with `A NAP - ROM`, `F ION C A NAP - ROM` and `F TYS H`, the army is
+  convoyed, the chain is missing `F TYS`, and the move fails `NO_CONVOY` rather than
+  walking (choice d as written; maintainer's ruling, 2026-11-17, issue #405). So that
   a player can ask for a (foreign) convoy into a neighbour, `legal_orders` offers an army
   `A X - Y VIA` for every province Y on the shore of a chain of fleet-held seas it stands
   on, adjacent or not, alongside the plain `A X - Y`.

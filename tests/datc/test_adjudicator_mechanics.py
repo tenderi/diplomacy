@@ -276,3 +276,32 @@ def test_moves_whose_ordered_convoys_were_disrupted_make_no_standoff():
     assert h.new_state is not None
     assert h.new_state.contested == frozenset()
     assert h.retreat_options_at("SWE") == {"NWY", "FIN"}
+
+
+def test_convoyed_army_dislodged_from_its_destination_still_stands_a_third_unit_off():
+    # DATC 4.A.7 choice (b), kept by the maintainer's ruling on #404: only a head-to-head
+    # zeroes prevent strength, and a convoyed move is never in one.
+    h = Harness()
+    h.units("FRANCE", "A SPA", "F LYO")
+    h.units("GERMANY", "F MAR", "F WES", "A BUR")
+    h.orders("FRANCE", "A SPA - MAR VIA", "F LYO C A SPA - MAR")
+    h.orders("GERMANY", "F MAR - SPA/SC", "F WES S F MAR - SPA/SC", "A BUR - MAR")
+    h.adjudicate()
+    h.assert_success("F MAR")
+    h.assert_dislodged("A SPA")
+    h.assert_bounce("A BUR")
+    assert h.unit_powers_at("MAR") is None
+    assert h.new_state is not None and h.new_state.contested == frozenset({"MAR"})
+
+
+def test_adjacent_move_with_a_partial_own_convoy_chain_fails_no_convoy():
+    # DATC 4.A.3 choice d, kept by the maintainer's ruling on #405: an own-power convoy
+    # order on a possible route shows intent even when the ordered chain is incomplete.
+    h = Harness()
+    h.units("FRANCE", "A NAP", "F ION", "F TYS")
+    h.orders("FRANCE", "A NAP - ROM", "F ION C A NAP - ROM", "F TYS H")
+    h.adjudicate()
+    h.assert_result("A NAP", ResultCode.NO_CONVOY)
+    h.assert_result("F ION", ResultCode.NO_CONVOY)
+    assert h.unit_powers_at("NAP") == "FRANCE"
+    assert h.unit_powers_at("ROM") is None
