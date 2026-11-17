@@ -914,6 +914,22 @@ class TestMergedAdjustmentOrders:
         results = service.process_turn(gid)["resolution"]["results"]
         assert [(r["order_str"], r["result"]) for r in results] == [("WAIVE", "WAIVE")]
 
+    def test_a_waive_the_power_did_not_order_is_marked_unordered(self, service):
+        """DP3: an unused build reads differently from a deliberate waive, so the
+        stored result marks the engine's waive ``unordered`` and leaves the power's own."""
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.WINTER, PhaseType.ADJUSTMENT,
+            units=frozenset({Unit(UnitKind.ARMY, "GERMANY", Location("MUN"))}),
+            ownership={"BER": "GERMANY", "MUN": "GERMANY", "KIE": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
+        service.submit_orders(gid, "GERMANY", ["WAIVE"])
+        results = service.process_turn(gid)["resolution"]["results"]
+        assert [(r["result"], r.get("unordered", False)) for r in results] == [("WAIVE", False), ("WAIVE", True)]
+        stored = service.last_resolution_view(gid)["results"]
+        assert [r.get("unordered", False) for r in stored] == [False, True]
+
     def test_merged_orders_never_exceed_the_slots(self, service):
         """Two builds owed: a third merged order displaces the oldest build."""
         gid = _new_game(service)

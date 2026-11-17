@@ -1213,7 +1213,7 @@ describe('GameView — results panel (E4)', () => {
     expect(within(container).queryByText(/what happened last turn/i)).not.toBeInTheDocument()
   })
 
-  it('shows the movement results before the retreat ones, or alone when the power did not retreat (BR3)', async () => {
+  it('shows the movement results before the retreat ones, and the retreats even to a power that had none (BR3, DP3)', async () => {
     const res = (power: string, type: string, order_str: string, result: string, extra = {}) => ({
       order: { type, power, unit: 'PAR', dest: 'BUR' },
       result,
@@ -1239,10 +1239,14 @@ describe('GameView — results panel (E4)', () => {
       </MemoryRouter>
     )
 
-    // FRANCE (the viewer) had no retreat: only the movement block, with its move.
+    // FRANCE (the viewer) had no retreat: its move, then a Retreats block that says so,
+    // with GERMANY's retreat under the other powers' results.
     expect(await within(container).findByText('A PAR - BUR')).toBeInTheDocument()
     expect(within(container).getByRole('heading', { name: 'Movement' })).toBeInTheDocument()
-    expect(within(container).queryByRole('heading', { name: 'Retreats' })).toBeNull()
+    expect(within(container).getByRole('heading', { name: 'Retreats' })).toBeInTheDocument()
+    expect(within(container).getByText('FRANCE had no units to retreat.')).toBeInTheDocument()
+    const retreats = within(container).getByRole('heading', { name: 'Retreats' }).parentElement!
+    expect(retreats.textContent).toContain('A MUN R KIE')
     expect(within(container).queryByText(/had no orders recorded/)).toBeNull()
   })
 

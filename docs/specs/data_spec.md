@@ -148,8 +148,9 @@ JSON. Round-trips exactly (`state_from_dict(state_to_dict(s)) == s`, Hypothesis-
   supply centres the turn changed, `{power: {gained: [province...], lost: [...], count}}`
   (`count` is how many it owns after); and `unordered: true` on a result whose order the
   engine made up because the power sent none for that unit (an implicit hold, an
-  unordered retreat or adjustment disband). `centres` and `unordered` are absent in rows
-  stored before v3.0.176. `units` is the board the orders were given on (every unit, then the
+  unordered retreat or adjustment disband), and on a `WAIVE` for a build the power left
+  unused rather than waived itself. `centres` and `unordered` are absent in rows stored
+  before v3.0.176, and an unused build's `unordered` before v3.0.327. `units` is the board the orders were given on (every unit, then the
   dislodged ones, as `{kind, power, location}`): DAIDE's `ORD` needs each ordered or supported
   unit's kind and power, which the moved board no longer shows; absent in older rows.
 
