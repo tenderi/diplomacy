@@ -299,7 +299,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
                 year=0,
                 season="",
                 phase="",
-                phase_code=str(s.get("phase_code") or ""),
+                phase_code=_snapshot_phase(s),
                 game_state={
                     "units": s.get("units") or {},
                     "supply_centers": s.get("supply_centers") or {},
@@ -364,6 +364,16 @@ def _checked_message_times(messages: List[Dict[str, Any]]) -> List[Optional[date
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Malformed message timestamp {raw!r}: {e}") from e
     return times
+
+
+def _snapshot_phase(snapshot: Dict[str, Any]) -> str:
+    """The snapshot's ``phase_code``, or its board's phase when the document left
+    it out: a snapshot stored with an empty one could never be rolled back to
+    (``restore_snapshot`` checks it against the board)."""
+    if snapshot.get("phase_code"):
+        return str(snapshot["phase_code"])
+    board = snapshot.get("state")
+    return game_service.state_phase(board) if board is not None else ""
 
 
 def _check_snapshots(snapshots: List[Dict[str, Any]]) -> None:
