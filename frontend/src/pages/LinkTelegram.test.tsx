@@ -55,6 +55,47 @@ describe('LinkTelegram', () => {
     })
   })
 
+  function mockLinkCode(body: Record<string, unknown>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/auth/me/link_code'))
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(body),
+            text: () => Promise.resolve(JSON.stringify(body)),
+          } as Response)
+        return Promise.resolve({ ok: false, status: 401 })
+      })
+    )
+  }
+
+  async function generate() {
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth()}>
+          <LinkTelegram />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: /generate link code/i }))
+    await waitFor(() => expect(within(container).getByText('ABC123')).toBeInTheDocument())
+    return container
+  }
+
+  it('links t.me/<bot> from the bot_username in the link-code response', async () => {
+    mockLinkCode({ code: 'ABC123', expires_in_seconds: 300, bot_username: 'TestBot' })
+    const container = await generate()
+    expect(within(container).getAllByRole('link', { name: '@TestBot' })[0]).toHaveAttribute('href', 'https://t.me/TestBot')
+  })
+
+  it('says just "the bot" when the response has no bot_username', async () => {
+    mockLinkCode({ code: 'ABC123', expires_in_seconds: 300 })
+    const container = await generate()
+    expect(within(container).queryByRole('link', { name: /@/ })).toBeNull()
+    expect(within(container).getAllByText(/with the bot/).length).toBeGreaterThan(0)
+  })
+
   it('shows already linked when user has telegram_linked', () => {
     const { container } = render(
       <MemoryRouter>

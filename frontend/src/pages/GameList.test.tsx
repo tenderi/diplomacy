@@ -93,6 +93,7 @@ describe('GameList', () => {
                     map_name: 'standard',
                     power: 'FRANCE',
                     current_turn: 2,
+                    phase_code: 'S1901M',
                     status: 'active',
                   },
                 ],
@@ -116,7 +117,7 @@ describe('GameList', () => {
       </MemoryRouter>
     )
     await waitFor(() => {
-      expect(within(container).getByRole('link', { name: /game 1.*france/i })).toBeInTheDocument()
+      expect(within(container).getByRole('link', { name: 'Game 1 — FRANCE — Spring 1901' })).toBeInTheDocument()
     })
   })
 

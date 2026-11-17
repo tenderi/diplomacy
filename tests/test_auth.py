@@ -500,3 +500,15 @@ class TestLinkingAFreshWebLoginToAPlayedTelegram:
         assert resp.status_code == 409
         assert db_service.get_user_by_id(web_id).email == email
         assert db_service.get_user_by_telegram_id(tg).email is None
+
+
+def test_link_code_response_names_the_bot(client):
+    """POST /auth/me/link_code returns bot_username so the web page can link t.me/<bot>."""
+    _skip_if_no_db()
+    from server.api.shared import BOT_USERNAME
+    reg = client.post("/auth/register", json={"email": _unique_email("link_bot"), "password": "pass12345"})
+    token = reg.json()["access_token"]
+    resp = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["bot_username"] == BOT_USERNAME
+    assert BOT_USERNAME
