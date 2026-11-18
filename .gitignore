@@ -149,3 +149,6 @@ bot_data/
 
 # Claude Code subagent worktrees
 .claude/worktrees/
+
+# Maintainer-only Claude Code context (host details); never committed
+CLAUDE.local.md

@@ -23,7 +23,11 @@ install_arch() {
     echo "[Arch] Refreshing package databases (to get latest versions)..."
     sudo pacman -Sy
     echo "[Arch] Installing/upgrading packages..."
-    sudo pacman -S --needed --noconfirm python python-pip postgresql nodejs npm
+    sudo pacman -S --needed --noconfirm python python-pip postgresql nodejs npm cairo
+    if [[ ! -d /var/lib/postgres/data/base ]]; then
+        echo "[Arch] Initializing the PostgreSQL data directory..."
+        sudo -u postgres initdb -D /var/lib/postgres/data
+    fi
     echo "[Arch] Starting PostgreSQL..."
     sudo systemctl start postgresql || true
     sudo systemctl enable postgresql 2>/dev/null || true
@@ -36,7 +40,7 @@ install_debian() {
     echo "[Debian/Ubuntu] Updating package list (to get latest versions)..."
     sudo apt-get update -qq
     echo "[Debian/Ubuntu] Installing/upgrading packages to latest from repos..."
-    sudo apt-get install -y python3.14 python3.14-venv python3-pip postgresql postgresql-client
+    sudo apt-get install -y python3.14 python3.14-venv python3-pip postgresql postgresql-client libcairo2
     # Node.js: use Node 24 from NodeSource if missing or outdated
     if ! command -v node &>/dev/null || [[ $(node -v | cut -d. -f1 | tr -d v) -lt 22 ]]; then
         echo "[Debian/Ubuntu] Adding NodeSource repo and installing Node.js 24..."
@@ -58,7 +62,7 @@ install_macos() {
     echo "[macOS] Updating Homebrew (to get latest formulae)..."
     brew update
     echo "[macOS] Installing/upgrading packages..."
-    brew install python@3.14 postgresql@16 node
+    brew install python@3.14 postgresql@16 node cairo
     brew upgrade python@3.14 postgresql@16 node 2>/dev/null || true
     echo "[macOS] Starting PostgreSQL..."
     brew services start postgresql@16 2>/dev/null || true
@@ -72,7 +76,7 @@ case "$OS" in
     debian) install_debian ;;
     macos)  install_macos ;;
     *)
-        echo "Unsupported OS. Install manually: Python 3.14, PostgreSQL, Node.js 18+ and npm."
+        echo "Unsupported OS. Install manually: Python 3.14, PostgreSQL, Cairo, Node.js 22+ and npm."
         exit 1
         ;;
 esac
@@ -91,8 +95,8 @@ node --version     || echo "WARNING: node not in PATH"
 npm --version      || echo "WARNING: npm not in PATH"
 echo ""
 echo "Done. Next steps:"
-echo "  1. Create DB user and database (see docs/LOCAL_DEVELOPMENT.md §3.2)"
-echo "  2. cd diplomacy && python3.14 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
-echo "  3. alembic upgrade head"
+echo "  1. python3.14 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+echo "  2. ./setup_database.sh   (database user, database, .env, migrations)"
+echo "  3. (optional) TELEGRAM_BOT_TOKEN=... PYTHONPATH=src python -m server.telegram_bot"
 echo "  4. PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000"
 echo "  5. (optional) cd frontend && npm install && npm run dev  → http://localhost:5173"

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # install.sh — first-time setup of a host for the whole stack (Debian/Ubuntu;
-# production is the UpCloud VPS). Idempotent. Installs Docker, adds a swap file
+# docs/DEPLOYMENT.md). Idempotent. Installs Docker, adds a swap file
 # on small hosts, creates .env with generated secrets, installs rclone and
 # schedules the nightly database backup. Starting the stack is ./upgrade.sh.
 #
@@ -47,7 +47,7 @@ if [ "$(id -u)" -ne 0 ] && ! id -nG "$USER" | tr ' ' '\n' | grep -qx docker; the
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Swap. The production VPS has 2 GB of RAM and no swap; Postgres, the API,
+# 2. Swap. A 2 GB VPS with no swap: Postgres, the API,
 #    the bot, nginx and image builds fit, but a build spike should page, not
 #    trigger the OOM killer.
 # ---------------------------------------------------------------------------
@@ -78,8 +78,8 @@ info "Installation complete."
 echo "Next steps:"
 echo "  1. Put the bot token in $REPO_DIR/.env (TELEGRAM_BOT_TOKEN=...), or let the"
 echo "     deploy workflow write it from the repository secret."
-echo "  2. For off-host backups: rclone config  (remote 'proton', type protondrive)"
+echo "  2. For off-host backups: rclone config, then BACKUP_RCLONE_REMOTE in .env"
 echo "     (docs/DEPLOYMENT.md, Backups). Until then backups stay on this disk."
-echo "  3. Allow TCP ${WEB_PORT:-80} inbound (UpCloud's network firewall is separate from ufw)."
+echo "  3. Allow TCP ${WEB_PORT:-80} inbound (and in your provider's firewall, if it has one)."
 [ "${NEEDS_RELOGIN:-0}" = "1" ] && echo "  4. Log out and back in (or 'newgrp docker') for the docker group."
 echo "  Start or update:  ./upgrade.sh"

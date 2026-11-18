@@ -73,10 +73,11 @@ can look green when it isn't. The full walkthrough is in
 Production is one VPS running `docker-compose.yml`:
 - **Services:** Postgres, the API, the bot, nginx serving the web app, and Caddy for HTTPS.
 - **Deploys:** every green merge to `main` deploys automatically.
-- **Backups:** nightly database backups are copied to Proton Drive.
+- **Backups:** nightly database backups are copied off-host with rclone.
 - **Hardening:** `harden_host.sh` sets up the host.
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+To run your own instance, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): a Debian/Ubuntu
+host, a Telegram bot token, `./install.sh`, then `./upgrade.sh`.
 
 ## Documentation
 
