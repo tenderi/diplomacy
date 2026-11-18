@@ -3,7 +3,7 @@
 #   diplomacy_web  (public :80)  ─┐
 #   diplomacy_bot  (Telegram)    ─┼─► diplomacy_api (:8000, internal) ─► postgres
 #
-# Only nginx is published to the world. The API is reachable from the other
+# Only Caddy (or, without a DOMAIN, nginx) is published to the world. The API is reachable from the other
 # containers by its service name and from the host on loopback (for the
 # upgrade script and debugging) -- never on a public interface. Postgres is
 # not published at all.
@@ -60,6 +60,12 @@ services:
     # A process can't gain privileges it didn't start with (setuid binaries).
     security_opt:
       - no-new-privileges:true
+    # The entrypoint chowns the data directory and drops to the postgres user.
+    cap_drop:
+      - ALL
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    mem_limit: 512m
+    pids_limit: 200
 
   diplomacy_api:
     image: ghcr.io/tenderi/diplomacy-api:${DIPLOMACY_IMAGE_TAG:-local}
@@ -114,6 +120,9 @@ services:
     # Runs as the unprivileged `app` user and needs no Linux capabilities.
     cap_drop:
       - ALL
+    # Map rendering is the peak; a runaway must not starve the host's other projects.
+    mem_limit: 768m
+    pids_limit: 200
 
   diplomacy_bot:
     image: ghcr.io/tenderi/diplomacy-bot:${DIPLOMACY_IMAGE_TAG:-local}
@@ -153,6 +162,8 @@ services:
     # Runs as the unprivileged `app` user and needs no Linux capabilities.
     cap_drop:
       - ALL
+    mem_limit: 256m
+    pids_limit: 100
 
   diplomacy_web:
     image: ghcr.io/tenderi/diplomacy-web:${DIPLOMACY_IMAGE_TAG:-local}
@@ -176,6 +187,12 @@ services:
     # A process can't gain privileges it didn't start with (setuid binaries).
     security_opt:
       - no-new-privileges:true
+    # nginx's master renders its config, binds :80 and drops to the nginx user.
+    cap_drop:
+      - ALL
+    cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID, NET_BIND_SERVICE]
+    mem_limit: 128m
+    pids_limit: 100
 
   diplomacy_docs:
     # The documentation site (docs/ via MkDocs), served by Caddy at DOCS_DOMAIN.
@@ -191,6 +208,12 @@ services:
     restart: always
     security_opt:
       - no-new-privileges:true
+    # nginx's master renders its config, binds :80 and drops to the nginx user.
+    cap_drop:
+      - ALL
+    cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID, NET_BIND_SERVICE]
+    mem_limit: 128m
+    pids_limit: 100
 
   caddy:
     # HTTPS for the site: only started when DOMAIN is set in .env, because
@@ -222,6 +245,12 @@ services:
     # A process can't gain privileges it didn't start with (setuid binaries).
     security_opt:
       - no-new-privileges:true
+    # Binds 80/443; reads the mounted site files and sockets (DAC_OVERRIDE).
+    cap_drop:
+      - ALL
+    cap_add: [NET_BIND_SERVICE, DAC_OVERRIDE]
+    mem_limit: 256m
+    pids_limit: 200
 
 # Named explicitly: the volumes were created while the project was called
 # "new_implementation" (its old directory), and these names keep the database,

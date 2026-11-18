@@ -3,8 +3,12 @@
 # upgrade.sh — update the whole stack in place: pull the code (unless the
 # deploy workflow has already checked out a SHA), fill in any missing secrets,
 # pull that commit's images from GHCR, restart (migrations run in the API
-# container's entrypoint), make sure the nightly backup is scheduled, and
-# check that everything answers.
+# container's entrypoint), refresh the lead agent's read-only database role,
+# and check that everything answers.
+#
+# Production runs the root-owned copy in /usr/local/lib/diplomacy, called by
+# host/deploy_hook.sh; a change here takes effect there only once the
+# maintainer reviews it and runs `sudo ./install.sh --toolkit`.
 #
 #   ./upgrade.sh           pull the images GitHub Actions built for this commit
 #                          (ghcr.io/tenderi/diplomacy-<service>:<sha>); if the
@@ -17,14 +21,19 @@
 # and replays them once it is back.
 #
 set -euo pipefail
-cd "$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# Installed in the host toolkit (/usr/local/lib/diplomacy, install.sh --toolkit),
+# toolkit.env names the checkout; run from the checkout, it is this directory.
+# shellcheck source=/dev/null
+[ -f "$HERE/toolkit.env" ] && . "$HERE/toolkit.env"
+cd "${DIPLOMACY_DIR:-$HERE}"
 
 build=0
 for arg in "$@"; do
     case "$arg" in
         --build) build=1 ;;
         -h | --help)
-            sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -44,7 +53,7 @@ else
     echo "==> Detached at $(git rev-parse --short HEAD); not pulling."
 fi
 
-./ensure_env.sh
+"$HERE/ensure_env.sh"
 
 # docker-compose.yml names our images ghcr.io/tenderi/diplomacy-<service>:${DIPLOMACY_IMAGE_TAG}.
 # The deploy workflow passes the SHA it checked out; by hand it is the checkout's commit.
@@ -121,8 +130,6 @@ if [ "$built" = 1 ]; then
     docker system df | grep -E '^(TYPE|Build Cache)'
 fi
 
-./backup.sh --install
-
 WEB_PORT=$(grep -E '^WEB_PORT=' .env 2>/dev/null | cut -d= -f2- || true)
 WEB_PORT=${WEB_PORT:-80}
 echo "==> Waiting for the API..."
@@ -136,6 +143,17 @@ for _ in $(seq 1 45); do
 done
 if [ "$api_ok" = 1 ]; then
     echo "    API healthy."
+    # After the API's migrations: the lead agent's read-only role, re-granted so
+    # new tables and columns are covered (host/agent_db_role.sql).
+    role_sql="$HERE/agent_db_role.sql"
+    [ -f "$role_sql" ] || role_sql="$HERE/host/agent_db_role.sql"
+    if [ -f "$role_sql" ]; then
+        if docker compose exec -T postgres psql -X -q -v ON_ERROR_STOP=1 -U diplomacy -d diplomacy_db <"$role_sql" >/dev/null; then
+            echo "    Agent database role up to date."
+        else
+            echo "    WARNING: could not apply $role_sql"
+        fi
+    fi
 else
     echo "    ERROR: API not healthy after 90s; check: docker compose logs diplomacy_api"
 fi

@@ -289,12 +289,17 @@ Production is one Docker Compose stack on one VPS, `docker-compose.yml`: `postgr
 public; nginx and the API are on loopback, Postgres unpublished. Dockerfiles
 and the nginx template are under `docker/`; host scripts are `install.sh` (first-time setup),
 `ensure_env.sh` (generates secrets on the host), `upgrade.sh` (pull the images, restart, verify; `--build` builds on the host) and
-`backup.sh` (nightly `pg_dump`, copied off-host with rclone). Full walkthrough:
-[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+`backup.sh` (nightly `pg_dump`, copied off-host with rclone). In production those run as
+root only from the *host toolkit* (`/usr/local/lib/diplomacy`, installed by the maintainer
+with `install.sh --toolkit`), alongside `host/`: `deploy_hook.sh` and `agent_shell.sh`, the
+forced commands of the deploy key and the lead agent's key, and `agent_db_role.sql`, the
+agent's read-only database role. Full walkthrough:
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) (Hardening, Approving a host change).
 
 `.github/workflows/deploy.yml` deploys after a green Test Suite on `main`: it builds the
-images and pushes them to GHCR (`ghcr.io/tenderi/diplomacy-<service>:<sha>`), then SSHes in, writing
-`TELEGRAM_BOT_TOKEN` (the only host secret GitHub holds) into `.env` and running
+images and pushes them to GHCR (`ghcr.io/tenderi/diplomacy-<service>:<sha>`), then asks the
+host's deploy hook to deploy that SHA, with `TELEGRAM_BOT_TOKEN` (the only host secret
+GitHub holds) on stdin; the hook checks out main's commit and runs the toolkit's
 `upgrade.sh` (gated on `DEPLOY_CONTROL_ENABLED`).
 
 ---

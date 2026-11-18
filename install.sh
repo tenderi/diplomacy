@@ -2,15 +2,38 @@
 #
 # install.sh — first-time setup of a host for the whole stack (Debian/Ubuntu;
 # docs/DEPLOYMENT.md). Idempotent. Installs Docker, adds a swap file
-# on small hosts, creates .env with generated secrets, installs rclone and
-# schedules the nightly database backup. Starting the stack is ./upgrade.sh.
+# on small hosts, creates .env with generated secrets, installs the host
+# toolkit, rclone and the nightly database backup, and hardens the host.
+# Starting the stack is ./upgrade.sh.
 #
-# Usage:  ./install.sh
+# Usage:  ./install.sh              everything
+#         ./install.sh --toolkit    only (re)install the host toolkit: after
+#                                   reviewing a change to it, or to
+#                                   docker-compose.yml or docker/Caddyfile
+#
+# The host toolkit is the root-owned copy, in /usr/local/lib/diplomacy, of
+# every script that runs as root here (upgrade.sh, ensure_env.sh, backup.sh and
+# host/): the deploy key and the lead agent's key can only run its
+# deploy_hook.sh and agent_shell.sh. It records the hashes of docker-compose.yml
+# and docker/Caddyfile, and a deploy refuses a commit that changes them. So a
+# commit on main changes the containers by itself, but the host only after
+# the maintainer reviews it and runs this script.
 #
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_DIR"
+TOOLKIT=/usr/local/lib/diplomacy
+
+mode=full
+case "${1:-}" in
+    "") ;;
+    --toolkit) mode=toolkit ;;
+    *)
+        echo "install.sh: unknown argument: $1 (./install.sh or ./install.sh --toolkit)" >&2
+        exit 2
+        ;;
+esac
 
 info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 err()   { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; }
@@ -20,6 +43,45 @@ if ! command -v apt-get >/dev/null 2>&1; then
     exit 1
 fi
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+
+# ---------------------------------------------------------------------------
+# The host toolkit (see the header). Shows what changed since the last install
+# and, at a terminal, asks before replacing it.
+# ---------------------------------------------------------------------------
+install_toolkit() {
+    local reviewed=(upgrade.sh ensure_env.sh backup.sh host/ docker-compose.yml docker/Caddyfile)
+    local head prev
+    head="$(git rev-parse HEAD)"
+    prev="$(cat "$TOOLKIT/installed-from" 2>/dev/null || true)"
+    if [ -n "$prev" ] && [ "$prev" != "$head" ]; then
+        info "Host toolkit: changes since $prev (installed) to $head:"
+        git --no-pager diff --stat "$prev" "$head" -- "${reviewed[@]}" || true
+        echo "    Full diff: git diff $prev $head -- ${reviewed[*]}"
+    fi
+    if [ -t 0 ]; then
+        read -r -p "Install the host toolkit from $head? [y/N] " answer
+        case "$answer" in y | Y | yes) ;; *) err "Not installed."; exit 1 ;; esac
+    fi
+    $SUDO install -d -m 0755 -o root -g root "$TOOLKIT"
+    $SUDO install -m 0755 -o root -g root upgrade.sh ensure_env.sh backup.sh \
+        host/deploy_hook.sh host/agent_shell.sh "$TOOLKIT/"
+    $SUDO install -m 0644 -o root -g root host/agent_db_role.sql "$TOOLKIT/"
+    printf 'DIPLOMACY_DIR=%q\n' "$REPO_DIR" | $SUDO tee "$TOOLKIT/toolkit.env" >/dev/null
+    sha256sum docker-compose.yml docker/Caddyfile | $SUDO tee "$TOOLKIT/reviewed.sha256" >/dev/null
+    printf '%s\n' "$head" | $SUDO tee "$TOOLKIT/installed-from" >/dev/null
+    info "Host toolkit installed in $TOOLKIT from $head."
+}
+
+if [ "$mode" = toolkit ]; then
+    install_toolkit
+    $SUDO "$TOOLKIT/backup.sh" --install
+    $SUDO ./harden_host.sh
+    if docker compose ps --status running --services 2>/dev/null | grep -qx postgres; then
+        docker compose exec -T postgres psql -X -q -v ON_ERROR_STOP=1 -U diplomacy -d diplomacy_db \
+            <host/agent_db_role.sql >/dev/null && info "Agent database role up to date."
+    fi
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Docker (from Docker's repo; a no-op when already installed)
@@ -63,13 +125,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. .env and secrets, 4. rclone + nightly backup
+# 3. .env and secrets, 4. the host toolkit, rclone + nightly backup
 # ---------------------------------------------------------------------------
 ./ensure_env.sh
-$SUDO ./backup.sh --install
+install_toolkit
+$SUDO "$TOOLKIT/backup.sh" --install
 
 # ---------------------------------------------------------------------------
-# 5. OS hardening: sshd, fail2ban, automatic security reboots (harden_host.sh)
+# 5. OS hardening: sshd, the deploy and agent keys' forced commands, fail2ban,
+#    automatic security reboots (harden_host.sh)
 # ---------------------------------------------------------------------------
 $SUDO ./harden_host.sh
 

@@ -24,7 +24,14 @@ name: Lead agent
 #
 # Off switch: gh variable set LEAD_AGENT_ENABLED --body false -R tenderi/diplomacy
 # (the PAT has no Variables permission, so the agent can't turn it back on).
-# VPS access reuses the deploy key and address (VPS_SSH_KEY / VPS_HOST_KEY / VPS_HOST).
+# VPS access: its own key, VPS_AGENT_KEY (comment diplomacy-lead-agent), never the deploy
+# key. On the host that key's forced command is host/agent_shell.sh: read-only diagnostics
+# of this stack (status, logs, a read-only database role), no shell. The agent changes
+# production only through merges and the Deploy workflow. Setup (docs/DEPLOYMENT.md):
+#   ssh-keygen -t ed25519 -f agent_key -N '' -C diplomacy-lead-agent
+#   gh secret set VPS_AGENT_KEY -R tenderi/diplomacy < agent_key
+#   on the VPS: append agent_key.pub to /root/.ssh/authorized_keys, then sudo ./harden_host.sh
+# Uses VPS_HOST and VPS_HOST_KEY too.
 
 on:
   schedule:
@@ -53,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Only authorized people can trigger a run: the repo is public, and an issue from anyone
-    # else must not start an agent with root on the VPS. Authorized = the repo owner plus the
+    # else must not start an agent with access to the VPS. Authorized = the repo owner plus the
     # logins in the LEAD_AGENT_AUTHORIZED_USERS variable (a JSON array). It's a variable, not a
     # secret, because secrets aren't available to a job's `if:`. Variables are visible only to
     # collaborators, and the PAT has no Variables permission, so the agent can't extend the list.
@@ -84,12 +91,12 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           LEAD_AGENT_GH_TOKEN: ${{ secrets.LEAD_AGENT_GH_TOKEN }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_AGENT_KEY: ${{ secrets.VPS_AGENT_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           missing=""
           [ -n "$CLAUDE_CODE_OAUTH_TOKEN$ANTHROPIC_API_KEY" ] || missing="$missing CLAUDE_CODE_OAUTH_TOKEN"
-          for name in LEAD_AGENT_GH_TOKEN VPS_SSH_KEY VPS_HOST; do
+          for name in LEAD_AGENT_GH_TOKEN VPS_AGENT_KEY VPS_HOST; do
             [ -n "${!name}" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
@@ -199,11 +206,11 @@ jobs:
 
       - name: Set up SSH to the VPS
         env:
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_AGENT_KEY: ${{ secrets.VPS_AGENT_KEY }}
           VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_key && chmod 600 ~/.ssh/vps_key
+          printf '%s\n' "$VPS_AGENT_KEY" > ~/.ssh/vps_key && chmod 600 ~/.ssh/vps_key
           printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
           # Multiplexed: the VPS rate-limits new SSH connections (6 per 30 s).
           cat > ~/.ssh/config <<EOF
@@ -280,14 +287,8 @@ jobs:
           LEAD_RC: ${{ steps.lead.outputs.rc }}
         run: .github/scripts/lead-wrapup.sh
 
-      - name: Upload transcript
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: lead-transcript-${{ github.run_id }}
-          path: ${{ runner.temp }}/transcript.jsonl
-          retention-days: 30
-          if-no-files-found: ignore
+      # No transcript artifact: on a public repository anyone can download one, and the
+      # transcript holds every tool result -- production logs and query results included.
 
       - name: Clean up SSH key
         if: always()

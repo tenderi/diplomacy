@@ -6,8 +6,11 @@
 #   1. sshd: keys only, root by key only, no X11/agent forwarding, fewer
 #      auth tries, idle sessions dropped. Validated with `sshd -t` before the
 #      reload; an invalid config is removed again, so this cannot lock you out.
-#   2. The GitHub Actions deploy key gets `restrict` (no forwarding, no pty):
-#      it only ever pipes a script into `bash -s`.
+#   2. The two keys GitHub Actions holds get `restrict` (no forwarding, no
+#      pty) and a forced command, so neither can open a shell: the deploy key
+#      (comment github-actions-deploy) runs only the host toolkit's
+#      deploy_hook.sh, the lead agent's (diplomacy-lead-agent) only its
+#      read-only agent_shell.sh. Run after install.sh has installed the toolkit.
 #   3. fail2ban for sshd, on top of ufw's rate limit: the scanners that try a
 #      few hundred logins a day are banned for an hour.
 #   4. unattended-upgrades reboots at 04:30 UTC when an update needs it
@@ -56,12 +59,25 @@ if [ "$(cat "$SSHD_DROPIN" 2>/dev/null || true)" != "$SSHD_WANT" ]; then
     fi
 fi
 
-# --- 2. restrict the deploy key ----------------------------------------------------
+# --- 2. forced commands for the keys GitHub Actions holds ------------------------
+# The key itself is added by hand (docs/DEPLOYMENT.md); this pins what it may do.
 KEYS=/root/.ssh/authorized_keys
-if [ -f "$KEYS" ] && grep -qE '^ssh-[a-z0-9-]+ [^ ]+ github-actions-deploy$' "$KEYS"; then
-    sed -i -E 's/^(ssh-[a-z0-9-]+ [^ ]+ github-actions-deploy)$/restrict \1/' "$KEYS"
-    echo "==> Deploy key restricted (no forwarding, no pty)."
-fi
+TOOLKIT=/usr/local/lib/diplomacy
+force_command() {  # force_command <key comment> <command>
+    local comment="$1" want="restrict,command=\"$2\""
+    [ -f "$KEYS" ] || return 0
+    awk -v c="$comment" -v w="$want" \
+        '$NF == c && NF >= 3 {print w, $(NF-2), $(NF-1), $NF; next} {print}' "$KEYS" >"$KEYS.tmp"
+    if cmp -s "$KEYS" "$KEYS.tmp"; then
+        rm -f "$KEYS.tmp"
+    else
+        cat "$KEYS.tmp" >"$KEYS" # keeps the file's owner and mode
+        rm -f "$KEYS.tmp"
+        echo "==> $comment key: restricted to $2."
+    fi
+}
+force_command github-actions-deploy "$TOOLKIT/deploy_hook.sh"
+force_command diplomacy-lead-agent "$TOOLKIT/agent_shell.sh"
 
 # --- 3. fail2ban ----------------------------------------------------------------------
 if ! command -v fail2ban-client >/dev/null 2>&1; then

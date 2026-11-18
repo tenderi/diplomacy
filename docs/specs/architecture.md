@@ -810,7 +810,12 @@ published on `127.0.0.1` only and Postgres not at all. The bot and nginx reach t
 in GitHub Actions and pushed to GHCR tagged with the commit SHA
 (`ghcr.io/tenderi/diplomacy-<service>:<sha>`, `.github/workflows/deploy.yml`); the host
 only pulls them (`upgrade.sh`), and builds them itself only when the pull fails or with
-`upgrade.sh --build`. A rollback is a deploy of the previous SHA. The API is a separate process that is down during every deploy and
+`upgrade.sh --build`. A rollback is a deploy of the previous SHA. The deploy reaches the
+host through a forced-command SSH key (`host/deploy_hook.sh`) that deploys only main's
+commits and runs only the maintainer-installed copies of the host scripts; a change to
+`docker-compose.yml` or `docker/Caddyfile` ships only once the maintainer approves it on
+the host, so a merged commit changes the containers but never the host
+(`docs/DEPLOYMENT.md` §Hardening). The API is a separate process that is down during every deploy and
 after any crash, and a deadline may pass while it is. The contract is that **no player
 message is ever lost in either direction** — only delayed, and always with the original time
 preserved.

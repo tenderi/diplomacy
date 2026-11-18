@@ -221,23 +221,38 @@ bot and nginx reach the API by service name. Other projects share the VPS; touch
 it outside the checkout and its compose project.
 
 Scripts, all in the repository root: `install.sh` (first-time host setup: Docker, swap,
-`.env`, backup cron), `ensure_env.sh` (creates `.env` and generates any blank secret — never
+`.env`, the host toolkit, backup cron; `--toolkit` re-installs only the toolkit), `ensure_env.sh` (creates `.env` and generates any blank secret — never
 prints one), `upgrade.sh` (pull the commit's images from GHCR, building on the host only if that fails or
 with `--build`; restart, verify; fails if the API or site is down),
 `backup.sh` (nightly `pg_dump`, copied off-host with rclone), `harden_host.sh`
-(sshd, fail2ban, unattended upgrades). Every secret except the Telegram token is generated
+(sshd, the GitHub keys' forced commands, fail2ban, unattended upgrades). Every secret except the Telegram token is generated
 **on the host** and never leaves it; the bot and the API read `DIPLOMACY_BOT_SECRET` from the
 same `.env`, so it cannot drift.
 
+**The host boundary (since 5.0.0).** Nothing from the checkout runs as root on the host. Root's
+scripts run from the *host toolkit*, a root-owned copy in `/usr/local/lib/diplomacy` of
+`upgrade.sh`, `ensure_env.sh`, `backup.sh` and `host/` that only the maintainer installs
+(`sudo ./install.sh --toolkit`). Neither SSH key GitHub holds opens a shell. The deploy key's
+forced command is `host/deploy_hook.sh`: main's commits only, and it refuses a change to
+`docker-compose.yml` or `docker/Caddyfile` the maintainer hasn't approved, because those decide
+what the containers may touch on the host, and the Caddyfile is imported into the Caddy that
+serves the host's other sites. The lead agent's key runs only `host/agent_shell.sh`:
+read-only diagnostics and a `sql` that uses a role without access to personal data
+(`host/agent_db_role.sql`; add a new sensitive column to its deny list in the same change).
+Changing those files, or the compose file's mounts, capabilities or limits, means the
+maintainer must review and approve it on the host: keep such changes rare and say so in the PR.
+
 **Deploy-on-merge:** after a green Test Suite on `main`, `.github/workflows/deploy.yml`
 builds the images in Actions and pushes them to GHCR as
-`ghcr.io/tenderi/diplomacy-<service>:<sha>`, then SSHes in as `root`, checks out that SHA, writes `TELEGRAM_BOT_TOKEN` (the only secret
-GitHub holds for the host) into `.env`, and runs `./upgrade.sh`, which pulls those images. Gated on the
-`DEPLOY_CONTROL_ENABLED` repository variable.
+`ghcr.io/tenderi/diplomacy-<service>:<sha>`, then asks the deploy hook for `deploy <sha>`,
+with `TELEGRAM_BOT_TOKEN` (the only secret GitHub holds for the host) on stdin. The hook
+checks out that SHA, writes the token into `.env` and runs the toolkit's `upgrade.sh`, which
+pulls those images. Gated on the `DEPLOY_CONTROL_ENABLED` repository variable.
 
-**Read-only checks on production** are fine: `ssh diplomacy-vps`, then e.g.
-`docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA'`
-with the SQL on stdin (never prints a secret).
+**Read-only checks on production** are fine (see `CLAUDE.local.md` for the maintainer's
+access): `docker compose ps`/`logs`, or the read-only role, e.g.
+`docker compose exec -T --user postgres postgres psql -X -U diplomacy_agent -d diplomacy_db -tA`
+with the SQL on stdin.
 
 **The full operational guide — setup, ports and the firewall, TLS, backups,
 monitoring, troubleshooting — is [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).**
