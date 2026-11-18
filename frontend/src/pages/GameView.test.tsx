@@ -2680,7 +2680,7 @@ describe('GameView — a game that has not started (DM1)', () => {
       })
     )
     const { container } = renderPage()
-    fireEvent.click(await within(container).findByRole('button', { name: 'Fill all open seats' }))
+    fireEvent.click(await within(container).findByRole('button', { name: 'Leave all 4 open seats to civil disorder' }))
     fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm' }))
     await waitFor(() => expect(posts).toHaveLength(4))
     expect(posts).toEqual(
@@ -2752,7 +2752,7 @@ describe('GameView — a game that has not started (DM1)', () => {
       })
     )
     const { container } = renderPage()
-    fireEvent.click(await within(container).findByRole('button', { name: 'Fill all open seats' }))
+    fireEvent.click(await within(container).findByRole('button', { name: 'Leave all 4 open seats to civil disorder' }))
     fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm' }))
     expect(await within(container).findByText(/0\/3 powers have submitted/)).toBeInTheDocument()
     expect(await within(container).findByText(/0\/3 powers have voted for a draw/)).toBeInTheDocument()
