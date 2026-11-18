@@ -81,6 +81,7 @@ def test_an_unknown_diff_runs_everything() -> None:
         ("docs/reference/rules.pdf",),
         ("mkdocs.yml",),
         ("docker/docs.Dockerfile",),
+        ("docker/docs-requirements.txt",),
         ("src/engine/game.py", "docs/specs/fix_plan.md"),
     ],
 )
@@ -103,15 +104,15 @@ def test_other_changes_skip_the_docs_build(paths: tuple[str, ...]) -> None:
 
 @pytest.mark.infrastructure
 def test_the_docs_job_builds_like_the_docs_image() -> None:
-    """Same MkDocs pins and `--strict` as docker/docs.Dockerfile, or CI would pass a site
-    the deploy then fails to build (or the other way round)."""
+    """The same hash-locked MkDocs and `--strict` as docker/docs.Dockerfile, or CI would
+    pass a site the deploy then fails to build (or the other way round)."""
     workflow = TEST_WORKFLOW.read_text()
     dockerfile = (REPO_ROOT / "docker" / "docs.Dockerfile").read_text()
-    pins = re.findall(r'"(mkdocs[\w-]*[<>=][^"]+)"', dockerfile)
-    assert pins == ["mkdocs>=1.6,<2", "mkdocs-material>=9.5,<10"]
+    install = "--no-deps --require-hashes -r"
+    assert f"pip install --no-cache-dir {install} /tmp/docs-requirements.txt" in dockerfile
     job = workflow.split("\n  docs:\n", 1)[1]
     assert "    needs: changes\n    if: needs.changes.outputs.docs == 'true'\n" in job
-    assert re.findall(r'"(mkdocs[\w-]*[<>=][^"]+)"', job) == pins
+    assert f"pip install {install} docker/docs-requirements.txt" in job
     assert "mkdocs build --strict" in job
 
 

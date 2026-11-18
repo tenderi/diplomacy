@@ -1,0 +1,24 @@
+# The development and CI environment: the API's runtime plus tests and checks.
+# Compiled with hashes into requirements.txt, at the API's versions (-c).
+#
+# Every .txt lock is generated; edit the .in files, then from the repository root
+# (pip-tools, under Python 3.14):
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements-api.txt requirements-api.in
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements-bot.txt requirements-bot.in
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements.txt requirements.in
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras -o docker/docs-requirements.txt docker/docs-requirements.in
+# Dependabot keeps them current. pip then refuses anything whose hash differs.
+-r requirements-api.in
+-c requirements-api.txt
+pytest>=9.0.3,<10.0.0    # >=9.0.3 for PYSEC-2026-1845
+pytest-asyncio>=1.1.0,<2.0.0
+pytest-cov>=7.0.0,<8.0.0
+pytest-mock>=3.12.0,<4.0.0
+coverage>=7.11.0,<8.0.0
+hypothesis>=6.100.0,<7.0.0
+httpx>=0.28.0,<1.0.0      # FastAPI's TestClient
+python-dotenv>=1.0.1      # tests/conftest.py loads .env
+numpy>=2.0.0,<3.0.0       # maps/place_*_anchors.py (map tooling) and its tests
+ruff==0.15.12             # CI's lint version; keep local in sync
+bandit>=1.8,<2
+pip-audit>=2.9,<3

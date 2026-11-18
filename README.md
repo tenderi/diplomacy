@@ -52,7 +52,7 @@ pip install -r requirements.txt
 ./setup_database.sh                                   # Postgres user, database, migrations
 PYTHONPATH=src uvicorn server._api_module:app --reload  # API on :8000, Swagger at /docs
 
-cd frontend && npm install && npm run dev             # web app on :5173
+cd frontend && npm ci && npm run dev             # web app on :5173
 TELEGRAM_BOT_TOKEN=<token> PYTHONPATH=src python -m server.telegram_bot
 ```
 

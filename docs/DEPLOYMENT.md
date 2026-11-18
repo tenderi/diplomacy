@@ -187,7 +187,7 @@ an A record for the name → the VPS, then `DOCS_DOMAIN=<name>` in `.env` and
 `./upgrade.sh` (needs `DOMAIN` too; the docs container runs with Caddy).
 `upgrade.sh` warns if it doesn't answer. Its image is rebuilt for every deploy, so a merged
 doc change is live minutes later. Preview locally:
-`pip install "mkdocs>=1.6,<2" "mkdocs-material>=9.5,<10" && mkdocs serve`.
+`pip install --no-deps --require-hashes -r docker/docs-requirements.txt && mkdocs serve`.
 
 ### Password reset ("Forgot password?")
 

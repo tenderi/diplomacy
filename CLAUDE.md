@@ -97,7 +97,7 @@ pytest tests/ -m unit                      # markers: unit integration slow data
 ruff check src/ && ruff format src/
 
 # Frontend (React + Vite + TS, in frontend/)
-cd frontend && npm install && npm run dev  # :5173, proxies /api to :8000
+cd frontend && npm ci && npm run dev  # :5173, proxies /api to :8000
 npm run build                              # → frontend/dist
 npm run test:run                           # Vitest + React Testing Library
 
@@ -109,7 +109,7 @@ npm run test:run                           # Vitest + React Testing Library
 
 ```bash
 ruff check src/
-bandit -q -r src/ -ll                      # CI's `security` check; pip install bandit
+bandit -q -r src/ -ll                      # CI's `security` check (in requirements.txt)
 PYTHONPATH=src python -m pytest tests/ -q --cov=src --cov-report=
 coverage report --include='src/engine/*' --fail-under=95
 coverage report --fail-under=80
@@ -265,6 +265,14 @@ monitoring, troubleshooting — is [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).**
   `help_text.SOURCE_URL`): section 13 requires offering the source to network users. Don't
   add code or assets under an AGPL-incompatible license.
 - **`PYTHONPATH=src` is required** to import `server.*` and `engine.*`. Forgetting it produces `ModuleNotFoundError`. Tests handle it via `pytest.ini` (`pythonpath = . src`).
+- **Dependencies are locked, never loose.** Python: edit the `.in` file (`requirements-api.in`
+  is what the API image runs, `requirements-bot.in` the bot's, `requirements.in` adds tests and
+  tooling), then regenerate the hash-locked `.txt` with the `pip-compile` commands at the top of
+  `requirements.in`; every image and CI install uses `--require-hashes`. npm: `frontend/.npmrc`
+  turns install scripts off; `npm ci` from the lockfile. Actions are pinned to commit SHAs and
+  base images to digests (`tests/test_supply_chain.py` checks all of it); Dependabot proposes
+  updates after a 7-day cooldown. Never `npx <tool>` outside an installed `node_modules`: it
+  downloads whatever has that name.
 - **Type hints are mandatory** on new code. Ruff is in strict mode; CI fails on lint errors.
 - **Never add a blanket `except Exception`.** `src/rendering/` uses specific exception tuples so that a real programming bug raises instead of being logged and swallowed behind a subtly wrong image. Where a route already has a generic `except Exception`, it must be preceded by `except HTTPException: raise`, or the route's own 404/403 comes out as a 500.
 - **No real names.** A player is their power plus an optional, self-chosen `users.nickname`
