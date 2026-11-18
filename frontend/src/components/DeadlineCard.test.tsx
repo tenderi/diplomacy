@@ -171,3 +171,16 @@ describe('DeadlineCard folding (DP4)', () => {
     expect(folded.contains(screen.getByRole('button', { name: 'Vote yes' }))).toBe(false)
   })
 })
+
+describe('DeadlineCard phone layout', () => {
+  it('labels every input visibly and explains the schedule format', () => {
+    setup()
+    for (const name of ['Deadline in hours', 'Proposed deadline in hours', 'Vote open for hours', 'Schedule days', 'Schedule time', 'Schedule timezone']) {
+      const input = screen.getByLabelText(name)
+      expect(input.closest('label')?.textContent).toContain(name)
+      expect(input.className).toContain('h-11')
+    }
+    expect(screen.getByText(/Days as mon,wed,fri or mon-fri/).textContent).toContain("24-hour HH:MM")
+    expect(screen.getByRole('button', { name: 'Set schedule' }).className).toContain('min-h-11')
+  })
+})

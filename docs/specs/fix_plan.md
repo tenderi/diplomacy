@@ -17,28 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-18.
-- **Open tracks:** DR (web papercuts on a phone; pick next), F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DR — Web papercuts on a phone
-
-Found 2026-11-18 by a play-through at 390x844 and 360x740 (touch). Nothing blocks play.
-
-- [ ] **DR1 — Phone papercuts on the game page and games list.**
-      (a) The deadline panel (`DeadlineCard.tsx`) has ~32px inputs with only placeholders
-      ("hours", "vote hours", "mon,wed,fri", "16:00", "UTC"): the weekly-schedule format is
-      never explained, and the buttons are cramped beside the inputs at 360.
-      (b) The create-game checkboxes (`GameList.tsx`) are 13–20px; make the whole row the
-      tap target.
-      (c) The toast overflows a 390px screen (x 16–406) and covers the order warnings
-      ("F STP/SC has no order, so it will hold") right after Submit.
-      (d) The waiting-for-players card's "Fill all open seats" button is red, as if it were
-      destructive, and doesn't say what it does (it fills the seats with civil-disorder dummies).
-
----
 
 # Track F — Manual acceptance (maintainer)
 
