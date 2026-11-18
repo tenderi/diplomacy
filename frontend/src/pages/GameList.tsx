@@ -129,11 +129,12 @@ export default function GameList() {
             Fewer than seven players? Leave these powers to civil disorder (they hold, and
             disband when they must):
           </legend>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <div className="flex flex-wrap gap-x-4">
             {POWERS.map((p) => (
-              <label key={p} className={`flex items-center gap-1 text-sm ${TAP_ROW}`}>
+              <label key={p} className={`flex items-center gap-2 text-sm ${TAP_ROW}`}>
                 <input
                   type="checkbox"
+                  className="size-5 shrink-0"
                   checked={dummies.includes(p)}
                   disabled={!dummies.includes(p) && dummies.length >= POWERS.length - 1}
                   onChange={(e) =>
@@ -146,24 +147,24 @@ export default function GameList() {
           </div>
         </fieldset>
         <label className={`flex items-center gap-2 text-sm ${TAP_ROW}`}>
-          <input type="checkbox" checked={autoProcess} onChange={(e) => setAutoProcess(e.target.checked)} />
+          <input type="checkbox" className="size-5 shrink-0" checked={autoProcess} onChange={(e) => setAutoProcess(e.target.checked)} />
           Process each turn as soon as all orders are in (players can ask to wait)
         </label>
         <label className={`flex items-center gap-2 text-sm ${TAP_ROW}`}>
-          <input type="checkbox" checked={randomPowers} onChange={(e) => setRandomPowers(e.target.checked)} />
+          <input type="checkbox" className="size-5 shrink-0" checked={randomPowers} onChange={(e) => setRandomPowers(e.target.checked)} />
           Assign powers at random — players join without choosing one (can't be changed later)
         </label>
         <fieldset>
           <legend className="text-sm text-muted-foreground mb-1">
             Player names (can't be changed once the game exists):
           </legend>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <label className={`flex items-center gap-1 text-sm ${TAP_ROW}`}>
-              <input type="radio" name="naming" checked={!anonymous} onChange={() => setAnonymous(false)} />
+          <div className="flex flex-wrap gap-x-4">
+            <label className={`flex items-center gap-2 text-sm ${TAP_ROW}`}>
+              <input type="radio" className="size-5 shrink-0" name="naming" checked={!anonymous} onChange={() => setAnonymous(false)} />
               Public — nicknames are shown next to powers
             </label>
-            <label className={`flex items-center gap-1 text-sm ${TAP_ROW}`}>
-              <input type="radio" name="naming" checked={anonymous} onChange={() => setAnonymous(true)} />
+            <label className={`flex items-center gap-2 text-sm ${TAP_ROW}`}>
+              <input type="radio" className="size-5 shrink-0" name="naming" checked={anonymous} onChange={() => setAnonymous(true)} />
               Anonymous — players are known only by their power
             </label>
           </div>
