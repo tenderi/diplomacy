@@ -850,6 +850,7 @@ class TestAgentDbRole:
             ).scalar()
             if not can:
                 pytest.skip("the test database role may not CREATE ROLE (CI's may)")
+            conn.rollback()  # end the query's autobegun transaction
             trans = conn.begin()
             try:
                 conn.exec_driver_sql((PROJECT_ROOT / "host" / "agent_db_role.sql").read_text())
