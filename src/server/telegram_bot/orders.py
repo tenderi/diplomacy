@@ -20,7 +20,7 @@ from telegram.ext import ContextTypes
 
 from .api_client import ApiError, api_get, api_post, api_post_reliable, queued_reply
 from .game_context import GameContextError, group_read_game, in_group, resolve_game_and_power
-from .utils import escape_markdown, game_end_line, game_over_note, phase_label, phase_text
+from .utils import escape_markdown, game_end_line, game_over_note, lobby_text, phase_label, phase_text
 
 logger = logging.getLogger("diplomacy.telegram_bot.orders")
 
@@ -888,6 +888,10 @@ async def show_unit_picker(
     except requests.RequestException as e:
         await reply_or_edit(f"Select unit error: {escape_markdown(str(e))}")
         return
+    lobby = _lobby_refusal(game_id, user_id)
+    if lobby:
+        await reply_or_edit(lobby)
+        return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
@@ -1063,6 +1067,15 @@ def _end_walk(context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
     context.user_data.get("pending_orders", {}).pop(str(game_id), None)
 
 
+def _lobby_refusal(game_id: str, user_id: str) -> Optional[str]:
+    """The "game hasn't started" message for an order entry on a game still
+    waiting for players (a stale menu button), else ``None``."""
+    try:
+        return lobby_text(game_id, api_get(f"/games/{game_id}/orders_status", telegram_id=user_id))
+    except requests.RequestException:
+        return None
+
+
 async def start_order_walk(
     send: Sender,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1082,6 +1095,10 @@ async def start_order_walk(
         game_id, power = resolve_game_and_power(user_id, game_id_arg)
     except GameContextError as e:
         await send(e.message)
+        return
+    lobby = _lobby_refusal(game_id, user_id)
+    if lobby:
+        await send(lobby)
         return
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
@@ -1190,7 +1207,8 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
     # "Waive build" is a build step's skip; a disband step keeps Skip (civil disorder applies).
     if not (walk["adjust"] and walk.get("action") == "build"):
         nav.append(InlineKeyboardButton("⏭ Skip", callback_data=f"wlk|{game_id}|skip"))
-    keyboard.append(nav)
+    if nav:
+        keyboard.append(nav)
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"wlk|{game_id}|cancel")])
     chosen = [f"• `{o}` (ordered earlier)" for o in walk.get("existing", [])]
     chosen += [f"• `{walk['chosen'][s]}`" for s in walk["steps"][: walk["i"]] if s in walk["chosen"]]
