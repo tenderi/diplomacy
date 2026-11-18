@@ -80,7 +80,7 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
     </AppLayout>
-    <Toaster richColors position="bottom-center" />
+    <Toaster richColors position="top-center" />
   </>
   )
 }

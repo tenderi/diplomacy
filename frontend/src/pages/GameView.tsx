@@ -1138,13 +1138,13 @@ export default function GameView() {
                 ))}
                 {unseatedPowers.length > 1 && (
                   <Button
-                    variant="destructive"
+                    variant="outline"
                     size="sm"
                     className="min-h-11 sm:min-h-0"
                     disabled={dummyBusy}
                     onClick={() => setDummyTarget(unseatedPowers)}
                   >
-                    Fill all open seats
+                    Leave all {unseatedPowers.length} open seats to civil disorder
                   </Button>
                 )}
               </div>

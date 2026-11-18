@@ -16,6 +16,20 @@ export type DeadlineProposal = {
   vote_deadline?: string | null
 }
 
+/** A visibly labelled input: 44px tall on a phone (a placeholder alone vanishes once typed in). */
+function Field({
+  label,
+  width,
+  ...props
+}: { label: string; width: string } & Omit<React.ComponentProps<typeof Input>, 'className'>) {
+  return (
+    <label className={`flex flex-col gap-1 text-xs text-muted-foreground ${width}`}>
+      {label}
+      <Input className="h-11 text-base text-foreground sm:h-9 sm:text-sm" {...props} />
+    </label>
+  )
+}
+
 const MAX_HOURS = 24 * 30
 
 /** Hours as the bot reads them: more than 0 and at most 30 days, or null if it is not that. */
@@ -114,7 +128,7 @@ export function DeadlineCard({
         : null
     : null
   const mine = proposal?.proposed_by === power
-  const row = 'flex flex-wrap items-center gap-2'
+  const row = 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end'
 
   return (
     <div className="space-y-3 border-t pt-3" data-testid="deadline-card">
@@ -135,11 +149,12 @@ export function DeadlineCard({
           )}
           {myVote && <p className="text-sm text-muted-foreground">You voted {myVote}.</p>}
           <div className={row}>
-            <Button size="sm" disabled={busy} onClick={() => void post('deadline/vote', { power, vote: true }, 'Vote cast: yes.')}>
+            <Button size="sm" className="min-h-11 sm:min-h-0" disabled={busy} onClick={() => void post('deadline/vote', { power, vote: true }, 'Vote cast: yes.')}>
               Vote yes
             </Button>
             <Button
               size="sm"
+className="min-h-11 sm:min-h-0"
               variant="outline"
               disabled={busy}
               onClick={() => void post('deadline/vote', { power, vote: false }, 'Vote cast: no.')}
@@ -149,6 +164,7 @@ export function DeadlineCard({
             {mine && (
               <Button
                 size="sm"
+className="min-h-11 sm:min-h-0"
                 variant="ghost"
                 disabled={busy}
                 onClick={() => void post('deadline/withdraw', { power }, 'Proposal withdrawn.')}
@@ -171,18 +187,16 @@ export function DeadlineCard({
       <div className="space-y-1">
         <p className="text-sm font-medium">Set this phase&apos;s deadline</p>
         <div className={row}>
-          <Input
-            className="h-9 w-24"
-            aria-label="Deadline in hours"
+          <Field label="Deadline in hours" width="sm:w-24"
             inputMode="decimal"
             placeholder="hours"
             value={setHours}
             onChange={(e) => setSetHours(e.target.value)}
           />
-          <Button size="sm" disabled={busy || parseHours(setHours) === null} onClick={() => void setDeadline(parseHours(setHours))}>
+          <Button size="sm" className="min-h-11 sm:min-h-0" disabled={busy || parseHours(setHours) === null} onClick={() => void setDeadline(parseHours(setHours))}>
             Set deadline
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void setDeadline(null)}>
+          <Button size="sm" className="min-h-11 sm:min-h-0" variant="outline" disabled={busy} onClick={() => void setDeadline(null)}>
             Clear deadline
           </Button>
         </div>
@@ -196,26 +210,22 @@ export function DeadlineCard({
         <div className="space-y-1">
           <p className="text-sm font-medium">Propose a deadline to a vote</p>
           <div className={row}>
-            <Input
-              className="h-9 w-24"
-              aria-label="Proposed deadline in hours"
+            <Field label="Proposed deadline in hours" width="sm:w-24"
               inputMode="decimal"
               placeholder="hours"
               value={proposeHours}
               onChange={(e) => setProposeHours(e.target.value)}
             />
-            <Input
-              className="h-9 w-28"
-              aria-label="Vote open for hours"
+            <Field label="Vote open for hours" width="sm:w-28"
               inputMode="decimal"
               placeholder="vote hours"
               value={voteHours}
               onChange={(e) => setVoteHours(e.target.value)}
             />
-            <Button size="sm" disabled={busy || parseHours(proposeHours) === null} onClick={() => void propose(parseHours(proposeHours))}>
+            <Button size="sm" className="min-h-11 sm:min-h-0" disabled={busy || parseHours(proposeHours) === null} onClick={() => void propose(parseHours(proposeHours))}>
               Propose
             </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void propose(null)}>
+            <Button size="sm" className="min-h-11 sm:min-h-0" variant="outline" disabled={busy} onClick={() => void propose(null)}>
               Propose clearing
             </Button>
           </div>
@@ -228,27 +238,24 @@ export function DeadlineCard({
       <div className="space-y-1">
         <p className="text-sm font-medium">Weekly schedule</p>
         <div className={row}>
-          <Input
-            className="h-9 w-36"
-            aria-label="Schedule days"
+          <Field label="Schedule days" width="sm:w-36"
             placeholder="mon,wed,fri"
             value={days}
             onChange={(e) => setDays(e.target.value)}
           />
-          <Input
-            className="h-9 w-24"
-            aria-label="Schedule time"
+          <Field label="Schedule time" width="sm:w-24"
             placeholder="16:00"
             value={time}
             onChange={(e) => setTime(e.target.value)}
           />
-          <Input className="h-9 w-44" aria-label="Schedule timezone" value={zone} onChange={(e) => setZone(e.target.value)} />
-          <Button size="sm" disabled={busy} onClick={setSchedule}>
+          <Field label="Schedule timezone" width="sm:w-44" value={zone} onChange={(e) => setZone(e.target.value)} />
+          <Button size="sm" className="min-h-11 sm:min-h-0" disabled={busy} onClick={setSchedule}>
             Set schedule
           </Button>
           {hasSchedule && (
             <Button
               size="sm"
+className="min-h-11 sm:min-h-0"
               variant="outline"
               disabled={busy}
               onClick={() => void post('deadline/schedule', { schedule: null }, 'The weekly schedule is removed.')}
@@ -257,6 +264,10 @@ export function DeadlineCard({
             </Button>
           )}
         </div>
+        <p className="text-xs text-muted-foreground">
+          Days as mon,wed,fri or mon-fri (or daily), the time as 24-hour HH:MM, and a timezone name such as
+          Europe/Helsinki. Each phase&apos;s deadline is set to the next slot.
+        </p>
       </div>
       </div>
       </details>
