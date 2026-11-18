@@ -27,7 +27,7 @@
 
 Found 2026-11-18 by driving the bot's handlers against a live local API.
 
-- [ ] **DQ1 — The bot treats a game that hasn't filled as running.** `orders_status`
+- [x] **DQ1 — The bot treats a game that hasn't filled as running.** `orders_status`
       returns `unseated`, but the bot's `/status` text (`telegram_bot/games.py`), the
       `/game` hub (`hub.py`) and `/orderall` (`orders.py`) ignore it: with 1 of 7 seats
       taken they show "Turn: Spring 1901 movement", "waiting on all seven powers", a

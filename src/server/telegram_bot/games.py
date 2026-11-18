@@ -14,7 +14,7 @@ from .api_client import api_post, api_get
 from .game_context import (
     GameContextError, group_read_game, in_group, resolve_game_and_power, set_current_game,
 )
-from .utils import ending_outcome, escape_markdown, game_end_line, game_over_note, phase_text
+from .utils import ending_outcome, escape_markdown, game_end_line, game_over_note, lobby_text, phase_text
 
 logger = logging.getLogger("diplomacy.telegram_bot.games")
 
@@ -262,6 +262,19 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
     view = api_get(f"/games/{game_id}/state")
 
     ended = game_end_line(view)
+    lobby = None
+    if not ended:
+        try:
+            lobby = lobby_text(game_id, api_get(f"/games/{game_id}/orders_status", telegram_id=user_id))
+        except requests.RequestException:
+            lobby = None
+    if lobby:
+        return (
+            f"{title or f'📊 *Game {game_id} Status*'}\n\n"
+            + (f"🎯 *You are:* {power}\n" if power else "")
+            + f"{lobby}\n"
+            + (_players_block(game_id, view) if with_players else "")
+        )
     text = (
         f"{title or f'📊 *Game {game_id} Status*'}\n\n"
         + (f"🏁 *{ended}*\n" if ended else "")

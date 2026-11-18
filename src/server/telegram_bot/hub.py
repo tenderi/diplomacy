@@ -41,7 +41,7 @@ from .games import (
     vote_deadline, withdraw_deadline, _format_proposal,
 )
 from .messages import recent_messages_text, send_diplomatic_message
-from .utils import ending_outcome, game_end_line, game_over_note, phase_label
+from .utils import ending_outcome, game_end_line, game_over_note, lobby_text, phase_label
 from .orders import (
     orderable_units,
     Sender, adjustment_duty, my_orders_text, orderhistory_text, retreat_duty, process_anyway_data, run_process_turn, show_unit_picker, start_order_walk,
@@ -158,13 +158,13 @@ def _hub_keyboard(
             [_btn("💬 Messages", game_id, "msgs")],
             [InlineKeyboardButton("⬅️ All games", callback_data="my_games")],
         ])
-    order_row = _order_row(game_id, legal)
+    order_row = [] if lobby_text(game_id, orders_status) else _order_row(game_id, legal)
     rows = [
         *([order_row] if order_row else []),
         [_btn("📋 My orders", game_id, "view"), _btn("🗺 Map", game_id, "map")],
         [_btn("💬 Messages", game_id, "msgs"), _btn("⏰ Deadline (vote pending)" if proposal_pending else "⏰ Deadline", game_id, "dl")],
     ]
-    if orders_status and orders_status.get("auto_process"):
+    if orders_status and orders_status.get("auto_process") and not lobby_text(game_id, orders_status):
         if power in (orders_status.get("waiting") or []):
             rows.append([_btn("✅ I'm ready (let the turn run)", game_id, "rd")])
         else:
