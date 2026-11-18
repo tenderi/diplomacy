@@ -54,8 +54,8 @@ def _legacy_state_dict(game_id: str) -> Optional[Dict[str, Any]]:
     return {
         "game_id": game_id,
         "current_year": v["year"],
-        "current_season": v["season"],
-        "current_phase": v["phase_type"],
+        "current_season": str(v["season"]).capitalize(),
+        "current_phase": str(v["phase_type"]).capitalize(),
         "phase_code": v["phase"],
         "supply_centers": sc_by_power,
         "units": units_by_power,
@@ -64,7 +64,6 @@ def _legacy_state_dict(game_id: str) -> Optional[Dict[str, Any]]:
                 "is_eliminated": not units_by_power.get(p) and not sc_by_power.get(p),
                 "controlled_supply_centers": sc_by_power.get(p, []),
                 "orders_submitted": bool(pending.get(p)),
-                "last_order_time": None,
                 "is_active": True,
             }
             for p in _ALL_POWERS
