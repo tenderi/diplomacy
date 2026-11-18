@@ -149,7 +149,7 @@ else
 fi
 
 # HTTPS (DOMAIN set): check Caddy answers with a valid certificate. Only a
-# warning -- the certificate depends on DNS and the UpCloud firewall, which a
+# warning -- the certificate depends on DNS and the provider's firewall, which a
 # deploy can't fix, and nginx behind it was checked above. Asks this host
 # (--resolve) so it doesn't depend on DNS or hairpin routing.
 DOMAIN=$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d= -f2- || true)

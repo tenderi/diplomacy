@@ -8,7 +8,7 @@ Telegram bot). All commands assume you are in the repository root with the venv 
 - **Python 3.14** (pinned in [`pyproject.toml`](https://github.com/tenderi/diplomacy/blob/main/pyproject.toml))
 - **PostgreSQL** — required by the API and most tests
 - **libcairo2** — required by CairoSVG for map rendering
-- **Node.js 18+ / npm** — only for the browser frontend
+- **Node.js 22+ / npm** — only for the browser frontend (Vite 7 needs 20.19+ or 22.12+)
 - **A Telegram bot token** from [@BotFather](https://t.me/BotFather) — only for the bot
 
 One script installs everything on Arch, Debian/Ubuntu, or macOS with Homebrew:
@@ -22,16 +22,17 @@ Or by hand:
 ```bash
 # Arch
 sudo pacman -S python python-pip postgresql nodejs npm cairo
+sudo -u postgres initdb -D /var/lib/postgres/data   # first time only
 sudo systemctl start postgresql
 
 # Debian / Ubuntu (Python 3.14 via deadsnakes on older releases)
 sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt-get update
 sudo apt-get install -y python3.14 python3.14-venv python3-pip postgresql postgresql-client libcairo2 libcairo2-dev
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs
 sudo systemctl start postgresql
 
 # macOS
-brew install python@3.14 postgresql@16 node@20 cairo
+brew install python@3.14 postgresql@16 node@22 cairo
 brew services start postgresql@16
 ```
 
@@ -49,7 +50,8 @@ pip install -r requirements.txt
 The default connection URL is
 `postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db`.
 
-The quickest path creates the role, the database, and the schema in one go:
+The quickest path creates the role, the database, `.env` with the connection URL, and
+the schema in one go (run it with the venv from step 1 active):
 
 ```bash
 ./setup_database.sh

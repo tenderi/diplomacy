@@ -24,10 +24,12 @@ name: Deploy
 # (the lesson of the AWS deploy workflow, H2). To enable on a fresh setup:
 #
 #   gh secret set VPS_SSH_KEY  -R tenderi/diplomacy < ~/.ssh/diplomacy_deploy      # private key of a deploy key
-#   gh secret set VPS_HOST_KEY -R tenderi/diplomacy --body "$(ssh-keyscan -t ed25519 87.58.144.64 2>/dev/null)"
+#   gh secret set VPS_HOST     -R tenderi/diplomacy --body "$HOST"             # the VPS address
+#   gh secret set VPS_HOST_KEY -R tenderi/diplomacy --body "$(ssh-keyscan -t ed25519 $HOST 2>/dev/null)"
 #   gh variable set DEPLOY_CONTROL_ENABLED --body true -R tenderi/diplomacy
 #
-# Optional variables (defaults in "Resolve target"): VPS_HOST, VPS_USER, VPS_REPO_DIR.
+# VPS_HOST is a secret so the address is masked in the public logs.
+# Optional variables (defaults in "Resolve target"): VPS_USER, VPS_REPO_DIR.
 # The deploy key's public half goes into ~/.ssh/authorized_keys of VPS_USER on the VPS.
 # TELEGRAM_BOT_TOKEN is already a repository secret.
 
@@ -171,20 +173,20 @@ jobs:
           [ -n "$sha" ] || { echo "::error::The images job reported no SHA"; exit 1; }
           {
             echo "sha=$sha"
-            echo "host=${{ vars.VPS_HOST || '87.58.144.64' }}"
             echo "user=${{ vars.VPS_USER || 'root' }}"
             echo "repo_dir=${{ vars.VPS_REPO_DIR || '~/diplomacy' }}"
           } >> "$GITHUB_OUTPUT"
-          echo "Will deploy $sha to ${{ vars.VPS_USER || 'root' }}@${{ vars.VPS_HOST || '87.58.144.64' }}"
+          echo "Will deploy $sha to the VPS as ${{ vars.VPS_USER || 'root' }}"
 
       - name: Check required secrets
         env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           missing=""
-          for name in VPS_SSH_KEY VPS_HOST_KEY TELEGRAM_BOT_TOKEN; do
+          for name in VPS_HOST VPS_SSH_KEY VPS_HOST_KEY TELEGRAM_BOT_TOKEN; do
             [ -n "${!name}" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
@@ -210,7 +212,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SHA: ${{ steps.target.outputs.sha }}
           REPO_DIR: ${{ steps.target.outputs.repo_dir }}
-          TARGET: ${{ steps.target.outputs.user }}@${{ steps.target.outputs.host }}
+          TARGET: ${{ steps.target.outputs.user }}@${{ secrets.VPS_HOST }}
         run: |
           # The token travels on stdin, never in the remote command line, so it
           # is not visible in `ps` on the VPS. The remote script:

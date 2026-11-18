@@ -24,7 +24,7 @@ name: Lead agent
 #
 # Off switch: gh variable set LEAD_AGENT_ENABLED --body false -R tenderi/diplomacy
 # (the PAT has no Variables permission, so the agent can't turn it back on).
-# VPS access reuses the deploy key (VPS_SSH_KEY / VPS_HOST_KEY).
+# VPS access reuses the deploy key and address (VPS_SSH_KEY / VPS_HOST_KEY / VPS_HOST).
 
 on:
   schedule:
@@ -85,10 +85,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           LEAD_AGENT_GH_TOKEN: ${{ secrets.LEAD_AGENT_GH_TOKEN }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           missing=""
           [ -n "$CLAUDE_CODE_OAUTH_TOKEN$ANTHROPIC_API_KEY" ] || missing="$missing CLAUDE_CODE_OAUTH_TOKEN"
-          for name in LEAD_AGENT_GH_TOKEN VPS_SSH_KEY; do
+          for name in LEAD_AGENT_GH_TOKEN VPS_SSH_KEY VPS_HOST; do
             [ -n "${!name}" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
@@ -207,7 +208,7 @@ jobs:
           # Multiplexed: the VPS rate-limits new SSH connections (6 per 30 s).
           cat > ~/.ssh/config <<EOF
           Host diplomacy-vps
-            HostName ${{ vars.VPS_HOST || '87.58.144.64' }}
+            HostName ${{ secrets.VPS_HOST }}
             User root
             IdentityFile ~/.ssh/vps_key
             BatchMode yes

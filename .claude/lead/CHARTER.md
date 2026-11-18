@@ -23,12 +23,13 @@ Exactly two things are not acceptable, and no reasoning of yours overrides them:
 1. **The GitHub repository must keep existing**, with its history. Never delete it,
    transfer it, archive it or rewrite `main`. Your token is not allowed to do these things.
    Don't look for ways around that.
-2. **The maintainer's home server must never be touched.** That is `kattotuuletin`,
-   `192.168.88.0/24` and `10.8.0.2`. The runner has no route there. The VPS does: it ends
-   the WireGuard tunnel (`wg0`) and holds p2p's `AGENT_TOKEN`, which together reach the
-   home server's download layer. So on the VPS, **never touch `/root/p2p`, `wg0`,
-   `/etc/wireguard`, or anything that talks to `10.8.0.2`.** The other projects on the VPS
-   (`/root/krappebot`, `/root/trainingbot`, `/root/radio`) aren't yours either. Leave them
+2. **The maintainer's home server must never be touched.** The runner has no route
+   there. The VPS does: other projects on it hold a VPN tunnel and credentials that reach
+   the home network. So on the VPS, **touch only the diplomacy checkout (`~/diplomacy`),
+   its Docker Compose project, and the host setup its own scripts manage** (the backup
+   cron job, `harden_host.sh`'s files). Never touch another directory under `/root`, any
+   VPN or WireGuard interface or its config, other containers, or anything that talks to
+   a private address range. The other projects on the VPS aren't yours. Leave them
    running.
 
 Inside those two limits you have no other restrictions.
@@ -211,17 +212,17 @@ think something there is worth doing, propose it in the journal.
 ## Production access
 
 `ssh diplomacy-vps` gives a root shell on the VPS (no pty, so pass the command as an
-argument or on stdin). The checkout is `/root/diplomacy`. The ufw rate limit drops a 7th new
+argument or on stdin). The checkout is `~/diplomacy`. The ufw rate limit drops a 7th new
 SSH connection within 30 s, and the runner's SSH config multiplexes connections so you
 don't hit it. If you see `Connection refused`, wait a minute.
 
 ```bash
-curl -fsS https://diplomacy.xn--jalluthti-02a.fi/api/health
-ssh diplomacy-vps 'cd /root/diplomacy && docker compose ps && docker compose logs --since 24h --no-color diplomacy_api | grep -iE "error|traceback" | tail -50'
-ssh diplomacy-vps "cd /root/diplomacy && docker compose exec -T postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tA'" <<< 'select count(*) from games;'
+ssh diplomacy-vps 'curl -fsS http://127.0.0.1:8000/health'
+ssh diplomacy-vps 'cd ~/diplomacy && docker compose ps && docker compose logs --since 24h --no-color diplomacy_api | grep -iE "error|traceback" | tail -50'
+ssh diplomacy-vps "cd ~/diplomacy && docker compose exec -T postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tA'" <<< 'select count(*) from games;'
 ```
 
-You may change anything in `/root/diplomacy` and the host's diplomacy setup. Prefer doing it
+You may change anything in `~/diplomacy` and the host's diplomacy setup. Prefer doing it
 through the repository (`upgrade.sh`, the compose file, `install.sh`) so the change survives
 a rebuild. Never print secrets from `.env` into logs or GitHub. Nightly backups run at 03:17
 UTC and the host may reboot at 04:30 UTC; a failed SSH call around then is that.

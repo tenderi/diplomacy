@@ -7,32 +7,18 @@ set -e
 echo "=== Diplomacy Database Setup ==="
 echo ""
 
-# Check if PostgreSQL is installed
+# PostgreSQL must be installed and running (./install_prerequisites.sh does both).
 if ! command -v psql &> /dev/null; then
-    echo "PostgreSQL is not installed."
-    echo "Please install it first:"
-    echo "  sudo pacman -S postgresql"
-    echo ""
-    read -p "Press Enter after installing PostgreSQL, or Ctrl+C to exit..."
+    echo "PostgreSQL is not installed. Run ./install_prerequisites.sh, or install it with:"
+    echo "  Arch:          sudo pacman -S postgresql && sudo -u postgres initdb -D /var/lib/postgres/data"
+    echo "  Debian/Ubuntu: sudo apt-get install postgresql"
+    echo "  macOS:         brew install postgresql@16"
+    exit 1
 fi
-
-# Check if PostgreSQL service is running
-if ! systemctl is-active --quiet postgresql; then
-    echo "PostgreSQL service is not running."
-    echo "Initializing and starting PostgreSQL..."
-    
-    # Check if data directory exists
-    if [ ! -d "/var/lib/postgres/data" ]; then
-        echo "Initializing PostgreSQL database cluster..."
-        sudo -u postgres initdb -D /var/lib/postgres/data
-    fi
-    
-    echo "Starting PostgreSQL service..."
-    sudo systemctl start postgresql
-    sudo systemctl enable postgresql
-    
-    echo "Waiting for PostgreSQL to start..."
-    sleep 2
+if ! pg_isready -q -h localhost; then
+    echo "PostgreSQL is not accepting connections on localhost. Start it:"
+    echo "  Linux: sudo systemctl start postgresql    macOS: brew services start postgresql@16"
+    exit 1
 fi
 
 echo "✅ PostgreSQL is running"
@@ -40,7 +26,8 @@ echo ""
 
 # Create user and database
 echo "Creating database user and database..."
-sudo -u postgres psql <<EOF
+if [ "$(uname -s)" = "Darwin" ]; then PSQL_SUPER=(psql -d postgres); else PSQL_SUPER=(sudo -u postgres psql); fi
+"${PSQL_SUPER[@]}" <<EOF
 -- Create user if not exists
 DO \$\$
 BEGIN
@@ -95,15 +82,6 @@ if [ -d "venv" ]; then
 fi
 
 if command -v alembic &> /dev/null; then
-    # Check for multiple heads and merge if needed
-    HEAD_COUNT=$(alembic heads 2>/dev/null | wc -l)
-    if [ "$HEAD_COUNT" -gt 1 ]; then
-        echo "⚠️  Multiple migration heads detected. Creating merge migration..."
-        HEADS=$(alembic heads 2>/dev/null | tr '\n' ' ')
-        alembic merge -m "merge migration branches" $HEADS
-        echo "✅ Merge migration created"
-    fi
-    
     alembic upgrade head
     echo "✅ Database migrations completed"
 else

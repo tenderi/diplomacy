@@ -1,11 +1,13 @@
 # Deployment: the whole stack on one VPS
 
-Diplomacy runs on **one host**, the UpCloud VPS (`87.58.144.64`, Debian/Ubuntu,
-1 vCPU / 2 GB + 2 GB swap), from a single `docker-compose.yml`. The same VPS
-also runs p2p's bot, which this stack does not touch.
+Diplomacy runs on **one host**, a Debian/Ubuntu VPS (1 vCPU / 2 GB RAM + 2 GB swap
+is enough), from a single `docker-compose.yml`. This guide is everything needed to
+run your own instance; [Running your own instance](#running-your-own-instance) lists
+what to change from the defaults. The stack touches nothing else on the host, so it
+can share a VPS with other services.
 
 ```
-  Players                         VPS (87.58.144.64)
+  Players                         VPS
   ─────────                       ┌────────────────────────────────────────────────┐
   Telegram app ── Telegram ─────► │ diplomacy_bot   long-polls Telegram;           │
                                   │                 durable queue (SQLite, /data)  │
@@ -31,7 +33,7 @@ Without a `DOMAIN`, Caddy does not run and nginx serves plain HTTP on
 
 ## Secrets
 
-All live in `/root/diplomacy/.env` on the VPS (mode 600).
+All live in `.env` in the checkout on the VPS (mode 600).
 
 | Key | Where it comes from |
 |---|---|
@@ -89,11 +91,20 @@ reachable.
 
 ## First-time setup (a fresh host)
 
+You need a Debian or Ubuntu host you can SSH into **with a key** (see the warning
+below), a Telegram bot token from [@BotFather](https://t.me/BotFather), and
+optionally a domain name for HTTPS.
+
 ```bash
-git clone https://github.com/tenderi/diplomacy.git ~/diplomacy
+git clone https://github.com/tenderi/diplomacy.git ~/diplomacy   # or your fork
 cd ~/diplomacy
-./install.sh        # Docker, a 2 GB swap file if none, .env + secrets, nightly backup
+./install.sh        # Docker, a 2 GB swap file if none, .env + secrets, nightly backup, hardening
 ```
+
+> **`install.sh` runs `harden_host.sh`, which turns off SSH password logins** (keys
+> only, root by key only) and installs fail2ban and automatic security reboots at
+> 04:30 UTC. Install your SSH public key in `authorized_keys` *before* running it,
+> or read [Hardening](#hardening) and skip that step on a host you share.
 
 Put the bot token in `.env` (`TELEGRAM_BOT_TOKEN=` from @BotFather), or let
 the deploy workflow write it. Set `DOMAIN` for HTTPS (below); without one, set
@@ -104,25 +115,48 @@ public URL. Then:
 ./upgrade.sh        # pull the images, start (migrations run in the API entrypoint), verify
 ```
 
-### Ports and the UpCloud firewall
+`upgrade.sh` pulls the prebuilt images for the checked-out commit from GHCR and
+builds them on the host when they are not there (any commit of yours that the
+upstream Deploy workflow never built), so a fork works without a registry of its own.
+Open the site, register an account, and send your bot `/start` in Telegram.
 
-The site needs **inbound TCP 80 and 443** (443 for HTTPS; see below). UpCloud applies
-a network-level firewall in front of the host, separate from `ufw`; on a trial
-account it cannot be edited. Check that 80/443 are permitted before assuming
-nginx is broken -- a `tcpdump -ni any tcp port 80` that shows nothing is the
-signature. Nothing else needs to be open: the bot dials out to Telegram.
+### Running your own instance
+
+The defaults point at the upstream project. On your own instance:
+
+- **Bot username:** set `DIPLOMACY_BOT_USERNAME` in `.env` to your bot's username
+  (the web app's "Link a Telegram group" opens it).
+- **Your Telegram id** (optional): `DIPLOMACY_ADMIN_TELEGRAM_ID` gets error alerts and
+  player feedback ([Secrets](#secrets)).
+- **Source links (AGPL):** if you change the code, point the web footer
+  (`SOURCE_URL` in `frontend/src/components/AppLayout.tsx`) and the bot's `/help`
+  (`SOURCE_URL` in `src/server/telegram_bot/help_text.py`) at your fork. The bot's
+  `/help` also links the upstream new-player guide; change that line too if you run
+  your own docs site.
+- **Deploy-on-merge** is optional. Without it, update by hand: `git pull` and
+  `./upgrade.sh` ([Running by hand](#running-by-hand)).
+- **Backups:** configure an rclone remote ([Backups](#backups)); until you do, dumps
+  stay on the host's disk.
+
+### Ports and the firewall
+
+The site needs **inbound TCP 80 and 443** (443 for HTTPS; see below). Nothing else
+needs to be open besides SSH: the bot dials out to Telegram. Many cloud providers
+apply a network-level firewall in front of the host, separate from `ufw`; check that
+80/443 are permitted there before assuming nginx is broken -- a
+`tcpdump -ni any tcp port 80` that shows nothing is the signature.
 
 ### HTTPS (a domain name)
 
 Set **`DOMAIN`** in `.env` and the next `./upgrade.sh` (or deploy) serves the site
 over HTTPS:
 
-1. Point the name at the VPS: an **A record** for it → `87.58.144.64` (Route 53, or
-   wherever the domain's DNS is). Check with `dig +short <name>`.
-2. Allow inbound **TCP 80 and 443** in the UpCloud firewall. Port 80 is needed even
+1. Point the name at the VPS: an **A record** for it → the host's public IP address
+   (wherever the domain's DNS is). Check with `dig +short <name>`.
+2. Allow inbound **TCP 80 and 443** (ufw and any provider firewall). Port 80 is needed even
    for HTTPS: Let's Encrypt checks it before issuing the certificate, and Caddy
    redirects plain HTTP there.
-3. On the VPS: `DOMAIN=<name>` in `/root/diplomacy/.env`, then
+3. On the VPS: `DOMAIN=<name>` in the checkout's `.env`, then
    `./upgrade.sh`.
 
 `ensure_env.sh` then sets `COMPOSE_PROFILES=tls`, which starts the `caddy` service
@@ -145,7 +179,7 @@ and registration rate limits depend on it.
 
 ### The documentation site
 
-`https://<DOCS_DOMAIN>` (production: https://diplomacy-docs.xn--jalluthti-02a.fi) serves
+`https://<DOCS_DOMAIN>` serves
 `docs/` as a website: `mkdocs.yml` (Material for MkDocs) is built into the
 `diplomacy_docs` image (`docker/docs.Dockerfile`, `mkdocs build --strict`, so a broken
 link fails the build) and Caddy serves it under its own certificate. To turn it on:
@@ -177,9 +211,9 @@ requests are answered the same but send nothing).
 
 What protects the host and the site, and where it lives:
 
-- **Network.** ufw denies inbound by default; only SSH (rate-limited) and
-  WireGuard's UDP 33500 are allowed (wg0 is another project's tunnel on this
-  host -- leave it). Docker-published ports bypass ufw, so the compose file
+- **Network.** Set ufw up yourself (no script does it, so a shared host's rules stay
+  untouched): deny inbound by default, allow SSH rate-limited (`ufw limit 22/tcp`).
+  Docker-published ports bypass ufw, so the compose file
   publishes only Caddy's 80/443 publicly; the API, DAIDE and nginx are on
   `127.0.0.1`, Postgres nowhere (`tests/test_deployment_infrastructure.py`).
 - **OS** (`harden_host.sh`, idempotent, run by `install.sh`; re-run by hand after
@@ -258,27 +292,32 @@ skips the build and the host pulls exactly what ran before. Database
 migrations are not rolled back; a rollback across a migration needs its
 `downgrade` run by hand first.
 
-One-time setup, from a machine that can SSH into the VPS:
+One-time setup, from a machine that can SSH into the VPS (`HOST` is its address,
+`REPO` your GitHub repository, e.g. `you/diplomacy`):
 
 ```bash
 # 1. A dedicated deploy key for GitHub (no passphrase), installed for root.
 ssh-keygen -t ed25519 -f ~/.ssh/diplomacy_deploy -N "" -C "github-actions-deploy"
-cat ~/.ssh/diplomacy_deploy.pub | ssh root@87.58.144.64 'cat >> ~/.ssh/authorized_keys'
+cat ~/.ssh/diplomacy_deploy.pub | ssh root@$HOST 'cat >> ~/.ssh/authorized_keys'
 
-# 2. Secrets and the gate. TELEGRAM_BOT_TOKEN is already set.
-gh secret set VPS_SSH_KEY  -R tenderi/diplomacy < ~/.ssh/diplomacy_deploy
-gh secret set VPS_HOST_KEY -R tenderi/diplomacy --body "$(ssh-keyscan -t ed25519 87.58.144.64 2>/dev/null)"
-gh variable set DEPLOY_CONTROL_ENABLED --body true -R tenderi/diplomacy
+# 2. Secrets and the gate.
+gh secret set TELEGRAM_BOT_TOKEN -R $REPO           # paste the token from @BotFather
+gh secret set VPS_HOST     -R $REPO --body "$HOST"
+gh secret set VPS_SSH_KEY  -R $REPO < ~/.ssh/diplomacy_deploy
+gh secret set VPS_HOST_KEY -R $REPO --body "$(ssh-keyscan -t ed25519 $HOST 2>/dev/null)"
+gh variable set DEPLOY_CONTROL_ENABLED --body true -R $REPO
 ```
 
-Optional repository variables override the defaults: `VPS_HOST`
-(`87.58.144.64`), `VPS_USER` (`root` — the VPS has no other login user),
-`VPS_REPO_DIR` (`~/diplomacy`). Until `DEPLOY_CONTROL_ENABLED` is `true` the
-workflow is skipped, not red.
+The host's address is a secret rather than a variable so that it is masked in the
+(public) workflow logs. Optional repository variables override the defaults:
+`VPS_USER` (`root`) and `VPS_REPO_DIR` (`~/diplomacy`). Until
+`DEPLOY_CONTROL_ENABLED` is `true` the workflow is skipped, not red. On a fork, the
+images go to your own GHCR namespace only if you change `ghcr.io/tenderi/` in
+`docker-compose.yml`, `upgrade.sh` and `deploy.yml`; otherwise the host builds them.
 
 ## Running by hand
 
-On the VPS, in `/root/diplomacy`:
+On the VPS, in the checkout (`~/diplomacy`):
 
 ```bash
 ./upgrade.sh                           # the same thing the workflow runs
@@ -314,7 +353,7 @@ Admin routes take the `X-Admin-Token` header (`DIPLOMACY_ADMIN_TOKEN` in `.env`)
 not exposed through the bot, which holds no admin token by design. On the VPS:
 
 ```bash
-cd /root/diplomacy
+cd ~/diplomacy
 ADMIN="X-Admin-Token: $(grep ^DIPLOMACY_ADMIN_TOKEN= .env | cut -d= -f2-)"
 curl -X DELETE -H "$ADMIN" http://127.0.0.1:8000/admin/games/42    # delete one game (players are told)
 curl -H "$ADMIN" http://127.0.0.1:8000/games/42/export > game42.json  # saved-game export
@@ -324,8 +363,8 @@ curl -H "$ADMIN" "http://127.0.0.1:8000/admin/feedback?limit=50"      # player f
 ## Backups
 
 `backup.sh` writes `pg_dump | gzip` to `/var/backups/diplomacy/` and keeps 14
-days (`BACKUP_DIR`, `BACKUP_KEEP_DAYS` override), then **copies the folder to
-Proton Drive** with rclone and deletes remote copies older than 60 days
+days (`BACKUP_DIR`, `BACKUP_KEEP_DAYS` override), then **copies the folder off-host**
+with rclone (any rclone remote; the default is Proton Drive) and deletes remote copies older than 60 days
 (`BACKUP_REMOTE_KEEP_DAYS`). `/etc/cron.d/diplomacy-backup` runs it nightly at
 03:17 UTC, logging to `/var/log/diplomacy-backup.log`. `upgrade.sh` runs
 `./backup.sh --install` on every deploy, which (re)installs that job and
@@ -333,7 +372,8 @@ installs rclone from rclone.org (checksum-verified) if it is missing or older
 than 1.64 -- Ubuntu's own package is too old to have the Proton Drive backend.
 
 The remote is `BACKUP_RCLONE_REMOTE` (in `.env`; default
-`proton:diplomacy-backups`). Until a remote with that name exists, the upload
+`proton:diplomacy-backups`; set it to e.g. `s3:my-bucket/diplomacy` for any other
+rclone backend, after `rclone config` has created that remote). Until a remote with that name exists, the upload
 is skipped with a note in the log and backups stay on the VPS disk only. Once
 it exists, a failed upload makes the run exit non-zero with an `ERROR:` line
 (the local dump is kept either way).
@@ -342,11 +382,10 @@ it exists, a failed upload makes the run exit non-zero with an `ERROR:` line
 
 rclone logs in as a whole Proton account, and Proton has no scoped tokens, so
 whoever controls the VPS can read and delete that account's entire drive.
-A separate, backups-only Proton account (the free tier is enough) would limit
-a compromise of the public host to the Diplomacy dumps; production uses the
-maintainer's own account, a choice made knowingly (keep `rclone.conf` at mode
-600, and if the stack ever leaves this host, `rclone config delete proton`
-and end the session in Proton's account settings). Then, over SSH on the VPS:
+A separate, backups-only Proton account (the free tier is enough) limits
+a compromise of the public host to the Diplomacy dumps. Keep `rclone.conf` at mode
+600, and if the stack ever leaves the host, `rclone config delete proton`
+and end the session in Proton's account settings. Then, over SSH on the VPS:
 
 ```bash
 rclone config
@@ -364,7 +403,7 @@ chmod 600 /root/.config/rclone/rclone.conf
 # never needs a code again. A stale code fails with
 # "422 POST .../auth/v4/2fa: Incorrect login credentials".
 rclone mkdir proton:diplomacy-backups --protondrive-2fa=123456
-cd /root/diplomacy && ./backup.sh   # expect "off-host copy done"
+cd ~/diplomacy && ./backup.sh   # expect "off-host copy done"
 ```
 
 rclone's Proton Drive backend is **unofficial** (Proton publishes no Drive
