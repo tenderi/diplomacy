@@ -622,7 +622,11 @@ naming the empty seats (`3 powers are unseated (Austria, Italy, Turkey): seat pl
 mark them as dummies.`) with the header `X-Error-Code: seats_unfilled`, whoever calls it,
 bot secret and admin token included. The web switches on the header and shows the
 message as is; the bot reads `unseated` from `GET /games/{id}/orders_status`, skips its
-"process anyway?" confirm when it is not empty, and shows the 409's message.
+"process anyway?" confirm when it is not empty, and shows the 409's message. On the opening
+phase (S1901M) a non-empty `unseated` also makes the bot's `/status` and game menu say "Game N
+hasn't started: waiting for K more players (...). Others can join with /join N" instead of the
+turn, waiting-on and draw-vote lines, drop the order buttons, and answer a stale order button
+(`/orderall`, `/selectunit`, the menu's) with that same text.
 `maybe_auto_process` processes nothing. When a deadline passes, the scheduler does not
 process the game; it spends the deadline, so it does not find it again every tick (a
 weekly schedule moves to its next slot, a one-off deadline is cleared; filling the last

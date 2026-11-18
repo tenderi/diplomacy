@@ -17,30 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-18.
-- **Open tracks:** DQ (bot papercuts from a play-through; pick next), F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DQ — Bot papercuts from a play-through
-
-Found 2026-11-18 by driving the bot's handlers against a live local API.
-
-- [ ] **DQ1 — The bot treats a game that hasn't filled as running.** `orders_status`
-      returns `unseated`, but the bot's `/status` text (`telegram_bot/games.py`), the
-      `/game` hub (`hub.py`) and `/orderall` (`orders.py`) ignore it: with 1 of 7 seats
-      taken they show "Turn: Spring 1901 movement", "waiting on all seven powers", a
-      draw-vote count and order buttons, and `/order` is then refused ("hasn't started:
-      6 powers are unseated"). The web page already handles this. Also: the build walk's
-      first step appends an empty keyboard row (`orders.py` `show_walk_step`, `nav` empty).
-- [x] **DQ2 — The channel dashboard shows raw enums.** `format_player_dashboard`
-      (`telegram_bot/channels.py`) prints "SPRING 1902 - MOVEMENT Phase", because
-      `_legacy_state_dict` (`api/routes/channels.py`) passes `season`/`phase_type`
-      upper-case; and its "Pending" section can never appear (`last_order_time` is always
-      `None`).
-
----
 
 # Track F — Manual acceptance (maintainer)
 

@@ -39,6 +39,22 @@ def phase_label(phase_code: object) -> str:
     return code
 
 
+def lobby_text(game_id: str, orders_status: Optional[dict]) -> Optional[str]:
+    """Why a game can't take orders yet, or ``None`` when it can. A game is in its
+    lobby while some power has neither a seat nor dummy status (``unseated`` in
+    ``orders_status``) and it is still on the opening phase; a game that has run a
+    turn has started whatever seat was reopened since. Mirrors the web game page."""
+    unseated = (orders_status or {}).get("unseated") or []
+    if not unseated or str((orders_status or {}).get("phase") or "").upper() != "S1901M":
+        return None
+    count = len(unseated)
+    return (
+        f"⏳ Game {game_id} hasn't started: waiting for {count} more "
+        f"{'player' if count == 1 else 'players'} ({', '.join(str(p).upper() for p in unseated)}). "
+        f"Others can join with /join {game_id}; orders open once every seat is filled."
+    )
+
+
 def phase_text(phase_code: object) -> str:
     """The label with the code in brackets, for a player who types it: ``Fall 1903 movement (F1903M)``."""
     label = phase_label(phase_code)
