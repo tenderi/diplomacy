@@ -17,7 +17,7 @@
 # Not here, on purpose: ufw (already deny-by-default with 22 rate-limited;
 # Docker-published ports bypass it, which is why only Caddy's 80/443 are
 # published on a public address -- tests/test_deployment_infrastructure.py
-# guards that), and WireGuard (wg0/33500 carries another project's traffic).
+# guards that; a shared host's other rules stay untouched).
 #
 set -euo pipefail
 

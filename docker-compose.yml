@@ -1,4 +1,4 @@
-# The whole Diplomacy stack, on one host (the UpCloud VPS in production).
+# The whole Diplomacy stack, on one host (docs/DEPLOYMENT.md).
 #
 #   diplomacy_web  (public :80)  ─┐
 #   diplomacy_bot  (Telegram)    ─┼─► diplomacy_api (:8000, internal) ─► postgres

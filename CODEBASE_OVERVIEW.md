@@ -283,13 +283,13 @@ looks falsely green. CI always provides a fresh `postgres:14` container.
 
 ## 10. Infrastructure
 
-Production is one Docker Compose stack on the UpCloud VPS, `docker-compose.yml`: `postgres`,
+Production is one Docker Compose stack on one VPS, `docker-compose.yml`: `postgres`,
 `diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx: the SPA plus `/api/` → the API),
 `caddy` (HTTPS) and `diplomacy_docs` (this documentation as a website). Only Caddy is
 public; nginx and the API are on loopback, Postgres unpublished. Dockerfiles
 and the nginx template are under `docker/`; host scripts are `install.sh` (first-time setup),
 `ensure_env.sh` (generates secrets on the host), `upgrade.sh` (pull the images, restart, verify; `--build` builds on the host) and
-`backup.sh` (nightly `pg_dump`, copied off-host to Proton Drive with rclone). Full walkthrough:
+`backup.sh` (nightly `pg_dump`, copied off-host with rclone). Full walkthrough:
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 `.github/workflows/deploy.yml` deploys after a green Test Suite on `main`: it builds the

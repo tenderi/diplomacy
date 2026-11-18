@@ -2,7 +2,7 @@
 #
 # backup.sh — dump the game database to a dated, gzipped file, keep the last
 # BACKUP_KEEP_DAYS days of them locally, and copy them off the host with
-# rclone (Proton Drive in production).
+# rclone (to Proton Drive unless BACKUP_RCLONE_REMOTE names another remote).
 #
 #   ./backup.sh            take a backup now (the nightly cron job runs this)
 #   ./backup.sh --install  (root) install rclone >= 1.64 and the nightly cron

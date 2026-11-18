@@ -208,21 +208,23 @@ checks the deploy. It reports in the pinned **Lead agent journal**, a new issue 
 
 ## Deployment (one VPS)
 
-Production is **one host**, the UpCloud VPS `87.58.144.64` (login `root`; the checkout is
-`/root/diplomacy`), running `docker-compose.yml`: `postgres`, `diplomacy_api`
+Production is **one host**, a VPS (login `root`; the checkout is `~/diplomacy`). The
+host-specific details — its address, what else runs there and must not be touched — are in
+the maintainer's git-ignored `CLAUDE.local.md`, never in the repository. It runs `docker-compose.yml`: `postgres`, `diplomacy_api`
 (`docker/api.Dockerfile`; migrations run in the entrypoint), `diplomacy_bot`
 (`docker/bot.Dockerfile`, only `requirements-bot.txt`), `diplomacy_web` (nginx serving the
 built SPA and proxying `/api/` to the API), `caddy` (HTTPS for `DOMAIN`; `docker/Caddyfile`)
 and `diplomacy_docs` (the `docs/` site via MkDocs, served by Caddy at `DOCS_DOMAIN`; built
 with `--strict`, so a broken doc link fails the deploy). **Only Caddy is public.** The API
 is published on `127.0.0.1` only — never a bare `8000:8000` — and Postgres not at all; the
-bot and nginx reach the API by service name. p2p's bot shares the VPS and is not ours.
+bot and nginx reach the API by service name. Other projects share the VPS; touch nothing on
+it outside the checkout and its compose project.
 
 Scripts, all in the repository root: `install.sh` (first-time host setup: Docker, swap,
 `.env`, backup cron), `ensure_env.sh` (creates `.env` and generates any blank secret — never
 prints one), `upgrade.sh` (pull the commit's images from GHCR, building on the host only if that fails or
 with `--build`; restart, verify; fails if the API or site is down),
-`backup.sh` (nightly `pg_dump`, copied to Proton Drive with rclone), `harden_host.sh`
+`backup.sh` (nightly `pg_dump`, copied off-host with rclone), `harden_host.sh`
 (sshd, fail2ban, unattended upgrades). Every secret except the Telegram token is generated
 **on the host** and never leaves it; the bot and the API read `DIPLOMACY_BOT_SECRET` from the
 same `.env`, so it cannot drift.
@@ -237,7 +239,7 @@ GitHub holds for the host) into `.env`, and runs `./upgrade.sh`, which pulls tho
 `docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA'`
 with the SQL on stdin (never prints a secret).
 
-**The full operational guide — setup, ports and the UpCloud firewall, TLS, backups,
+**The full operational guide — setup, ports and the firewall, TLS, backups,
 monitoring, troubleshooting — is [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).**
 
 ## Conventions and gotchas

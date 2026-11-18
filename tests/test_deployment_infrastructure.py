@@ -514,7 +514,8 @@ class TestDeployWorkflow:
     def test_github_holds_only_the_telegram_token(self, workflow: str) -> None:
         # GITHUB_TOKEN is the run's own token (pushing to GHCR), not a stored secret.
         secrets = set(re.findall(r"secrets\.([A-Z_]+)", workflow))
-        assert secrets == {"TELEGRAM_BOT_TOKEN", "VPS_SSH_KEY", "VPS_HOST_KEY", "GITHUB_TOKEN"}
+        # VPS_HOST is the address (a secret only so the public logs mask it).
+        assert secrets == {"TELEGRAM_BOT_TOKEN", "VPS_HOST", "VPS_SSH_KEY", "VPS_HOST_KEY", "GITHUB_TOKEN"}
         assert workflow.count("secrets.GITHUB_TOKEN") == 1
         assert "password: ${{ secrets.GITHUB_TOKEN }}" in workflow  # the GHCR login only
 
@@ -677,3 +678,44 @@ class TestDeployStepRuns:
             "DIPLOMACY_BOT_SECRET=host-only",
             "WEB_BIND=10.0.0.1",
         ]
+
+
+class TestNoHostDetailsInTheRepository:
+    """The production host's address lives in the VPS_HOST secret and the maintainer's
+    git-ignored CLAUDE.local.md, never in a tracked file: a clone must not learn it."""
+
+    def test_no_tracked_file_names_a_public_ipv4_address(self) -> None:
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+        ).stdout.split("\0")
+        ipv4 = re.compile(r"(?<![\d.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\d.])")
+        found = []
+        for name in tracked:
+            path = REPO_ROOT / name
+            # Docs, scripts, workflows and config; code and tests use made-up addresses.
+            if not name or name.startswith(("src/", "tests/", "frontend/src/")) or not path.is_file():
+                continue
+            if name.endswith(("package-lock.json", ".svg", ".png", ".pdf")):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for m in ipv4.finditer(text):
+                a, b = int(m.group(1)), int(m.group(2))
+                octets = [int(g) for g in m.groups()]
+                if max(octets) > 255 or a in (0, 10, 127) or (a == 192 and b == 168):
+                    continue
+                if (a == 172 and 16 <= b <= 31) or (a == 169 and b == 254):
+                    continue
+                if a == 203 and b == 0:  # TEST-NET-3 documentation range
+                    continue
+                found.append(f"{name}: {m.group(0)}")
+        assert found == []
+
+    def test_claude_local_md_is_git_ignored(self) -> None:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", "CLAUDE.local.md"], cwd=REPO_ROOT, check=False
+        )
+        assert result.returncode == 0
+
