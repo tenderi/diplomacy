@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import ast
 import re
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -53,20 +52,20 @@ class TestNoDoubleAsteriskBold:
 
 class TestPlayerDashboard:
     def _state(self, powers: dict, orders: dict | None = None) -> dict:
-        return {"game_id": "7", "current_year": 1901, "current_season": "SPRING", "current_phase": "MOVEMENT",
+        return {"game_id": "7", "current_year": 1901, "current_season": "Spring", "current_phase": "Movement",
                 "orders": orders or {}, "powers": powers}
 
     def test_as_the_route_calls_it(self) -> None:
         powers = {
-            "FRANCE": {"orders_submitted": True, "last_order_time": None, "is_eliminated": False},
-            "ITALY": {"orders_submitted": False, "last_order_time": None, "is_eliminated": False},
-            "TURKEY": {"orders_submitted": False, "last_order_time": None, "is_eliminated": True},
+            "FRANCE": {"orders_submitted": True, "is_eliminated": False},
+            "ITALY": {"orders_submitted": False, "is_eliminated": False},
+            "TURKEY": {"orders_submitted": False, "is_eliminated": True},
         }
         players = [{"power": "FRANCE", "nickname": "Ann-Marie", "telegram_id": "1"},
                    {"power": "ITALY", "nickname": None, "telegram_id": "555"}]
         assert _lines(format_player_dashboard(self._state(powers), players)) == [
             "👥 *PLAYER STATUS DASHBOARD - GAME 7*",
-            "📅 SPRING 1901 - MOVEMENT Phase",
+            "📅 Spring 1901 - Movement Phase",
             "",
             "✅ *Orders Submitted:*",
             "🇫🇷 FRANCE (Ann-Marie) - Submitted",
@@ -80,23 +79,6 @@ class TestPlayerDashboard:
     def test_an_order_in_the_state_counts_as_submitted(self) -> None:
         powers = {"GERMANY": {"orders_submitted": False, "is_eliminated": False}}
         assert "🇩🇪 GERMANY - Submitted" in format_player_dashboard(self._state(powers, orders={"GERMANY": ["A BER H"]}))
-
-    def test_times_say_ago_once(self) -> None:
-        now = datetime.now(timezone.utc)
-        powers = {
-            "FRANCE": {"orders_submitted": True, "last_order_time": (now - timedelta(hours=3, minutes=5)).isoformat()},
-            "ITALY": {"orders_submitted": False, "last_order_time": (now - timedelta(days=2, hours=1)).replace(tzinfo=None)},
-            "RUSSIA": {"orders_submitted": True, "last_order_time": (now - timedelta(minutes=7)).isoformat().replace("+00:00", "Z")},
-        }
-        text = format_player_dashboard(self._state(powers))
-        assert "🇫🇷 FRANCE - Submitted 3h ago\n" in text
-        assert "🇷🇺 RUSSIA - Submitted 7m ago\n" in text
-        assert "⏳ *Pending:*\n🇮🇹 ITALY - Last active 2d ago\n" in text
-        assert "ago ago" not in text
-
-    def test_an_unreadable_time_is_left_out(self) -> None:
-        powers = {"FRANCE": {"orders_submitted": True, "last_order_time": "yesterday-ish"}}
-        assert "🇫🇷 FRANCE - Submitted\n" in format_player_dashboard(self._state(powers))
 
 
 class TestHistoricalTimeline:
@@ -203,9 +185,18 @@ class TestRoutesQueueForTheGroup:
         client.post("/games/set_orders", json=_as(creator, game_id=game_id, power="FRANCE", orders=["A PAR H"]))
         row = self._post(client, f"/games/{game_id}/channel/dashboard")
         assert row["kind"] == "channel_text" and row["payload"]["parse_mode"] == "Markdown"
-        assert row["message"].startswith(f"👥 *PLAYER STATUS DASHBOARD - GAME {game_id}*\n📅 SPRING 1901 - MOVEMENT Phase")
+        assert row["message"].startswith(f"👥 *PLAYER STATUS DASHBOARD - GAME {game_id}*\n📅 Spring 1901 - Movement Phase\n")
         assert f"🇫🇷 FRANCE ({self.nickname}) - Submitted" in row["message"]
         assert "🇩🇪 GERMANY - No orders" in row["message"]
+
+    def test_the_dashboard_header_reads_from_the_real_state_dict(self, client: TestClient) -> None:
+        from server.api.routes.channels import _legacy_state_dict
+
+        game_id, _ = self._linked_game(client)
+        state = _legacy_state_dict(game_id)
+        assert state is not None
+        assert (state["current_season"], state["current_phase"]) == ("Spring", "Movement")
+        assert format_player_dashboard(state).splitlines()[1] == "📅 Spring 1901 - Movement Phase"
 
     def test_timeline_ranks_the_opening_board(self, client: TestClient) -> None:
         game_id, _ = self._linked_game(client)

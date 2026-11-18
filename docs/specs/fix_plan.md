@@ -34,7 +34,7 @@ Found 2026-11-18 by driving the bot's handlers against a live local API.
       draw-vote count and order buttons, and `/order` is then refused ("hasn't started:
       6 powers are unseated"). The web page already handles this. Also: the build walk's
       first step appends an empty keyboard row (`orders.py` `show_walk_step`, `nav` empty).
-- [ ] **DQ2 — The channel dashboard shows raw enums.** `format_player_dashboard`
+- [x] **DQ2 — The channel dashboard shows raw enums.** `format_player_dashboard`
       (`telegram_bot/channels.py`) prints "SPRING 1902 - MOVEMENT Phase", because
       `_legacy_state_dict` (`api/routes/channels.py`) passes `season`/`phase_type`
       upper-case; and its "Pending" section can never appear (`last_order_time` is always

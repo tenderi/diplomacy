@@ -8,7 +8,6 @@ delivers it (``notifications.py``). Nothing here sends anything. Every post goes
 """
 import logging
 from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
 
 from .utils import escape_markdown
 
@@ -166,43 +165,15 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
     
     # Build player status lists
     submitted_players = []
-    pending_players = []
     no_orders_players = []
     
     # Process each power
     for power_name, power_state in powers.items():
         if isinstance(power_state, dict):
             orders_submitted = power_state.get("orders_submitted", False)
-            last_order_time = power_state.get("last_order_time")
             is_eliminated = power_state.get("is_eliminated", False)
             
             emoji = power_emoji.get(power_name, "")
-            
-            # Format time ago
-            time_ago = ""
-            if last_order_time:
-                try:
-                    if isinstance(last_order_time, str):
-                        last_time = datetime.fromisoformat(last_order_time.replace('Z', '+00:00'))
-                    else:
-                        last_time = last_order_time
-                    now = datetime.now(timezone.utc)
-                    if last_time.tzinfo is None:
-                        last_time = last_time.replace(tzinfo=timezone.utc)
-                    delta = now - last_time
-                    
-                    hours = int(delta.total_seconds() / 3600)
-                    days = int(delta.total_seconds() / 86400)
-                    
-                    if days > 0:
-                        time_ago = f"{days}d ago"
-                    elif hours > 0:
-                        time_ago = f"{hours}h ago"
-                    else:
-                        minutes = int(delta.total_seconds() / 60)
-                        time_ago = f"{minutes}m ago"
-                except (ValueError, TypeError):  # an unparsable timestamp shows no "ago"
-                    time_ago = ""
             
             # Get user info if available
             user_info = ""
@@ -220,14 +191,8 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
                 player_line += " - Eliminated"
                 no_orders_players.append(player_line)
             elif orders_submitted or power_name in submitted_powers:
-                if time_ago:
-                    player_line += f" - Submitted {time_ago}"
-                else:
-                    player_line += " - Submitted"
+                player_line += " - Submitted"
                 submitted_players.append(player_line)
-            elif last_order_time:
-                player_line += f" - Last active {time_ago}"
-                pending_players.append(player_line)
             else:
                 player_line += " - No orders"
                 no_orders_players.append(player_line)
@@ -238,10 +203,6 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
     if submitted_players:
         dashboard_text += "✅ *Orders Submitted:*\n"
         dashboard_text += "\n".join(submitted_players) + "\n\n"
-    
-    if pending_players:
-        dashboard_text += "⏳ *Pending:*\n"
-        dashboard_text += "\n".join(pending_players) + "\n\n"
     
     if no_orders_players:
         dashboard_text += "❌ *No Orders:*\n"
