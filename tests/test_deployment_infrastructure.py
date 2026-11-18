@@ -853,7 +853,9 @@ class TestAgentDbRole:
             conn.rollback()  # end the query's autobegun transaction
             trans = conn.begin()
             try:
-                conn.exec_driver_sql((PROJECT_ROOT / "host" / "agent_db_role.sql").read_text())
+                # Raw cursor, no parameters: the file's format('%I') must reach the server
+                # as written, the way psql sends it.
+                conn.connection.cursor().execute((PROJECT_ROOT / "host" / "agent_db_role.sql").read_text())
                 conn.exec_driver_sql("SET ROLE diplomacy_agent")
                 assert conn.execute(text("select count(nickname) >= 0 from users")).scalar() is True
                 assert conn.execute(text("select count(*) >= 0 from games")).scalar() is True
