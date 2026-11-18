@@ -146,7 +146,11 @@ class TestCompose:
 
 
 class TestHostScripts:
-    @pytest.mark.parametrize("script", ["install.sh", "ensure_env.sh", "backup.sh", "upgrade.sh", "harden_host.sh"])
+    @pytest.mark.parametrize(
+        "script",
+        ["install.sh", "ensure_env.sh", "backup.sh", "upgrade.sh", "harden_host.sh",
+         "host/deploy_hook.sh", "host/agent_shell.sh"],
+    )
     def test_script_parses(self, script: str) -> None:
         path = PROJECT_ROOT / script
         assert path.exists(), f"{script} is missing"
@@ -157,14 +161,20 @@ class TestHostScripts:
         for line in ("PasswordAuthentication no", "PermitRootLogin prohibit-password", "X11Forwarding no", "MaxAuthTries 3"):
             assert line in script, line
         assert "sshd -t" in script  # validated before the reload, removed if invalid
-        assert "restrict \\1" in script  # the deploy key: no forwarding, no pty
+        # Neither key GitHub holds can open a shell: each runs one toolkit script.
+        assert 'force_command github-actions-deploy "$TOOLKIT/deploy_hook.sh"' in script
+        assert 'force_command diplomacy-lead-agent "$TOOLKIT/agent_shell.sh"' in script
+        assert 'want="restrict,command=' in script
         assert 'Automatic-Reboot "true"' in script and "[sshd]" in script
         assert "./harden_host.sh" in _read(PROJECT_ROOT / "install.sh")
 
     def test_containers_cannot_gain_privileges(self) -> None:
         compose = _read(PROJECT_ROOT / "docker-compose.yml")
         assert compose.count("no-new-privileges:true") == 6  # every service
-        assert compose.count("cap_drop:") == 2  # the API and the bot need no capabilities
+        assert compose.count("cap_drop:") == 6  # every service starts from no capabilities
+        assert compose.count("cap_add:") == 4  # postgres, the two nginx, caddy: named ones only
+        # A runaway container must not starve the host's other projects.
+        assert compose.count("mem_limit:") == 6 and compose.count("pids_limit:") == 6
         assert "DIPLOMACY_API_DOCS=0" in compose
 
     def test_the_docs_site_builds_strictly_and_is_served_only_through_caddy(self) -> None:
@@ -195,10 +205,13 @@ class TestHostScripts:
         assert "git symbolic-ref -q HEAD" in script
         assert "git pull --ff-only" in script
 
-    def test_upgrade_fills_secrets_schedules_backup_and_fails_when_down(self) -> None:
+    def test_upgrade_fills_secrets_refreshes_the_agent_role_and_fails_when_down(self) -> None:
         script = _read(PROJECT_ROOT / "upgrade.sh")
-        assert "./ensure_env.sh" in script
-        assert "./backup.sh --install" in script
+        assert '"$HERE/ensure_env.sh"' in script  # the toolkit's copy when installed
+        # The backup job is installed by install.sh from the toolkit, never by a deploy:
+        # a deploy must not change what root runs at night.
+        assert "backup.sh --install" not in script
+        assert "agent_db_role.sql" in script
         assert "/api/healthz" in script  # nginx -> API, the path a browser takes
         assert script.rstrip().endswith('[ "$api_ok" = 1 ] && [ "$web_ok" = 1 ]')
 
@@ -516,25 +529,26 @@ class TestDeployWorkflow:
         secrets = set(re.findall(r"secrets\.([A-Z_]+)", workflow))
         # VPS_HOST is the address (a secret only so the public logs mask it).
         assert secrets == {"TELEGRAM_BOT_TOKEN", "VPS_HOST", "VPS_SSH_KEY", "VPS_HOST_KEY", "GITHUB_TOKEN"}
+        assert "VPS_AGENT_KEY" not in workflow  # the lead agent's key never deploys
         assert workflow.count("secrets.GITHUB_TOKEN") == 1
         assert "password: ${{ secrets.GITHUB_TOKEN }}" in workflow  # the GHCR login only
 
     def test_secrets_travel_on_stdin_not_the_remote_command_line(self, workflow: str) -> None:
-        # Prepended to the script stream as a %q assignment; the ssh argument list
-        # only carries the SHA and the repo dir. (A remote `read` cannot work: stdin
-        # *is* the script -- see TestDeployStepRuns.)
-        assert "bash -s" in workflow
-        assert "printf 'TELEGRAM_BOT_TOKEN=%q\\n'" in workflow
-        assert "read -r TELEGRAM_BOT_TOKEN" not in workflow
+        # The ssh argument list carries only "deploy <sha>": the deploy key's forced
+        # command (host/deploy_hook.sh) reads the token from stdin.
+        assert "printf 'TELEGRAM_BOT_TOKEN=%s\\n' \"$TELEGRAM_BOT_TOKEN\"" in workflow
+        assert '"$TARGET" "deploy $SHA"' in workflow
+        assert "bash -s" not in workflow  # no script is sent: the host runs its own
         assert not re.search(r"ssh .*TELEGRAM_BOT_TOKEN=", workflow)
 
     def test_pins_the_host_key_instead_of_scanning(self, workflow: str) -> None:
         assert "${{ secrets.VPS_HOST_KEY }}" in workflow
         assert "ssh-keyscan" not in re.sub(r"#.*", "", workflow)  # allowed only in the comment
 
-    def test_deploys_the_tested_sha_and_runs_the_upgrade_script(self, workflow: str) -> None:
-        assert "git checkout --quiet --detach" in workflow
-        assert "./upgrade.sh" in workflow
+    def test_deploys_the_tested_sha_through_the_host_hook(self, workflow: str) -> None:
+        hook = _read(PROJECT_ROOT / "host" / "deploy_hook.sh")
+        assert 'git checkout --quiet --detach "$sha"' in hook
+        assert 'DIPLOMACY_IMAGE_TAG="$sha" exec "$HERE/upgrade.sh"' in hook  # the toolkit's copy
         assert "concurrency:" in workflow
 
     def test_manual_run_resolves_a_commit_not_a_branch_name(self, workflow: str) -> None:
@@ -560,13 +574,12 @@ class TestDeployWorkflow:
         assert "cache-from: type=gha,scope=${{ matrix.service }}" in workflow
         assert "if: steps.exists.outputs.found != 'true'" in workflow  # a rollback reuses its images
         assert "needs: images" in workflow
-        assert 'DIPLOMACY_IMAGE_TAG="$SHA" ./upgrade.sh' in workflow
 
-    def test_fetches_the_target_itself(self, workflow: str) -> None:
+    def test_fetches_the_target_itself(self) -> None:
         # The VPS clone is single-branch (vps-split); a bare `git fetch origin` never brings
         # main's commits, and the checkout died with "unable to read tree".
-        assert 'git fetch --quiet origin "$SHA"' in workflow
-        assert "git checkout --quiet --detach FETCH_HEAD" in workflow
+        hook = _read(PROJECT_ROOT / "host" / "deploy_hook.sh")
+        assert 'git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" "$sha"' in hook
 
     def test_no_aws_and_no_split_era_workflow(self) -> None:
         assert not (WORKFLOWS / "deploy-control.yml").exists()
@@ -601,83 +614,283 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 class TestDeployStepRuns:
-    """Run the real step script end to end. v2.7.83's version piped the secrets into
-    ssh *and* gave it a heredoc; the heredoc won, the remote `read`s swallowed script
-    lines, and the VPS .env got `TELEGRAM_BOT_TOKEN=IFS= read -r ...`. String checks
-    could not see that; only running it can."""
+    """Run the real Deploy step end to end: the workflow's `run:` body, a fake `ssh`
+    that hands the request to the real host/deploy_hook.sh as its forced command
+    would (SSH_ORIGINAL_COMMAND, stdin), a local origin and a single-branch clone
+    like the VPS one, and a host toolkit directory with a stub upgrade.sh."""
 
-    def _deploy(self, tmp_path: Path, *, env_in: str) -> tuple[Path, str, subprocess.CompletedProcess[str]]:
-        """Deploy origin's main (flat layout) into a clone like the VPS one:
-        single-branch on vps-split, whose tip still has the old
-        new_implementation/ layout, with the host's .env at ``env_in``."""
+    TOKEN = "123456:AAH-x_Yz9"
+
+    def _setup(self, tmp_path: Path) -> dict[str, Path | str]:
         origin = tmp_path / "origin"
-        (origin / "new_implementation").mkdir(parents=True)
+        (origin / "docker").mkdir(parents=True)
         _git(origin, "init", "-q", "-b", "main")
-        (origin / "new_implementation" / ".env.example").write_text("TELEGRAM_BOT_TOKEN=\n")
+        (origin / "docker-compose.yml").write_text("services: {}\n")
+        (origin / "docker" / "Caddyfile").write_text("{$DOMAIN} {}\n")
+        (origin / ".env.example").write_text("TELEGRAM_BOT_TOKEN=\nDIPLOMACY_BOT_SECRET=\n")
         _git(origin, "add", "-A")
-        _git(origin, "commit", "-qm", "base (old layout)")
+        _git(origin, "commit", "-qm", "base")
         _git(origin, "branch", "vps-split")
-        _git(origin, "rm", "-rq", "new_implementation")
-        (origin / ".env.example").write_text("TELEGRAM_BOT_TOKEN=\nDIPLOMACY_BOT_SECRET=\nWEB_BIND=127.0.0.1\n")
-        (origin / "upgrade.sh").write_text('#!/bin/sh\nprintf %s "$DIPLOMACY_IMAGE_TAG" > upgraded\n')
-        (origin / "upgrade.sh").chmod(0o755)
+        (origin / "README").write_text("main moved on\n")
         _git(origin, "add", "-A")
-        _git(origin, "commit", "-qm", "main (flat layout)")
+        _git(origin, "commit", "-qm", "main")
         sha = _git(origin, "rev-parse", "HEAD")
 
         clone = tmp_path / "clone"
         subprocess.run(
-            ["git", "clone", "-q", "--single-branch", "-b", "vps-split", str(origin), str(clone)],
-            check=True,
+            ["git", "clone", "-q", "--single-branch", "-b", "vps-split", str(origin), str(clone)], check=True
         )
-        # An old token and a host-generated secret that must survive untouched.
-        (clone / env_in).write_text("TELEGRAM_BOT_TOKEN=old\nDIPLOMACY_BOT_SECRET=host-only\nWEB_BIND=10.0.0.1\n")
+        (clone / ".env").write_text("TELEGRAM_BOT_TOKEN=old\nDIPLOMACY_BOT_SECRET=host-only\n")
+
+        toolkit = tmp_path / "toolkit"
+        toolkit.mkdir()
+        (toolkit / "deploy_hook.sh").write_bytes((PROJECT_ROOT / "host" / "deploy_hook.sh").read_bytes())
+        (toolkit / "upgrade.sh").write_text(
+            '#!/bin/sh\nprintf %s "$DIPLOMACY_IMAGE_TAG" > upgraded\n'
+        )
+        for name in ("deploy_hook.sh", "upgrade.sh"):
+            (toolkit / name).chmod(0o755)
+        (toolkit / "toolkit.env").write_text(f"DIPLOMACY_DIR={clone}\n")
+        reviewed = subprocess.run(
+            ["sha256sum", "docker-compose.yml", "docker/Caddyfile"],
+            cwd=origin, check=True, capture_output=True, text=True,
+        ).stdout
+        (toolkit / "reviewed.sha256").write_text(reviewed)
+        (toolkit / "installed-from").write_text(sha + "\n")
 
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
-        (bin_dir / "ssh").write_text('#!/bin/bash\nexec bash -c "${@: -1}"\n')  # run the remote command locally
+        # A forced command: whatever the client asks, sshd runs the hook with the
+        # request in SSH_ORIGINAL_COMMAND and the client's stdin.
+        (bin_dir / "ssh").write_text(f'#!/bin/bash\nSSH_ORIGINAL_COMMAND="${{@: -1}}" exec {toolkit}/deploy_hook.sh\n')
         (bin_dir / "ssh").chmod(0o755)
+        return {"origin": origin, "clone": clone, "toolkit": toolkit, "bin": bin_dir, "sha": sha}
 
-        token = "123456:AAH-x_Y'z $b \"c\" `d`"
+    def _run_step(
+        self, t: dict[str, Path | str], sha: str, token: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
         script = _deploy_step_script(_read(WORKFLOWS / "deploy.yml"))
-        result = subprocess.run(
+        return subprocess.run(
             ["bash", "-e", "-c", script],
             env={
-                "PATH": f"{bin_dir}:/usr/bin:/bin",
-                "HOME": str(tmp_path),
-                "TELEGRAM_BOT_TOKEN": token,
+                "PATH": f"{t['bin']}:/usr/bin:/bin",
+                "HOME": str(t["clone"]),
+                "TELEGRAM_BOT_TOKEN": token or self.TOKEN,
                 "SHA": sha,
-                "REPO_DIR": str(clone),
                 "TARGET": "root@vps",
             },
             capture_output=True, text=True,
         )
+
+    def test_deploys_main_writes_the_token_and_keeps_host_secrets(self, tmp_path: Path) -> None:
+        t = self._setup(tmp_path)
+        result = self._run_step(t, str(t["sha"]))
         assert result.returncode == 0, result.stderr
-        assert _git(clone, "rev-parse", "HEAD") == sha
-        assert (clone / "upgraded").read_text() == sha  # the image tag upgrade.sh pulls
-        assert token not in result.stdout + result.stderr
-        return clone, token, result
-
-    def test_writes_the_token_verbatim_keeps_host_secrets_and_runs_the_upgrade(self, tmp_path: Path) -> None:
-        clone, token, _ = self._deploy(tmp_path, env_in=".env")
+        clone = Path(t["clone"])
+        assert _git(clone, "rev-parse", "HEAD") == t["sha"]
+        assert (clone / "upgraded").read_text() == t["sha"]  # the image tag upgrade.sh pulls
         assert (clone / ".env").read_text().splitlines() == [
-            f"TELEGRAM_BOT_TOKEN={token}",
+            f"TELEGRAM_BOT_TOKEN={self.TOKEN}",
             "DIPLOMACY_BOT_SECRET=host-only",
-            "WEB_BIND=10.0.0.1",
+        ]
+        assert self.TOKEN not in result.stdout + result.stderr
+
+    def test_refuses_a_commit_that_is_not_on_main(self, tmp_path: Path) -> None:
+        """GitHub serves any commit of the repository network by SHA, forks' and
+        pull requests' included; only main's may reach production."""
+        t = self._setup(tmp_path)
+        origin = Path(t["origin"])
+        _git(origin, "checkout", "-q", "-b", "evil")
+        (origin / "README").write_text("not reviewed\n")
+        _git(origin, "commit", "-qam", "evil")
+        evil = _git(origin, "rev-parse", "HEAD")
+        _git(origin, "checkout", "-q", "main")
+        before = _git(Path(t["clone"]), "rev-parse", "HEAD")
+        result = self._run_step(t, evil)
+        assert result.returncode == 1
+        assert f"{evil} is not on origin/main" in result.stderr
+        assert _git(Path(t["clone"]), "rev-parse", "HEAD") == before
+        assert not (Path(t["clone"]) / "upgraded").exists()
+
+    @pytest.mark.parametrize("path", ["docker-compose.yml", "docker/Caddyfile"])
+    def test_refuses_an_unreviewed_change_to_what_reaches_the_host(self, tmp_path: Path, path: str) -> None:
+        t = self._setup(tmp_path)
+        origin = Path(t["origin"])
+        (origin / path).write_text("volumes: ['/root:/host']\n")
+        _git(origin, "commit", "-qam", "widen the mounts")
+        sha = _git(origin, "rev-parse", "HEAD")
+        result = self._run_step(t, sha)
+        assert result.returncode == 3
+        assert f"::error::Not deploying {sha}: it changes {path}" in result.stderr
+        assert "sudo ./install.sh --toolkit" in result.stderr
+        assert not (Path(t["clone"]) / "upgraded").exists()
+
+    def test_refuses_a_reviewed_path_turned_into_a_symlink(self, tmp_path: Path) -> None:
+        t = self._setup(tmp_path)
+        origin = Path(t["origin"])
+        (origin / "docker" / "Caddyfile").unlink()
+        (origin / "docker" / "Caddyfile").symlink_to("/root/caddy/Caddyfile")
+        _git(origin, "add", "-A")
+        _git(origin, "commit", "-qm", "link")
+        result = self._run_step(t, _git(origin, "rev-parse", "HEAD"))
+        assert result.returncode == 3
+        assert "docker/Caddyfile (not a regular file" in result.stderr
+
+    @pytest.mark.parametrize("request_line", ["bash", "deploy", "deploy abc123", "deploy $(id)", "id; deploy x"])
+    def test_runs_nothing_but_a_deploy(self, tmp_path: Path, request_line: str) -> None:
+        t = self._setup(tmp_path)
+        result = subprocess.run(
+            [str(Path(t["toolkit"]) / "deploy_hook.sh")],
+            input=f"TELEGRAM_BOT_TOKEN={self.TOKEN}\n",
+            env={"PATH": "/usr/bin:/bin", "SSH_ORIGINAL_COMMAND": request_line},
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 1
+        assert "the only command is: deploy <full 40-hex commit sha>" in result.stderr
+
+    def test_refuses_a_token_that_is_not_a_bot_token(self, tmp_path: Path) -> None:
+        t = self._setup(tmp_path)
+        result = self._run_step(t, str(t["sha"]), token="x\nDIPLOMACY_BOT_SECRET=mine")
+        assert result.returncode == 1
+        assert "is not a Telegram bot token" in result.stderr
+        assert "TELEGRAM_BOT_TOKEN=old" in (Path(t["clone"]) / ".env").read_text()
+
+    def test_warns_when_the_checkout_changes_the_toolkit(self, tmp_path: Path) -> None:
+        t = self._setup(tmp_path)
+        origin = Path(t["origin"])
+        (origin / "upgrade.sh").write_text("#!/bin/sh\necho changed\n")
+        _git(origin, "add", "-A")
+        _git(origin, "commit", "-qm", "change upgrade.sh")
+        result = self._run_step(t, _git(origin, "rev-parse", "HEAD"))
+        assert result.returncode == 0, result.stderr
+        assert "::warning::upgrade.sh differs from the installed host toolkit" in result.stdout
+        # ...and the installed copy is what ran, not the checkout's.
+        assert (Path(t["clone"]) / "upgraded").exists()
+
+
+class TestAgentShell:
+    """Run the real host/agent_shell.sh (the lead agent key's forced command) with
+    fake docker, journalctl and curl that log their calls."""
+
+    def _run(self, tmp_path: Path, request: str, stdin: str = "") -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        work = tmp_path / "work"
+        work.mkdir(exist_ok=True)
+        _git(work, "init", "-q")
+        toolkit = tmp_path / "toolkit"
+        toolkit.mkdir(exist_ok=True)
+        (toolkit / "agent_shell.sh").write_bytes((PROJECT_ROOT / "host" / "agent_shell.sh").read_bytes())
+        (toolkit / "agent_shell.sh").chmod(0o755)
+        (toolkit / "toolkit.env").write_text(f"DIPLOMACY_DIR={work}\n")
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        log = tmp_path / "calls.log"
+        for tool in ("docker", "journalctl", "curl"):
+            (bin_dir / tool).write_text(f'#!/bin/bash\necho "{tool} $*" >> {log}\n')
+            (bin_dir / tool).chmod(0o755)
+        result = subprocess.run(
+            [str(toolkit / "agent_shell.sh")],
+            input=stdin,
+            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "SSH_ORIGINAL_COMMAND": request},
+            capture_output=True, text=True,
+        )
+        calls = log.read_text().splitlines() if log.exists() else []
+        return result, calls
+
+    def test_sql_runs_as_the_read_only_role_without_meta_commands(self, tmp_path: Path) -> None:
+        result, calls = self._run(tmp_path, "sql -tA", stdin="select count(*) from games;\n")
+        assert result.returncode == 0, result.stderr
+        assert calls == [
+            "docker compose exec -T --user postgres postgres psql -X -q -v ON_ERROR_STOP=1 -P pager=off"
+            " -t -A -F \t -U diplomacy_agent -d diplomacy_db -c select count(*) from games;"
         ]
 
-    def test_the_first_flat_deploy_moves_the_host_env_up_instead_of_making_a_new_one(self, tmp_path: Path) -> None:
-        """The VPS's .env is untracked in new_implementation/; the checkout that
-        removes that directory leaves it there. A fresh root .env would get a new
-        POSTGRES_PASSWORD the existing database doesn't know."""
-        clone, token, result = self._deploy(tmp_path, env_in="new_implementation/.env")
-        assert "Moved .env up" in result.stdout
-        assert not (clone / "new_implementation" / ".env").exists()
-        assert (clone / ".env").read_text().splitlines() == [
-            f"TELEGRAM_BOT_TOKEN={token}",
-            "DIPLOMACY_BOT_SECRET=host-only",
-            "WEB_BIND=10.0.0.1",
-        ]
+    @pytest.mark.parametrize("query", ["\\! id", "select 1; \\copy users to program 'sh'", ""])
+    def test_sql_refuses_meta_commands_and_empty_input(self, tmp_path: Path, query: str) -> None:
+        result, calls = self._run(tmp_path, "sql", stdin=query)
+        assert result.returncode == 2
+        assert calls == []
+
+    def test_logs_and_journal_of_this_stack_only(self, tmp_path: Path) -> None:
+        result, calls = self._run(tmp_path, "logs diplomacy_api 6h")
+        assert result.returncode == 0, result.stderr
+        assert calls == ["docker compose logs --no-color --since 6h diplomacy_api"]
+        result, calls = self._run(tmp_path, "journal postgres 2d")
+        assert result.returncode == 0, result.stderr
+        assert calls[-1] == "journalctl --no-pager -o short-iso --since -2d CONTAINER_NAME=diplomacy-postgres-1"
+
+    @pytest.mark.parametrize(
+        "request_line",
+        ["bash", "logs p2p-downloader_bot", "logs diplomacy_api 1h;id", "logs diplomacy_api $(id)",
+         "journal heimot-kampanja", "status now", "sql --set=x", "logs diplomacy_api 1h extra"],
+    )
+    def test_refuses_everything_else(self, tmp_path: Path, request_line: str) -> None:
+        result, calls = self._run(tmp_path, request_line)
+        assert result.returncode == 2
+        assert result.stderr.startswith("agent_shell: ") or "agent_shell: " in result.stderr
+        assert calls == []
+
+    def test_help_lists_the_commands(self, tmp_path: Path) -> None:
+        result, _ = self._run(tmp_path, "")
+        assert result.returncode == 0
+        for cmd in ("status", "health", "logs <service>", "journal <service>", "sql [-tA]", "backup-status"):
+            assert cmd in result.stdout, cmd
+
+
+class TestAgentDbRole:
+    """Apply host/agent_db_role.sql to the test database inside a transaction that is
+    rolled back, then query as the role. Needs a role that may CREATE ROLE (CI's
+    superuser test role)."""
+
+    def test_reads_game_data_but_no_personal_secret_and_writes_nothing(self, temp_db) -> None:
+        from sqlalchemy import exc, text
+
+        with temp_db.connect() as conn:
+            can = conn.execute(
+                text("select rolsuper or rolcreaterole from pg_roles where rolname = current_user")
+            ).scalar()
+            if not can:
+                pytest.skip("the test database role may not CREATE ROLE (CI's may)")
+            conn.rollback()  # end the query's autobegun transaction
+            trans = conn.begin()
+            try:
+                # Raw cursor, no parameters: the file's format('%I') must reach the server
+                # as written, the way psql sends it.
+                conn.connection.cursor().execute((PROJECT_ROOT / "host" / "agent_db_role.sql").read_text())
+                conn.exec_driver_sql("SET ROLE diplomacy_agent")
+                assert conn.execute(text("select count(nickname) >= 0 from users")).scalar() is True
+                assert conn.execute(text("select count(*) >= 0 from games")).scalar() is True
+                denied = [
+                    "select email from users",
+                    "select password_hash from users",
+                    "select * from password_reset_tokens",
+                    "select code from link_codes",
+                    "select join_password_hash from games",
+                    "select text from messages",
+                    "select payload from bot_outbox",
+                    "select response_json from idempotency_keys",
+                    "delete from feedback",
+                ]
+                for statement in denied:
+                    nested = conn.begin_nested()
+                    with pytest.raises(exc.ProgrammingError, match="permission denied"):
+                        conn.execute(text(statement))
+                    nested.rollback()
+            finally:
+                trans.rollback()
+
+
+class TestHostToolkitInstall:
+    def test_install_records_the_reviewed_files_and_installs_the_root_scripts(self) -> None:
+        script = _read(PROJECT_ROOT / "install.sh")
+        assert "TOOLKIT=/usr/local/lib/diplomacy" in script
+        assert "sha256sum docker-compose.yml docker/Caddyfile" in script
+        assert "host/deploy_hook.sh host/agent_shell.sh" in script
+        assert '$SUDO "$TOOLKIT/backup.sh" --install' in script  # the job runs the toolkit's copy
+        assert "--toolkit) mode=toolkit" in script
+        # Every script the deploy hook warns about is one install.sh installs.
+        hook = _read(PROJECT_ROOT / "host" / "deploy_hook.sh")
+        for name in ("upgrade.sh", "ensure_env.sh", "backup.sh", "host/agent_db_role.sql"):
+            assert name in hook and name in script, name
 
 
 class TestNoHostDetailsInTheRepository:

@@ -23,14 +23,15 @@ Exactly two things are not acceptable, and no reasoning of yours overrides them:
 1. **The GitHub repository must keep existing**, with its history. Never delete it,
    transfer it, archive it or rewrite `main`. Your token is not allowed to do these things.
    Don't look for ways around that.
-2. **The maintainer's home server must never be touched.** The runner has no route
-   there. The VPS does: other projects on it hold a VPN tunnel and credentials that reach
-   the home network. So on the VPS, **touch only the diplomacy checkout (`~/diplomacy`),
-   its Docker Compose project, and the host setup its own scripts manage** (the backup
-   cron job, `harden_host.sh`'s files). Never touch another directory under `/root`, any
-   VPN or WireGuard interface or its config, other containers, or anything that talks to
-   a private address range. The other projects on the VPS aren't yours. Leave them
-   running.
+2. **The maintainer's home server, and everything else on the VPS that isn't this
+   stack, must never be touched.** The runner has no route to the home network. The VPS
+   does: other projects on it hold a VPN tunnel and credentials that reach it, and it
+   holds the maintainer's backup account login. Your SSH key there can only run
+   read-only diagnostics of this stack (see Production access), and a deploy cannot
+   change what the containers may touch on the host. Don't look for ways around either.
+   Never propose or write code that makes the containers, the deploy or the backup reach
+   outside this stack: another directory under `/root`, a VPN interface or its config,
+   other containers, the Docker socket, or a private address range.
 
 Inside those two limits you have no other restrictions.
 
@@ -121,7 +122,14 @@ whenever you are deciding whether to start something new.
 9. **Verify the deploy.** After each merge to `main`, the Deploy workflow runs:
    `gh run list -w Deploy -L 1`, then `gh run watch`. Then check health (see below). If you
    broke production, fix forward or revert, in this same run if time allows. Otherwise put
-   it first in the journal for the next run.
+   it first in the journal for the next run. A deploy that fails with "Not deploying ...: it
+   changes docker-compose.yml" (or `docker/Caddyfile`) is working as intended: those
+   files decide what the containers may touch on the host, so the maintainer reviews
+   them and approves them on the host. Until then nothing after that commit ships. Open
+   an issue for the maintainer naming the commit and why the change is needed, and keep
+   such changes rare and small. Changes to `upgrade.sh`, `ensure_env.sh`, `backup.sh` and
+   `host/` deploy, but production keeps running the maintainer's installed copies until
+   they review them, so say so in the journal too.
 10. **Finish the journal entry** you posted at the start (format below). Close or
     answer every issue you acted on, linking the PR.
 
@@ -129,7 +137,7 @@ whenever you are deciding whether to start something new.
 
 Runs share the maintainer's Claude usage limit. When it runs out, you stop mid-sentence.
 You can't wrap up, because wrapping up needs tokens too. The workflow then posts a salvage
-entry: your last report, the open PRs and a link to the transcript. Anything that existed
+entry: your last report, the open PRs and the subagents' latest reports. Anything that existed
 only in your context is gone. So write things down as soon as they exist, not at the end:
 
 - **Post the journal entry at the start** of the run, with health and the plan, and edit
@@ -211,21 +219,27 @@ think something there is worth doing, propose it in the journal.
 
 ## Production access
 
-`ssh diplomacy-vps` gives a root shell on the VPS (no pty, so pass the command as an
-argument or on stdin). The checkout is `~/diplomacy`. The ufw rate limit drops a 7th new
-SSH connection within 30 s, and the runner's SSH config multiplexes connections so you
-don't hit it. If you see `Connection refused`, wait a minute.
+`ssh diplomacy-vps <command>` reaches the VPS with your own key, whose forced command is
+`host/agent_shell.sh`: read-only diagnostics of this stack and nothing else. No shell, no
+writes, no other project. You change production only by merging, and the Deploy workflow
+ships it. The ufw rate limit drops a 7th new SSH connection within 30 s, and the runner's SSH
+config multiplexes connections so you don't hit it. If you see `Connection refused`, wait a
+minute.
 
 ```bash
-ssh diplomacy-vps 'curl -fsS http://127.0.0.1:8000/health'
-ssh diplomacy-vps 'cd ~/diplomacy && docker compose ps && docker compose logs --since 24h --no-color diplomacy_api | grep -iE "error|traceback" | tail -50'
-ssh diplomacy-vps "cd ~/diplomacy && docker compose exec -T postgres sh -c 'psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tA'" <<< 'select count(*) from games;'
+ssh diplomacy-vps status                  # deployed commit, containers, disk, memory
+ssh diplomacy-vps health                  # the API directly and through nginx
+ssh diplomacy-vps logs diplomacy_api 24h  # services: diplomacy_api diplomacy_bot diplomacy_web
+ssh diplomacy-vps journal diplomacy_bot 3d  #   diplomacy_docs postgres caddy; since: 30m, 6h, 2d
+ssh diplomacy-vps sql -tA <<< 'select count(*) from games;'
+ssh diplomacy-vps backup-status
 ```
 
-You may change anything in `~/diplomacy` and the host's diplomacy setup. Prefer doing it
-through the repository (`upgrade.sh`, the compose file, `install.sh`) so the change survives
-a rebuild. Never print secrets from `.env` into logs or GitHub. Nightly backups run at 03:17
-UTC and the host may reboot at 04:30 UTC; a failed SSH call around then is that.
+`sql` runs one batch as the read-only `diplomacy_agent` role (`host/agent_db_role.sql`): every
+table, except that emails, password hashes, reset tokens, link codes, join-password hashes,
+private message text and bot notification payloads are not readable. Name your columns:
+`select *` on such a table is refused. No psql backslash commands. Nightly backups run at
+03:17 UTC and the host may reboot at 04:30 UTC; a failed SSH call around then is that.
 
 ## The weekly journal
 

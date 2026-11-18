@@ -6,7 +6,10 @@
 #
 #   ./backup.sh            take a backup now (the nightly cron job runs this)
 #   ./backup.sh --install  (root) install rclone >= 1.64 and the nightly cron
-#                          job; idempotent, upgrade.sh runs it on every deploy
+#                          job for THIS copy; idempotent. install.sh runs the
+#                          toolkit's copy, so the job never runs the checkout's
+#                          code as root (rclone's config holds the backup
+#                          account's login)
 #
 # Off-host copy: BACKUP_RCLONE_REMOTE (default proton:diplomacy-backups; may be
 # set in .env). Until that remote exists in rclone's config the upload is
@@ -21,7 +24,11 @@
 #
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-cd "$HERE"
+# Installed in the host toolkit (/usr/local/lib/diplomacy, install.sh --toolkit),
+# toolkit.env names the checkout; run from the checkout, it is this directory.
+# shellcheck source=/dev/null
+[ -f "$HERE/toolkit.env" ] && . "$HERE/toolkit.env"
+cd "${DIPLOMACY_DIR:-$HERE}"
 
 env_var() { [ -f .env ] && grep -E "^$1=" .env | tail -n1 | cut -d= -f2- || true; }
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/diplomacy}"

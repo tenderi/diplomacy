@@ -12,7 +12,12 @@
 # Prints the NAMES of what it generated, never the values.
 #
 set -euo pipefail
-cd "$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# Installed in the host toolkit (/usr/local/lib/diplomacy, install.sh --toolkit),
+# toolkit.env names the checkout; run from the checkout, it is this directory.
+# shellcheck source=/dev/null
+[ -f "$HERE/toolkit.env" ] && . "$HERE/toolkit.env"
+cd "${DIPLOMACY_DIR:-$HERE}"
 ENV_FILE=.env
 
 if [ ! -f "$ENV_FILE" ]; then

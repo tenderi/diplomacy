@@ -6,8 +6,9 @@ name: Deploy
 # The images are built here, not on the VPS (1 vCPU, 1.8 GiB: a build there was
 # the biggest CPU and memory spike the host saw). The `images` job builds the
 # four images of the deployed SHA and pushes them to GHCR as
-# ghcr.io/tenderi/diplomacy-<service>:<full sha>; the `deploy` job then runs
-# upgrade.sh on the host with DIPLOMACY_IMAGE_TAG=<sha>, which pulls them
+# ghcr.io/tenderi/diplomacy-<service>:<full sha>; the `deploy` job then asks
+# the host's deploy hook (host/deploy_hook.sh, the deploy key's forced command)
+# to deploy that SHA: it runs upgrade.sh with DIPLOMACY_IMAGE_TAG=<sha>, which pulls them
 # anonymously (the packages must be public) and builds on the host only if
 # the pull fails. Rollback: run this workflow by hand with the previous SHA;
 # its images already exist, so `images` does not rebuild them.
@@ -29,8 +30,9 @@ name: Deploy
 #   gh variable set DEPLOY_CONTROL_ENABLED --body true -R tenderi/diplomacy
 #
 # VPS_HOST is a secret so the address is masked in the public logs.
-# Optional variables (defaults in "Resolve target"): VPS_USER, VPS_REPO_DIR.
-# The deploy key's public half goes into ~/.ssh/authorized_keys of VPS_USER on the VPS.
+# Optional variable (default in "Resolve target"): VPS_USER.
+# The deploy key's public half goes into ~/.ssh/authorized_keys of VPS_USER on the
+# VPS, where `sudo ./install.sh` (harden_host.sh) gives it its forced command.
 # TELEGRAM_BOT_TOKEN is already a repository secret.
 
 on:
@@ -174,7 +176,6 @@ jobs:
           {
             echo "sha=$sha"
             echo "user=${{ vars.VPS_USER || 'root' }}"
-            echo "repo_dir=${{ vars.VPS_REPO_DIR || '~/diplomacy' }}"
           } >> "$GITHUB_OUTPUT"
           echo "Will deploy $sha to the VPS as ${{ vars.VPS_USER || 'root' }}"
 
@@ -211,58 +212,20 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SHA: ${{ steps.target.outputs.sha }}
-          REPO_DIR: ${{ steps.target.outputs.repo_dir }}
           TARGET: ${{ steps.target.outputs.user }}@${{ secrets.VPS_HOST }}
         run: |
-          # The token travels on stdin, never in the remote command line, so it
-          # is not visible in `ps` on the VPS. The remote script:
-          #   1. checks out the exact SHA the Test Suite passed on;
-          #   2. writes TELEGRAM_BOT_TOKEN into .env, leaving every other line
-          #      (the host-generated secrets, WEB_BIND, ...) as it is;
-          #   3. runs upgrade.sh with DIPLOMACY_IMAGE_TAG=$SHA: fill any missing
-          #      secret, pull the images the `images` job pushed (building on
-          #      the host only if the pull fails), restart (migrations run in
-          #      the API entrypoint), schedule the backup, and fail unless the
-          #      API and the site both answer.
-          #
-          # The token is prepended to the script as a `printf %q` assignment:
-          # stdin is the script itself (`bash -s`), so a remote `read` would
-          # consume script lines, not a second stream (a heredoc on ssh replaces
-          # any `|` into it -- v2.7.84).
-          {
-            printf 'set -euo pipefail\n'
-            printf 'TELEGRAM_BOT_TOKEN=%q\n' "$TELEGRAM_BOT_TOKEN"
-            cat <<'REMOTE'
-          : "${TELEGRAM_BOT_TOKEN:?}"
-          eval "cd $REPO_DIR"
-          echo "==> Checking out $SHA"
-          # Fetch the target itself: the clone may be single-branch (the VPS one
-          # was cloned on vps-split), so a plain `git fetch origin` can miss it.
-          git fetch --quiet origin "$SHA"
-          git checkout --quiet --detach FETCH_HEAD
-          # Until v3.0.1 the app lived in new_implementation/, and so did the
-          # host's .env (untracked, so the checkout leaves it there). Move it up
-          # *before* anything writes a new one: a fresh .env would get a new
-          # POSTGRES_PASSWORD that the existing database doesn't know.
-          if [ ! -f .env ] && [ -f new_implementation/.env ]; then
-            mv new_implementation/.env .env
-            echo "==> Moved .env up from new_implementation/"
-          fi
-          [ -f .env ] || cp .env.example .env
-          chmod 600 .env
-          if grep -q "^TELEGRAM_BOT_TOKEN=" .env; then
-            awk -v v="$TELEGRAM_BOT_TOKEN" 'BEGIN{FS=OFS="="} $1=="TELEGRAM_BOT_TOKEN"{$0="TELEGRAM_BOT_TOKEN="v} {print}' .env > .env.tmp
-            mv .env.tmp .env
-          else
-            printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN" >> .env
-          fi
-          chmod 600 .env
-          # upgrade.sh skips its `git pull` on a detached HEAD; the checkout
-          # above is what pins the deployed SHA.
-          DIPLOMACY_IMAGE_TAG="$SHA" ./upgrade.sh
-          REMOTE
-          } | ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 "$TARGET" \
-                "SHA='$SHA' REPO_DIR='$REPO_DIR' bash -s"
+          # The deploy key has a forced command on the host (harden_host.sh): it
+          # runs the root-owned host/deploy_hook.sh in /usr/local/lib/diplomacy
+          # and nothing else, whatever is asked. The hook takes "deploy <sha>" and
+          # the token on stdin (never on a command line, where `ps` would show it).
+          # It deploys only commits on main, refuses a change to docker-compose.yml
+          # or docker/Caddyfile the maintainer has not approved on the host, writes
+          # the token into .env and runs the toolkit's upgrade.sh with
+          # DIPLOMACY_IMAGE_TAG=<sha>: pull this commit's images, restart
+          # (migrations run in the API entrypoint), fail unless the API and the
+          # site answer.
+          printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN" \
+            | ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 "$TARGET" "deploy $SHA"
 
       - name: Clean up SSH key
         if: always()

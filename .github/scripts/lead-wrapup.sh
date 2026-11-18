@@ -30,6 +30,12 @@ fi
 # What the lead last said, and what it left in flight.
 last_words=""
 [ -s "$transcript" ] && last_words=$(jq -rs '[.[] | select(.type == "result" and (.is_error | not)) | .result] | last // ""' "$transcript" 2>/dev/null | head -c 2000)
+# Subagent reports that never reached the journal. The transcript itself is not kept
+# (no artifact: the repository is public and it holds production logs and query results),
+# so their summaries go into the entry, capped.
+subagent_reports=""
+[ -s "$transcript" ] && subagent_reports=$(jq -r 'select(.type=="system" and .subtype=="task_notification")
+    | "- **\(.status // "?")**: \(.summary // "" | gsub("\n"; " ") | .[0:600])"' "$transcript" 2>/dev/null | tail -n 12)
 open_prs=$(gh pr list -R "$GITHUB_REPOSITORY" --json number,title,headRefName \
              -q '.[] | "- #\(.number) \(.title) (`\(.headRefName)`)"' 2>/dev/null)
 
@@ -42,8 +48,10 @@ ${last_words:-_(none)_}
 **Open PRs (finish, fix or close these first):**
 ${open_prs:-_(none)_}
 
-**Transcript:** ${run_url} (artifact \`lead-transcript-${GITHUB_RUN_ID}\`). Subagent reports that never reached the journal are in it:
-\`gh run download ${GITHUB_RUN_ID} -R ${GITHUB_REPOSITORY} -D prev && jq -r 'select(.type=="system" and .subtype=="task_notification") | "### \\(.status)\\n\\(.summary)\\n"' prev/*/transcript.jsonl\`
+**Subagent reports (latest 12):**
+${subagent_reports:-_(none)_}
+
+**Run:** ${run_url}
 
 _Written by the workflow's wrap-up step, not by the agent._
 <!-- lead-agent -->

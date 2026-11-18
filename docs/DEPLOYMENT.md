@@ -211,6 +211,21 @@ requests are answered the same but send nothing).
 
 What protects the host and the site, and where it lives:
 
+- **The host boundary.** Every script that runs as root on the host runs from the
+  *host toolkit*, a root-owned copy in `/usr/local/lib/diplomacy` that only
+  `sudo ./install.sh` (or `--toolkit`) installs: `upgrade.sh`, `ensure_env.sh`,
+  `backup.sh` and `host/`. Neither SSH key GitHub holds can open a shell. The
+  deploy key's forced command is `deploy_hook.sh`, which deploys only commits on
+  `main`. The lead agent's key's forced command is `agent_shell.sh`, read-only
+  diagnostics of this stack. A deploy refuses a commit that changes
+  `docker-compose.yml` or `docker/Caddyfile` until the maintainer has reviewed it and
+  re-run `sudo ./install.sh --toolkit`, because those two files decide what the
+  containers may touch on the host. The Caddyfile is also imported into the Caddy that
+  serves the host's other sites. So a commit on `main`, from anyone or anything that
+  can merge, changes what runs *inside* the containers and nothing else: not the other
+  projects on the host, not root's files, not the backup account's login in
+  rclone's config. See [Approving a host change](#approving-a-host-change).
+
 - **Network.** Set ufw up yourself (no script does it, so a shared host's rules stay
   untouched): deny inbound by default, allow SSH rate-limited (`ufw limit 22/tcp`).
   Docker-published ports bypass ufw, so the compose file
@@ -218,13 +233,18 @@ What protects the host and the site, and where it lives:
   `127.0.0.1`, Postgres nowhere (`tests/test_deployment_infrastructure.py`).
 - **OS** (`harden_host.sh`, idempotent, run by `install.sh`; re-run by hand after
   editing it): sshd keys only and root by key only, no X11 or agent forwarding,
-  `MaxAuthTries 3`, idle sessions dropped; the GitHub Actions key is `restrict`ed
-  (it only pipes a script into `bash -s`); fail2ban bans an IP for an hour after
+  `MaxAuthTries 3`, idle sessions dropped; the two GitHub Actions keys get `restrict`
+  and their forced commands (above); fail2ban bans an IP for an hour after
   five failed SSH logins; unattended-upgrades installs security updates daily and
   reboots at 04:30 UTC when one needs it (every container restarts itself). The
   sshd change is validated with `sshd -t` before the reload.
-- **Containers.** Every service has `no-new-privileges`; the API and the bot
-  run as an unprivileged user with all Linux capabilities dropped.
+- **Containers.** Every service has `no-new-privileges`, drops every Linux
+  capability and adds back only the ones its image needs: none for the API and the
+  bot, which run as an unprivileged user; the entrypoint's for Postgres and nginx;
+  binding 80/443 and reading the mounted site files for Caddy. Every service has a
+  memory and a process limit, so a runaway or compromised container cannot starve
+  the other projects on the host. No container mounts the Docker socket or a host
+  path, except Caddy's read-only config and site files.
 - **HTTP** (`docker/Caddyfile`, `docker/web-nginx.conf.template`): HSTS, a strict
   Content-Security-Policy (scripts from the site only), `nosniff`,
   `X-Frame-Options: DENY`, no server versions. The API's Swagger/ReDoc/OpenAPI
@@ -249,9 +269,16 @@ or full, or a tag). Nothing is built on the VPS. The workflow has three jobs:
    from `docker/*.Dockerfile`) in GitHub Actions, with the Actions layer cache,
    and pushes them to GHCR as `ghcr.io/tenderi/diplomacy-<service>:<full commit
    SHA>`. A tag that already exists is not rebuilt.
-2. **`deploy`** SSHes in as `root`, fetches and checks out that SHA (detached),
-   writes `TELEGRAM_BOT_TOKEN` into `.env` (only that line), and runs
-   `DIPLOMACY_IMAGE_TAG=<sha> ./upgrade.sh`, which:
+2. **`deploy`** SSHes in with the deploy key, whose forced command is the
+   toolkit's `deploy_hook.sh`; it asks for `deploy <sha>` and sends the token on
+   stdin. The hook refuses anything else, a commit that is not on `main`, and an
+   unapproved change to `docker-compose.yml` or `docker/Caddyfile` (the workflow
+   fails with `::error::Not deploying ...`; see
+   [Approving a host change](#approving-a-host-change)). Otherwise it checks out
+   that SHA (detached), writes `TELEGRAM_BOT_TOKEN` into `.env` (only that line),
+   warns if the checkout's copies of the toolkit scripts differ from the installed
+   ones, and runs the toolkit's `upgrade.sh` with `DIPLOMACY_IMAGE_TAG=<sha>`,
+   which:
    1. runs `ensure_env.sh` (fills any missing secret);
    2. `docker compose pull` of the four services (`docker-compose.yml` names
       them `ghcr.io/tenderi/diplomacy-<service>:${DIPLOMACY_IMAGE_TAG}`;
@@ -264,8 +291,8 @@ or full, or a tag). Nothing is built on the VPS. The workflow has three jobs:
       another project's) and the dangling ones; after a build on the host it
       also empties the BuildKit build cache (`docker builder prune -af`),
       printing its size;
-   5. installs the nightly backup cron job if missing;
-   6. waits for `http://127.0.0.1:8000/healthz` and checks
+   5. waits for `http://127.0.0.1:8000/healthz`, re-applies the lead agent's
+      read-only database role (`host/agent_db_role.sql`), and checks
       `http://127.0.0.1/api/healthz` (nginx → API), and **fails the workflow** if
       either does not answer.
 
@@ -296,9 +323,12 @@ One-time setup, from a machine that can SSH into the VPS (`HOST` is its address,
 `REPO` your GitHub repository, e.g. `you/diplomacy`):
 
 ```bash
-# 1. A dedicated deploy key for GitHub (no passphrase), installed for root.
+# 1. A dedicated deploy key for GitHub (no passphrase), installed for root. The
+#    comment must be exactly github-actions-deploy: harden_host.sh finds the key by it
+#    and gives it its forced command (install.sh runs harden_host.sh; run it again
+#    after adding the key).
 ssh-keygen -t ed25519 -f ~/.ssh/diplomacy_deploy -N "" -C "github-actions-deploy"
-cat ~/.ssh/diplomacy_deploy.pub | ssh root@$HOST 'cat >> ~/.ssh/authorized_keys'
+cat ~/.ssh/diplomacy_deploy.pub | ssh root@$HOST 'cat >> ~/.ssh/authorized_keys && cd ~/diplomacy && ./harden_host.sh'
 
 # 2. Secrets and the gate.
 gh secret set TELEGRAM_BOT_TOKEN -R $REPO           # paste the token from @BotFather
@@ -309,18 +339,48 @@ gh variable set DEPLOY_CONTROL_ENABLED --body true -R $REPO
 ```
 
 The host's address is a secret rather than a variable so that it is masked in the
-(public) workflow logs. Optional repository variables override the defaults:
-`VPS_USER` (`root`) and `VPS_REPO_DIR` (`~/diplomacy`). Until
+(public) workflow logs. An optional repository variable overrides the login,
+`VPS_USER` (`root`); the checkout is wherever `install.sh` ran. Until
 `DEPLOY_CONTROL_ENABLED` is `true` the workflow is skipped, not red. On a fork, the
 images go to your own GHCR namespace only if you change `ghcr.io/tenderi/` in
 `docker-compose.yml`, `upgrade.sh` and `deploy.yml`; otherwise the host builds them.
+
+The lead agent (`.github/workflows/lead-agent.yml`) has its own key, never the
+deploy key; its forced command is `agent_shell.sh` (status, health, logs, journal, a
+read-only `sql`, backup status):
+
+```bash
+ssh-keygen -t ed25519 -f agent_key -N "" -C "diplomacy-lead-agent"   # this exact comment
+cat agent_key.pub | ssh root@$HOST 'cat >> ~/.ssh/authorized_keys && cd ~/diplomacy && ./harden_host.sh'
+ssh -i agent_key root@$HOST status    # prints the stack's status, and nothing else works
+gh secret set VPS_AGENT_KEY -R $REPO < agent_key && rm agent_key agent_key.pub
+```
+
+### Approving a host change
+
+A deploy that changes `docker-compose.yml` or `docker/Caddyfile` fails with
+`::error::Not deploying <sha>`, and production stays on the deployed commit. A
+deploy that changes `upgrade.sh`, `ensure_env.sh`, `backup.sh` or `host/` goes ahead
+with a `::warning::`, but the host keeps running its installed copies. Either way, on
+the VPS:
+
+```bash
+cd ~/diplomacy && git fetch origin && git checkout --detach <sha>
+git diff $(cat /usr/local/lib/diplomacy/installed-from) <sha> -- docker-compose.yml docker/Caddyfile host/ '*.sh'
+sudo ./install.sh --toolkit     # shows the same diff summary, asks, installs, records the hashes
+```
+
+then re-run the Deploy workflow (*Run workflow*, or `gh workflow run deploy.yml -R
+tenderi/diplomacy`). Read the diff for anything that reaches outside this stack: a
+new bind mount, `privileged`, a capability, the Docker socket, `network_mode: host`, a
+Caddy site that serves files, or a script that reads outside the checkout.
 
 ## Running by hand
 
 On the VPS, in the checkout (`~/diplomacy`):
 
 ```bash
-./upgrade.sh                           # the same thing the workflow runs
+sudo /usr/local/lib/diplomacy/upgrade.sh   # what the deploy runs (the installed copy)
 ./upgrade.sh --build                   # build the images here instead of pulling them
 docker compose ps
 docker compose logs -f diplomacy_bot   # or diplomacy_api, diplomacy_web, postgres
@@ -366,10 +426,13 @@ curl -H "$ADMIN" "http://127.0.0.1:8000/admin/feedback?limit=50"      # player f
 days (`BACKUP_DIR`, `BACKUP_KEEP_DAYS` override), then **copies the folder off-host**
 with rclone (any rclone remote; the default is Proton Drive) and deletes remote copies older than 60 days
 (`BACKUP_REMOTE_KEEP_DAYS`). `/etc/cron.d/diplomacy-backup` runs it nightly at
-03:17 UTC, logging to `/var/log/diplomacy-backup.log`. `upgrade.sh` runs
-`./backup.sh --install` on every deploy, which (re)installs that job and
-installs rclone from rclone.org (checksum-verified) if it is missing or older
-than 1.64 -- Ubuntu's own package is too old to have the Proton Drive backend.
+03:17 UTC, logging to `/var/log/diplomacy-backup.log`. The job runs the host
+toolkit's copy of `backup.sh`, never the checkout's: rclone's config holds the
+backup account's login, so no deploy changes what root runs at night.
+`install.sh` (and `--toolkit`) runs its `backup.sh --install`, which (re)installs
+that job and installs rclone from rclone.org (checksum-verified) if it is missing
+or older than 1.64 -- Ubuntu's own package is too old to have the Proton Drive
+backend.
 
 The remote is `BACKUP_RCLONE_REMOTE` (in `.env`; default
 `proton:diplomacy-backups`; set it to e.g. `s3:my-bucket/diplomacy` for any other
@@ -408,8 +471,8 @@ cd ~/diplomacy && ./backup.sh   # expect "off-host copy done"
 
 rclone's Proton Drive backend is **unofficial** (Proton publishes no Drive
 API), so a change on Proton's side can break uploads until rclone catches
-up. `./backup.sh --install` only installs rclone when it is missing or too
-old; to take a newer release, `dpkg -r rclone && ./backup.sh --install`. If
+up. `backup.sh --install` only installs rclone when it is missing or too
+old; to take a newer release, `dpkg -r rclone && sudo ./install.sh --toolkit`. If
 Proton ends the saved session, `rclone config reconnect proton:` asks for the
 password and 2FA code again. Check the tail of
 `/var/log/diplomacy-backup.log` now and then; every successful night ends with
