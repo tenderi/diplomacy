@@ -10,7 +10,7 @@ draw votes.
 ## Dev
 
 ```bash
-npm install
+npm ci        # exactly the lockfile; install scripts are off (.npmrc)
 npm run dev
 ```
 

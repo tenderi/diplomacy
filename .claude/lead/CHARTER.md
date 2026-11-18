@@ -208,8 +208,13 @@ you used, so the next run picks different ones.
   `docs/specs/adjudication.md` against the resolver.
 - **Code health.** Coverage holes in risky code, dead code, slow tests, duplication across
   the bot and frontend.
-- **Dependencies.** Outdated or vulnerable packages (`pip-audit`, `npm outdated`). Upgrade
-  them with the changelog read.
+- **Dependencies.** Dependabot opens grouped update PRs weekly, each release at least a week
+  old. Review them like any change: read the changelog, let CI run, merge. Every install is
+  pinned: Python through the hash-locked `.txt` files generated from the `.in` files
+  (`requirements.in` says how), npm through `package-lock.json` with install scripts off,
+  actions by commit SHA, base images by digest. Never loosen a pin, bypass a hash or turn
+  install scripts back on to make something install; find out why it fails. `pip-audit` and
+  `npm audit --omit=dev` run in CI.
 - **The web UI and bot UX**, especially on a phone.
 
 Taste: prefer changes a player would notice, or that prevent a real failure. A

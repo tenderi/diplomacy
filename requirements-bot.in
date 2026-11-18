@@ -1,0 +1,5 @@
+# Runtime dependencies of the Telegram bot ONLY (docker/bot.Dockerfile). Compiled with
+# hashes into requirements-bot.txt, at the API's versions (-c).
+-c requirements-api.txt
+python-telegram-bot>=22.0,<23.0
+requests>=2.31.0,<3.0.0

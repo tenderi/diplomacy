@@ -5,7 +5,7 @@
 # entrypoint applies before uvicorn starts. It deliberately does NOT carry the
 # Telegram token: the API never talks to Telegram. It writes notifications to
 # the bot_outbox table and the bot container pulls them.
-FROM python:3.14-slim
+FROM python:3.14-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -19,8 +19,9 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY requirements-api.txt .
+# Hash-locked: pip refuses any file whose hash differs from requirements-api.txt.
+RUN pip install --no-deps --require-hashes -r requirements-api.txt
 
 RUN adduser --disabled-password --gecos "" app \
     && mkdir -p /tmp/diplomacy_map_cache && chown app:app /tmp/diplomacy_map_cache

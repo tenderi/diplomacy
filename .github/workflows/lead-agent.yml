@@ -52,6 +52,10 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Pinned exactly: the runner holds the GitHub token, the Claude token and the VPS key,
+  # so a new release goes in by a reviewed bump of this line, not on the next run. (Its
+  # own postinstall links the platform binary, so this one install keeps its scripts.)
+  CLAUDE_CODE_VERSION: "2.1.327"
 
 jobs:
   # Cheap gate: authorization, secrets, and whether any Claude usage is left. The lead job (and
@@ -104,11 +108,11 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           sparse-checkout: .github/scripts
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
 
@@ -122,7 +126,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           LEAD_USAGE_STOP: ${{ vars.LEAD_USAGE_STOP || '0.90' }}
         run: |
-          npm install -g @anthropic-ai/claude-code
+          npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
           .github/scripts/lead-usage-probe.sh
 
   lead:
@@ -154,27 +158,26 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           token: ${{ secrets.LEAD_AGENT_GH_TOKEN }}
           fetch-depth: 0   # tags: the agent picks the next free v3.0.N
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.14'
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
 
       - name: Install tools
         run: |
           sudo apt-get update && sudo apt-get install -y libcairo2 libcairo2-dev postgresql-client
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt ruff==0.15.12 bandit pip-audit
-          npm install -g @anthropic-ai/claude-code
+          pip install --no-deps --require-hashes -r requirements.txt
+          npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
       # Again, now that this run holds the lead slot: preflight checked usage before the
       # job waited for a previous run to finish, and that run may have spent the window
