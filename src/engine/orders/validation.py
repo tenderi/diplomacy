@@ -345,6 +345,8 @@ def _validate_support_move(order: SupportMove, unit: Unit, map: MapData) -> Vali
         return ValidationResult(
             False, f"{unit.location} cannot support a move into its own province"
         )
+    if order.origin.province == order.dest.province:
+        return _no_move_to("support", order.origin)
     if not _can_reach_province(map, unit.location, unit.kind, order.dest.province):
         return ValidationResult(
             False, f"{unit.location} cannot reach {order.dest.province} to support a move"
@@ -361,6 +363,8 @@ def _validate_convoy(order: Convoy, unit: Unit, state: GameState, map: MapData) 
         return ValidationResult(False, f"{order.origin.province} is not a coastal province")
     if map.province_type(order.dest.province) is not ProvinceType.COAST:
         return ValidationResult(False, f"{order.dest.province} is not a coastal province")
+    if order.origin.province == order.dest.province:
+        return _no_move_to("convoy", order.origin)
     # Only an army can be convoyed. The stored order is written with the unit
     # letters actually on the board, so a convoy of a fleet would be stored as
     # ``F ION C F ALB - APU`` -- a string the parser refuses.
@@ -372,6 +376,19 @@ def _validate_convoy(order: Convoy, unit: Unit, state: GameState, map: MapData) 
             False, f"the unit at {order.origin.province} is a fleet; only an army can be convoyed"
         )
     return ValidationResult(True)
+
+
+def _no_move_to(verb: str, origin: Location) -> ValidationResult:
+    """Refuse a support or convoy of a "move" from a province into itself.
+
+    No such move exists (``_validate_move`` refuses it, and the adjudicator
+    voids it: ``_legal_move`` compares provinces, so ``SPA/NC - SPA/SC`` is
+    one too), so the adjudicator always voids the support or convoy of it --
+    accepting it told the player ``success`` and then dropped it.
+    """
+    return ValidationResult(
+        False, f"{origin} cannot move to its own province, so there is no move to {verb}"
+    )
 
 
 def _reachable_coasts(map: MapData, frm: Location, province: str) -> list[str]:
