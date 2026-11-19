@@ -542,7 +542,7 @@ MAR borders SPA only from SPA/SC`, or `F ROM cannot reach VEN: ROM and VEN share
 so a fleet cannot move between them`. A move to the unit's own
 province is refused as well (`LON cannot move to its own province`); a support of a move into the supporter's
 own province is refused as such (`VEN cannot support a move into its own province`), not as
-out of reach, and a unit supporting itself, to hold or to move (`A WAR S A WAR - UKR`), is
+out of reach. A support or convoy of a move from a province into itself is refused, since no such move exists and the adjudicator voids it: `A PAR S A BUR - BUR` says `BUR cannot move to its own province, so there is no move to support`, `F NTH C A LON - LON` the same ending `to convoy`; provinces are compared, so `S F SPA/NC - SPA/SC` is refused too. A unit supporting itself, to hold or to move (`A WAR S A WAR - UKR`), is
 refused (`a unit cannot support itself`). A fleet moving to a split-coast province
 (BUL, SPA, STP) without naming a coast is accepted when exactly one coast is reachable from
 where it stands (`F BLA - BUL` arrives on BUL/EC; the adjudicator infers it), refused as

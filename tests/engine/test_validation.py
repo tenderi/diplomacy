@@ -216,7 +216,38 @@ class TestSupport:
         )
 
 
+    @pytest.mark.parametrize(
+        "units, text, origin",
+        [
+            ([("ARMY", "PAR"), ("ARMY", "BUR")], "A PAR S A BUR - BUR", "BUR"),
+            # Split coasts: the adjudicator compares provinces, so a fleet
+            # cannot go SPA/NC -> SPA/SC and the support of it is void too.
+            ([("ARMY", "GAS"), ("FLEET", "SPA/NC")], "A GAS S F SPA/NC - SPA/SC", "SPA/NC"),
+        ],
+    )
+    def test_support_of_a_move_into_its_own_province_refused(self, m, units, text, origin):
+        """The adjudicator voids it (no such move exists); it used to be accepted."""
+        state = _state([
+            Unit(UnitKind[kind], "FRANCE", Location(*loc.split("/"))) for kind, loc in units
+        ])
+        result = validate(parse_order(text, power="FRANCE", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False, f"{origin} cannot move to its own province, so there is no move to support"
+        )
+
+
 class TestConvoy:
+    def test_convoy_into_the_armys_own_province_refused(self, m):
+        """``F NTH C A LON - LON`` was accepted, then voided at adjudication."""
+        state = _state([
+            Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+            Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+        ])
+        result = validate(parse_order("F NTH C A LON - LON", power="ENGLAND", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False, "LON cannot move to its own province, so there is no move to convoy"
+        )
+
     def test_convoy_ok(self, m):
         state = _state([
             Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
