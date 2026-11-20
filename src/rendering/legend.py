@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageColor, ImageDraw
 
 from .antialias import DrawTarget, antialiased_overlay
 from .arrows import (
@@ -158,6 +158,27 @@ LEGEND: dict[str, tuple[str, Symbol | None]] = {
 #: The unit key: (kind, label), drawn as that kind's token in a neutral grey.
 UNIT_KEY: tuple[tuple[str, str], ...] = (("A", "Army"), ("F", "Fleet"))
 
+#: The hatched-sea key: what the board's stripes on a sea mean.
+SEA_KEY_LABEL = "Sea with a fleet in it"
+
+
+def _paste_sea_swatch(image: Image.Image, x: float, y: float, w: float) -> None:
+    """A small swatch striped like a fleet-occupied sea (neutral grey stripes)."""
+    from .svg_paths import _draw_ocean_pattern
+
+    tints = _cfg.get_marker_specs()
+    h = 20
+    left, top = int(x), int(y - h / 2)
+    layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    box = [(left, top), (left + w, top), (left + w, top + h), (left, top + h)]
+    grey = ImageColor.getrgb("#9E9E9E")
+    _draw_ocean_pattern(
+        layer, box, (*grey, tints["sea_hatch_alpha"]),
+        spacing=tints["sea_hatch_spacing"] // 2, angle=45, line_width=tints["sea_hatch_width"] // 2,
+    )
+    image.alpha_composite(layer)
+    ImageDraw.Draw(image).rectangle([left, top, left + w, top + h], outline=_casing(), width=1)
+
 
 def _token_symbol(image: Image.Image, key: str, x: float, y: float, w: float) -> None:
     """Symbols built from a unit token are pasted, not drawn."""
@@ -215,6 +236,7 @@ def add_footer(
     if powers:
         # What the two token outlines mean, on every picture that shows a unit's power.
         items += [("unit", kind, label) for kind, label in UNIT_KEY]
+        items.append(("sea", "", SEA_KEY_LABEL))
     items += [("power", p, p.capitalize()) for p in powers]
     placed: list[tuple[tuple[str, str, Any], float, int]] = []
     x, row = float(pad), 0
@@ -247,9 +269,11 @@ def add_footer(
             continue
         if kind == "power":
             paste_token(out, (x + sym_w / 2, y), "", _cfg.get_power_color(key))
+        elif kind == "sea":
+            _paste_sea_swatch(out, x, y, sym_w)
         elif kind == "unit":
             paste_token(out, (x + sym_w / 2, y), key, _cfg.get_color("void"))
-        elif LEGEND[key][1] is None:
+        elif kind == "legend" and LEGEND[key][1] is None:
             _token_symbol(out, key, x, y, sym_w)
         draw.text((x + sym_w + 8, y), label, fill=ink, font=item_font, anchor="lm")
     with antialiased_overlay(out) as d:

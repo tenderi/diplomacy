@@ -252,7 +252,7 @@ def test_footer_places_each_item_in_its_own_column() -> None:
     f = font(SPEC["item_font_size"], bold=False)
     measure = ImageDraw.Draw(out)
     cols = [PAD]
-    for label in ("Move", "Army", "Fleet"):
+    for label in ("Move", "Army", "Fleet", legend.SEA_KEY_LABEL):
         cols.append(cols[-1] + measure.textlength(label, font=f) + SYM_W + 8 + SPEC["item_gap"])
     assert out.height == BOARD[1] + ROW_H + 2 * PAD
     void = ImageColor.getrgb(_cfg.get_color("void"))[:3]
@@ -265,8 +265,8 @@ def test_footer_places_each_item_in_its_own_column() -> None:
 
     assert token_at(cols[1], void)  # Army, grey
     assert token_at(cols[2], void)  # Fleet
-    assert token_at(cols[3], england)  # the power's swatch comes after both
-    assert ink_bbox(out, (round(cols[3] + SYM_W + 8), BOARD[1] + PAD, width, BOARD[1] + PAD + ROW_H)) is not None  # its label
+    assert token_at(cols[4], england)  # the power's swatch comes after the sea key
+    assert ink_bbox(out, (round(cols[4] + SYM_W + 8), BOARD[1] + PAD, width, BOARD[1] + PAD + ROW_H)) is not None  # its label
 
 
 def test_footer_wraps_at_the_right_margin() -> None:
@@ -301,9 +301,9 @@ def test_footer_tokens_are_centred_on_their_column_and_are_the_right_kind() -> N
     f = font(SPEC["item_font_size"], bold=False)
     measure = ImageDraw.Draw(out)
     cols = [PAD]
-    for label in ("Move", "Army", "Fleet"):
+    for label in ("Move", "Army", "Fleet", legend.SEA_KEY_LABEL):
         cols.append(cols[-1] + measure.textlength(label, font=f) + SYM_W + 8 + SPEC["item_gap"])
-    want = {1: ("A", _cfg.get_color("void")), 2: ("F", _cfg.get_color("void")), 3: ("", _cfg.get_power_color("england"))}
+    want = {1: ("A", _cfg.get_color("void")), 2: ("F", _cfg.get_color("void")), 4: ("", _cfg.get_power_color("england"))}
     for i, (kind, fill) in want.items():
         ref = Image.new("RGBA", out.size, FOOTER_BG + (255,))
         paste_token(ref, (cols[i] + SYM_W / 2, mid), kind, fill)
@@ -332,3 +332,21 @@ def test_cut_symbol_has_its_cross_mid_line() -> None:
     xs = [x for y in range(60) for x in range(100)
           if all(abs(a - b) <= 25 for a, b in zip(strip.getpixel((x, y))[:3], red))]  # type: ignore[arg-type]
     assert abs((min(xs) + max(xs)) / 2 - 37) <= 0.5, (min(xs), max(xs))  # centred on x + w / 2
+
+
+def test_footer_explains_the_sea_hatching() -> None:
+    assert legend.SEA_KEY_LABEL == "Sea with a fleet in it"
+    out = add_footer(blank(1400), None, set(), POWERS)
+    assert out.height == BOARD[1] + ROW_H + 2 * PAD  # still one row at a wide size
+    f = font(SPEC["item_font_size"], bold=False)
+    measure = ImageDraw.Draw(out)
+    x0 = float(PAD)
+    for label in ("Army", "Fleet"):
+        x0 += measure.textlength(label, font=f) + SYM_W + 8 + SPEC["item_gap"]
+    mid = BOARD[1] + PAD + ROW_H / 2
+    grey = ImageColor.getrgb("#9E9E9E")
+    box = [(x, y) for x in range(int(x0), int(x0) + SYM_W) for y in range(int(mid) - 9, int(mid) + 9)]
+    stripes = sum(1 for p in box if all(abs(a - b) <= 12 for a, b in zip(out.getpixel(p)[:3], grey)))
+    gaps = sum(1 for p in box if out.getpixel(p)[:3] == FOOTER_BG)
+    assert stripes > 40 and gaps > 40  # grey stripes with the footer showing between them
+    assert add_footer(blank(1400), None, set(), []).height == BOARD[1]  # no powers, no key
