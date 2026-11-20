@@ -63,6 +63,19 @@ describe('GameList', () => {
     expect(within(container).getByRole('button', { name: /create new game/i })).toBeInTheDocument()
   })
 
+  it('says so under All games when there are none', async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth}>
+          <GameList />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    await waitFor(() => {
+      expect(within(container).getByText('No games yet. Create one above.')).toBeInTheDocument()
+    })
+  })
+
   it('lists My games before the create form', async () => {
     const { container } = render(
       <MemoryRouter>

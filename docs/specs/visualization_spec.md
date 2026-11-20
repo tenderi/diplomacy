@@ -109,7 +109,7 @@ The orders picture shows no outcome at all: nothing red, nothing grey.
 A strip **below** the map, never on it (a key drawn on the map covered Portugal and the
 Mid-Atlantic): the title (`Orders` / `Orders and results`, then the phase, e.g. `Spring 1901 movement ·
 S1901M`), the key for exactly the symbols the picture uses, the unit key (a grey army
-token and a grey fleet token, labelled, on every picture that lists powers), and a swatch
+token and a grey fleet token, labelled, on every picture that lists powers), a grey-striped swatch labelled "Sea with a fleet in it" that explains the board's sea hatching (same stripe style at half scale, on the same pictures), and a swatch
 per power on the board, wrapping onto more rows when needed.
 
 ## Technical

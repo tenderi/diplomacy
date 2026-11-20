@@ -185,6 +185,9 @@ export default function GameList() {
         </Button>
       </div>
       <h2 className="text-lg font-medium mb-2">All games</h2>
+      {allGames.length === 0 && (
+        <p className="text-sm text-muted-foreground">No games yet. Create one above.</p>
+      )}
       <ul className="list-none p-0 space-y-2">
         {allGames.map((g) => (
           <li key={g.id}>
