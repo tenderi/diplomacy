@@ -10,18 +10,34 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DV**.
+>   history. Track letters run in sequence; the next free one is **DW**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-21.
-- **Open tracks:** only F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** DV (smaller bot-text findings from the 2026-11-21 play-through), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DV — Smaller bot-text findings (2026-11-21 play-through)
+
+- [ ] DV1: draw-vote DMs end "Use /draw to agree or /nodraw to withdraw" even for a player
+      who has already voted; tailor the line to the recipient's vote.
+- [ ] DV2: the deadline-set DM names neither who set it nor how long is left, and the hub
+      says a deadline "applies when a majority of players agree" while any one player's
+      `/deadline` sets it at once. Make the hub text match the behaviour and add the
+      setter's power and the time left to the DM.
+- [ ] DV3: one wording for a waived build: an explicit WAIVE says "1 build waived.", a
+      missed one "Your 1 build was waived: no orders came in."; the caller's reply says
+      "Austria owes 1 build." where everything else says "AUSTRIA"; the `/order A ROM -
+      PAR` note "PAR is inland, so no fleet can convoy it there" is odd advice for an army.
+- [ ] DV4 (needs a decision first, ask the maintainer): `/message` in a finished game is
+      accepted and delivered; results DMs list orders alphabetically, without outcomes;
+      a `/newgame` creator who hasn't joined can't `/unlinkgroup`.
 
 # Track F — Manual acceptance (maintainer)
 
