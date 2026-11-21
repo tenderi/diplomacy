@@ -33,7 +33,7 @@ def test_retreat_says_disbanded() -> None:
         "orders_by_unit": {"A RUM": ["A RUM R BUL", "D A RUM"]},
     }
     with _api(legal, []):
-        assert bot_orders.unordered_note("1", "RUSSIA", "5") == "No order yet (disbanded if none comes): A RUM"
+        assert bot_orders.unordered_note("1", "RUSSIA", "5") == "No order yet (disbanded unless you order a retreat): A RUM"
 
 
 def test_nothing_missing_adds_no_line() -> None:

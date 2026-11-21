@@ -302,7 +302,7 @@ def unordered_note(game_id: str, power: str, user_id: str) -> str:
     missing = [k for k in keys if not any(order_is_for_unit(o, k) for o in pending)]
     if not missing:
         return ""
-    fate = "disbanded if none comes" if phase_type == "RETREAT" else "holds"
+    fate = "disbanded unless you order a retreat" if phase_type == "RETREAT" else "holds"
     return f"No order yet ({fate}): {', '.join(missing)}"
 
 
