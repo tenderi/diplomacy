@@ -62,14 +62,14 @@ def test_map_command_delegates_to_send_game_map(mock_get_bytes):
 
 
 @patch("server.telegram_bot.maps.api_get_bytes")
-def test_map_command_requires_game_id_arg(mock_get_bytes):
+def test_map_command_with_no_game_says_so(mock_get_bytes):
     update, context, message = _make_message_update([])
 
-    asyncio.run(map_command(update, context))
+    with patch("server.telegram_bot.game_context.api_get", return_value={"games": []}):
+        asyncio.run(map_command(update, context))
 
     mock_get_bytes.assert_not_called()
-    message.reply_text.assert_called_once()
-    assert "Usage" in message.reply_text.call_args[0][0]
+    assert message.reply_text.call_args[0][0].startswith("❌ You're not in any games!")
 
 
 @patch("server.telegram_bot.maps.api_get_bytes")
@@ -83,7 +83,7 @@ def test_replay_fetches_history_endpoint(mock_get_bytes):
 
     asyncio.run(replay(update, context))
 
-    mock_get_bytes.assert_called_once_with("/games/42/map/history/3")
+    mock_get_bytes.assert_called_once_with("/games/42/map/history/3", headers_out={})
     message.reply_photo.assert_called_once()
 
 

@@ -302,8 +302,24 @@ def unordered_note(game_id: str, power: str, user_id: str) -> str:
     missing = [k for k in keys if not any(order_is_for_unit(o, k) for o in pending)]
     if not missing:
         return ""
-    fate = "disbanded" if phase_type == "RETREAT" else "holds"
+    fate = "disbanded if none comes" if phase_type == "RETREAT" else "holds"
     return f"No order yet ({fate}): {', '.join(missing)}"
+
+
+def display_order(order: Any) -> str:
+    """An order as the bot shows it: a trailing ``VIA`` (the engine's canonical form of
+    a convoyed move) reads ``VIA CONVOY``, the words help teaches. Display only."""
+    text = str(order)
+    return f"{text} CONVOY" if text.endswith(" VIA") else text
+
+
+def player_error(error: Any) -> str:
+    """A rejection's message for a player: the engine's ``parse error: <detail>`` becomes
+    a sentence with an example; anything else is shown as sent."""
+    text = str(error)
+    if text.startswith("parse error:"):
+        return f"Couldn't read that order: {text[len('parse error:'):].strip()}. Example: A PAR - BUR"
+    return text
 
 
 def format_order_results(results: list[dict[str, Any]]) -> str:
@@ -319,9 +335,9 @@ def format_order_results(results: list[dict[str, Any]]) -> str:
         if r.get("success"):
             note = f" {r['note']}" if r.get("note") else ""
             # The server's canonical form (coast filled in) when it sent one.
-            lines.append(f"✅ {r.get('stored') or r['order']}{note}")
+            lines.append(f"✅ {display_order(r.get('stored') or r['order'])}{note}")
         else:
-            lines.append(f"❌ {r['order']}\n   Error: {r.get('error')}")
+            lines.append(f"❌ {display_order(r['order'])}\n   Error: {player_error(r.get('error'))}")
         lines.extend(f"   💡 {text}" for text in helper_note_texts(r))
     return "\n".join(lines)
 
@@ -407,7 +423,8 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if len(args) < 1:
         await update.message.reply_text(
-            "Usage: /orders [game_id] <order>; <order>; ...\n\n"
+            "Usage: /orders [game_id] <order>; <order>; ...\n"
+            "To list the orders you have given so far, use /myorders.\n\n"
             "Examples:\n"
             "/orders A BER - SIL\n"
             "/orders F KIE - DEN; A MUN S A BER - SIL\n"
@@ -497,7 +514,7 @@ def my_orders_text(game_id: str, power: str, user_id: str) -> str:
     order_list = result.get("orders", [])
     if not order_list:
         return f"You have not submitted any orders in game {game_id} this turn."
-    return f"Your orders in game {game_id} ({power}):\n" + "\n".join(order_list)
+    return f"Your orders in game {game_id} ({power}):\n" + "\n".join(display_order(x) for x in order_list)
 
 
 async def clearorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

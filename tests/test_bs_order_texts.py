@@ -33,7 +33,7 @@ def test_retreat_says_disbanded() -> None:
         "orders_by_unit": {"A RUM": ["A RUM R BUL", "D A RUM"]},
     }
     with _api(legal, []):
-        assert bot_orders.unordered_note("1", "RUSSIA", "5") == "No order yet (disbanded): A RUM"
+        assert bot_orders.unordered_note("1", "RUSSIA", "5") == "No order yet (disbanded if none comes): A RUM"
 
 
 def test_nothing_missing_adds_no_line() -> None:
@@ -123,7 +123,7 @@ def test_results_show_the_helper_notes_once() -> None:
         },
     ]
     assert bot_orders.format_order_results(results) == (
-        f"✅ A LON - NWY VIA {CONVOY}\n"
+        f"✅ A LON - NWY VIA CONVOY {CONVOY}\n"
         "❌ F EDI - PAR\n   Error: F EDI cannot reach PAR\n   💡 A fleet cannot go inland\n"
         "✅ F NTH S A LON - NWY\n   💡 But A LON is ordered to hold"
     )

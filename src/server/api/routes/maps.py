@@ -307,7 +307,7 @@ def get_game_map_history_png(game_id: str, turn: str) -> Response:
         supply_center_control=dict(hist_view["ownership"]),
         retreat_options=retreat_options_for_render(hist_view),
     )
-    return Response(content=img_bytes, media_type="image/png")
+    return Response(content=img_bytes, media_type="image/png", headers={"X-Phase-Code": str(hist_view["phase"])})
 
 
 @router.get("/games/{game_id}/map/turn/{turn}/orders", response_class=Response)

@@ -16,7 +16,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from .api_client import api_get_bytes
-from .game_context import GameContextError, group_read_game, in_group
+from .game_context import GameContextError, group_read_game, in_group, resolve_game_and_power
 
 logger = logging.getLogger("diplomacy.telegram_bot.maps")
 
@@ -99,7 +99,15 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await send_game_map(update, context, game_id)
         return
     if len(args) < 1:
-        await update.message.reply_text("Usage: /map <game_id>")
+        try:
+            game_id, _power = resolve_game_and_power(str(user.id))
+        except GameContextError as e:
+            await update.message.reply_text(e.message)
+            return
+        except requests.RequestException as e:
+            await update.message.reply_text(f"Could not find your game: {e}")
+            return
+        await send_game_map(update, context, game_id)
         return
     await send_game_map(update, context, args[0])
 
@@ -121,10 +129,11 @@ async def replay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     game_id, turn = args[0], args[1]
     try:
-        img_bytes = api_get_bytes(f"/games/{game_id}/map/history/{turn}")
+        headers: dict[str, str] = {}
+        img_bytes = api_get_bytes(f"/games/{game_id}/map/history/{turn}", headers_out=headers)
     except requests.RequestException as e:
         await update.message.reply_text(f"No board state found for game {game_id} turn {turn}: {e}")
         return
-    await update.message.reply_photo(
-        photo=BytesIO(img_bytes), caption=f"Board for game {game_id}, turn {turn}"
-    )
+    phase = headers.get("X-Phase-Code")
+    label = f"turn {turn}" + (f" ({phase})" if phase else "")
+    await update.message.reply_photo(photo=BytesIO(img_bytes), caption=f"Board for game {game_id}, {label}")

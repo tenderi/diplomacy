@@ -740,10 +740,9 @@ class TestReadCommandsInAGroup:
         update, asked = self._run(text, "private", {"linked": True, "game_id": "2"})
         assert asked[0] == first_call
 
-    def test_a_bare_map_in_a_private_chat_still_asks_for_the_id(self) -> None:
+    def test_a_bare_map_in_a_private_chat_uses_the_current_game(self) -> None:
         update, asked = self._run("/map", "private", {"linked": True, "game_id": "2"})
-        assert asked == []
-        assert update.message.reply_text.call_args[0][0] == "Usage: /map <game_id>"
+        assert asked == ["/games/1/map"]  # the current game, not a usage message
 
 
 class TestOlderChannelCommands:
