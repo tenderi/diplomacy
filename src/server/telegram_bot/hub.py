@@ -43,6 +43,7 @@ from .games import (
 from .messages import recent_messages_text, send_diplomatic_message
 from .utils import ending_outcome, game_end_line, game_over_note, lobby_text, phase_label
 from .orders import (
+    unordered_fate,
     orderable_units,
     Sender, adjustment_duty, my_orders_text, orderhistory_text, retreat_duty, process_anyway_data, run_process_turn, show_unit_picker, start_order_walk,
 )
@@ -148,11 +149,14 @@ def _order_row(game_id: str, legal: Optional[dict]) -> list[InlineKeyboardButton
     return [_btn("📝 Order all units", game_id, "all"), _btn("🎯 One unit", game_id, "one")]
 
 
+_ENDED = ("COMPLETED", "FINISHED", "DRAWN", "ENDED")
+
+
 def _hub_keyboard(
     game_id: str, power: str, state: dict, orders_status: Optional[dict], is_creator: bool,
     legal: Optional[dict] = None, proposal_pending: bool = False,
 ) -> InlineKeyboardMarkup:
-    if str(state.get("status", "")).upper() in ("COMPLETED", "FINISHED", "DRAWN", "ENDED"):
+    if str(state.get("status", "")).upper() in _ENDED:
         return InlineKeyboardMarkup([
             [_btn("🗺 Final map", game_id, "map"), _btn("📜 Order history", game_id, "hist")],
             [_btn("💬 Messages", game_id, "msgs")],
@@ -195,7 +199,8 @@ async def show_hub(send: Sender, user_id: str, game_id: str) -> None:
         orders_status = None
     is_creator = any(str(g["game_id"]) == game_id and g.get("is_creator") for g in games_list)
     legal: Optional[dict] = None
-    if str(state.get("phase_type", "")).upper() in ("ADJUSTMENT", "MOVEMENT", "RETREAT"):
+    over = str(state.get("status", "")).upper() in _ENDED
+    if not over and str(state.get("phase_type", "")).upper() in ("ADJUSTMENT", "MOVEMENT", "RETREAT"):
         try:
             legal = api_get(f"/games/{game_id}/legal_orders/{power}")
         except requests.RequestException:
@@ -466,7 +471,7 @@ async def _process_turn(send: Sender, user_id: str, game_id: str, pinned_phase: 
     if (missing or waiting) and not status.get("unseated") and not moved:
         warning = []
         if missing:
-            warning.append(f"⚠️ Still waiting on: {', '.join(missing)}. Their units will hold if you process now.")
+            warning.append(f"⚠️ Still waiting on: {', '.join(missing)}. If you process now, {unordered_fate(status.get('phase'))}.")
         if waiting:
             who = ", ".join(waiting)
             warning.append(f"✋ {who} asked to wait before the turn is processed. Process anyway?")

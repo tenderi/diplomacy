@@ -590,6 +590,17 @@ def orderhistory_text(game_id: str) -> str:
     return text if len(text) <= 4000 else "…" + text[-3990:]
 
 
+def unordered_fate(phase: Optional[str]) -> str:
+    """What the engine does to a power that gave no orders, by phase code (``S1901M``,
+    ``F1901R``, ``W1901A``): the clause of the "process now" warnings (DU1)."""
+    kind = (phase or "")[-1:].upper()
+    if kind == "R":
+        return "their dislodged units will be disbanded"
+    if kind == "A":
+        return "their builds are waived and any disbands are chosen for them"
+    return "their units will hold"
+
+
 async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process the current turn/phase for a game.
 
@@ -633,7 +644,7 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(
             f"⚠️ *Not everyone has submitted orders yet for Game {game_id}.*\n\n"
             f"⏳ Still waiting on: {', '.join(missing)}\n\n"
-            f"Processing now will treat their units as holding. Continue?",
+            f"Processing now: {unordered_fate((orders_status or {}).get('phase'))}. Continue?",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown',
         )
