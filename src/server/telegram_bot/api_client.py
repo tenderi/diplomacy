@@ -234,17 +234,20 @@ def api_get(endpoint: str, telegram_id: Optional[str] = None, timeout: float = D
     return resp.json()
 
 
-def api_get_bytes(endpoint: str) -> bytes:
+def api_get_bytes(endpoint: str, headers_out: Optional[dict[str, str]] = None) -> bytes:
     """Make a GET request to the API and return the raw response body (e.g. a PNG).
 
     Mirrors ``api_get``'s auth handling (``X-Bot-Secret`` header via
     ``_bot_headers()``); unlike ``api_get`` the response is not JSON-decoded.
+    ``headers_out``, when given, is filled with the response headers.
     """
     try:
         resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT)
     except (requests.ConnectionError, requests.Timeout) as e:
         raise ApiUnreachableError(e) from e
     _raise_for_status(resp)
+    if headers_out is not None:
+        headers_out.update(resp.headers)
     return resp.content
 
 

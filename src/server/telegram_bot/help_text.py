@@ -163,6 +163,7 @@ a notification about -- so the game id is only needed to switch games.
 • `/selectunit` - Order a single unit
 • `/orders <orders>` - Type orders, separated by `;`. Each adds to the ones you sent before; a new order for a unit replaces its old one
 • `/myorders`, `/clearorders`, `/orderhistory`
+• `/replay <game_id> <turn>` - The board at the start of a turn (a number, or a phase code such as `S1901M`)
 
 *🎮 Games*
 • `/games` - Your games; `/game [id]` - a game's menu (and make it current)

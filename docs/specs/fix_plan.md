@@ -17,37 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-21.
-- **Open tracks:** DU (bot message texts that are wrong for the phase, from the 2026-11-21
-  play-through), then F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** only F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DU — Bot texts that are wrong for the phase
-
-Found by the 2026-11-21 bot play-through: these texts tell players something false, or
-leave them at a dead end.
-
-- [x] DU1: the "process now" warnings say "Their units will hold" / "treat their units as
-      holding" in every phase (`hub.py` `_process_turn`, `orders.py` `processturn`). In a
-      retreat phase an unordered dislodged unit is disbanded; in an adjustment phase a
-      missing build is waived and a missing disband follows the civil-disorder rule. Make
-      the warning phase-aware.
-- [x] DU2: the hub of a finished game (a draw, a solo) still ends with "You have nothing
-      to order this phase; wait for the other powers." (`hub.py` `show_hub`,
-      `orders.py` ~655). Say the game is over, and offer nothing to wait for.
-- [x] DU3: `/newgame` in a group whose game is still in progress silently relinks the
-      group to the new game ("It replaces Game 1…"). The old game's players are not told
-      and its maps and reminders stop reaching the group. Ask for confirmation before
-      replacing a game that is still in progress, and tell the old game's players when it
-      happens (`channel_commands.py` `newgame`).
-- [ ] DU4: wording nits. A private `/map` with no argument asks for a game id instead of
-      using the current game; a bare `/orders` never mentions `/myorders`; the order echo
-      shows `VIA` where help teaches `VIA CONVOY`; "No order yet (disbanded): A BUR" in a
-      retreat phase; raw parser errors ("parse error: expected unit kind 'A' or 'F', got
-      …") reach players; `/replay` captions omit the phase and `/replay` is missing from
-      help.
 
 # Track F — Manual acceptance (maintainer)
 

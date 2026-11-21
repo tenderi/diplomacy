@@ -326,6 +326,7 @@ class TestGetGameMapHistoryPng:
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "image/png"
         assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+        assert resp.headers["X-Phase-Code"] == "S1901M"
 
 
 
