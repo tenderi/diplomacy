@@ -37,7 +37,7 @@ leave them at a dead end.
 - [x] DU2: the hub of a finished game (a draw, a solo) still ends with "You have nothing
       to order this phase; wait for the other powers." (`hub.py` `show_hub`,
       `orders.py` ~655). Say the game is over, and offer nothing to wait for.
-- [ ] DU3: `/newgame` in a group whose game is still in progress silently relinks the
+- [x] DU3: `/newgame` in a group whose game is still in progress silently relinks the
       group to the new game ("It replaces Game 1…"). The old game's players are not told
       and its maps and reminders stop reaching the group. Ask for confirmation before
       replacing a game that is still in progress, and tell the old game's players when it

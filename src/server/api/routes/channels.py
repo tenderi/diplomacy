@@ -17,8 +17,8 @@ from persistence.database_service import ChannelTakenError
 
 from .auth import get_current_user_optional, http_bearer, require_bot_secret
 from ..shared import (
-    BOT_USERNAME, db_service, game_service, is_admin_token, is_bot_secret, logger, phase_label, player_rows,
-    require_not_eliminated,
+    BOT_USERNAME, db_service, game_service, is_admin_token, is_bot_secret, logger, notify_players, phase_label,
+    player_rows, require_not_eliminated,
 )
 from ...response_cache import invalidate_cache
 
@@ -157,7 +157,9 @@ def link_or_409(
 ) -> Optional[str]:
     """Link ``game_id`` to the group (``DatabaseService.link_game_to_channel``)
     and return the game that lost it, or raise 409 when the group belongs to a
-    game ``displacer_user_id`` doesn't play. Invalidates both games' caches."""
+    game ``displacer_user_id`` doesn't play. Invalidates both games' caches.
+    When the game that lost the group is still being played, its players are
+    told by DM (the group is otherwise cut off without a word)."""
     try:
         replaced = db_service.link_game_to_channel(
             game_id=game_id,
@@ -178,7 +180,19 @@ def link_or_409(
     invalidate_cache(f"games/{game_id}")
     if replaced is not None:
         invalidate_cache(f"games/{replaced}")
+        meta = game_service.meta(replaced)
+        if meta is not None and meta.get("status") != "completed":
+            notify_players(int(replaced), replaced_from_group_text(replaced, channel_name))
     return replaced
+
+
+def replaced_from_group_text(game_id: str, channel_name: Optional[str]) -> str:
+    """The DM to a game's players when another game takes its Telegram group.
+    Plain text (a DM has no ``parse_mode``), so the title is not escaped."""
+    group = f"group {channel_name}" if channel_name else "its Telegram group"
+    return (
+        f"Game {game_id} is no longer linked to {group}; its maps and reminders now come only by DM."
+    )
 
 
 @router.post("/games/{game_id}/channel/link", dependencies=[Depends(require_bot_or_admin)])

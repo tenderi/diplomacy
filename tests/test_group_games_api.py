@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 from tests.bot_client import BotTestClient
 
 from server._api_module import app
-from server.api.shared import ADMIN_TOKEN
+from persistence.database import GameModel
+from server.api.shared import ADMIN_TOKEN, db_service
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
 from tests.reliability_helpers import OutboxProbe
@@ -188,8 +189,28 @@ class TestAGroupHasOneGame:
         assert resp.json()["replaced_game_id"] == first
         assert client.get(f"/games/{first}/channel", headers=BOT).json()["linked"] is False
         assert client.get(f"/channels/{group}/game", headers=BOT).json() == {
-            "linked": True, "game_id": second, "channel_name": "Friday",
+            "linked": True, "game_id": second, "channel_name": "Friday", "status": "active", "phase_code": "S1901M",
         }
+
+    def test_replacing_a_game_in_progress_tells_its_players(self, client: TestClient) -> None:
+        anna, bert = _telegram_user(client, "anna"), _telegram_user(client, "bert")
+        first, second = self._game(client, anna, bert), self._game(client, anna)
+        group = self._linked_group(client, first)
+        with OutboxProbe() as probe:
+            assert self._link(client, second, group, channel_name="Friday", telegram_id=anna).status_code == 200
+        text = f"Game {first} is no longer linked to group Friday; its maps and reminders now come only by DM."
+        assert probe.by_recipient() == {anna: [text], bert: [text]}
+
+    def test_replacing_a_finished_game_tells_nobody(self, client: TestClient) -> None:
+        anna = _telegram_user(client, "anna")
+        first, second = self._game(client, anna), self._game(client, anna)
+        group = self._linked_group(client, first)
+        with db_service.session_factory() as session:
+            session.query(GameModel).filter(GameModel.game_id == first).update({"status": "completed"})
+            session.commit()
+        with OutboxProbe() as probe:
+            assert self._link(client, second, group, channel_name="Friday", telegram_id=anna).status_code == 200
+        assert probe.messages() == []
 
     @pytest.mark.parametrize("who", ["stranger", "nobody"])
     def test_the_bot_cannot_move_a_link_for_someone_who_does_not_play_the_groups_game(self, client: TestClient, who: str) -> None:
@@ -269,7 +290,7 @@ class TestAGroupHasOneGame:
         game_id = str(resp.json()["game_id"])
         assert resp.json()["replaced_game_id"] is None
         assert client.get(f"/channels/{group}/game", headers=BOT).json() == {
-            "linked": True, "game_id": game_id, "channel_name": "Friday",
+            "linked": True, "game_id": game_id, "channel_name": "Friday", "status": "active", "phase_code": "S1901M",
         }
 
     def test_a_game_the_group_cannot_have_is_not_created_at_all(self, client: TestClient) -> None:

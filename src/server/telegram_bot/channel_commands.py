@@ -5,7 +5,7 @@ This module provides commands for linking games to Telegram channels,
 managing channel settings, and controlling channel integration.
 """
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -14,7 +14,7 @@ import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from .api_client import api_delete, api_get, api_post
-from .game_context import GROUP_CHAT_TYPES, GameContextError, fetch_user_games, group_game, resolve_game_and_power, set_current_game
+from .game_context import GROUP_CHAT_TYPES, GameContextError, fetch_user_games, group_game, group_game_info, resolve_game_and_power, set_current_game
 from .games import ensure_registered
 from .utils import escape_markdown
 
@@ -266,13 +266,45 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(modes) != 1 or modes[0] not in NEWGAME_MODES or len(args) != len(set(args)):
         await update.message.reply_text(NEWGAME_CHOICE)
         return
-    anonymous = NEWGAME_MODES[modes[0]]
+    await _start_group_game(
+        update.message.reply_text, context.bot.username, user, chat, NEWGAME_MODES[modes[0]], random_powers,
+        confirmed=False,
+    )
+
+
+def _newgame_confirm_data(anonymous: bool, random_powers: bool, old_game_id: str, user_id: Any) -> str:
+    """``ngok|{anonymous 0/1}{random 0/1}|{old game}|{asker}``: the asker is
+    the only one who may confirm, and the old game is what they were shown."""
+    return f"ngok|{int(anonymous)}{int(random_powers)}|{old_game_id}|{user_id}"
+
+
+async def _start_group_game(
+    reply: Any, bot_username: Optional[str], user: Any, chat: Any, anonymous: bool, random_powers: bool,
+    *, confirmed: bool, shown_game: Optional[str] = None,
+) -> None:
+    """Create a game for this group, or (not ``confirmed``) first ask before
+    replacing a game that is still being played. ``shown_game`` is the game the
+    confirmation named: a group that has moved on since is asked again."""
     try:
         # The new game would take the group from its game: only that game's
         # players may (the API refuses anyone else) -- check before creating one.
-        current = group_game(chat.id)
+        info = group_game_info(chat.id)
+        current = info["game_id"] if info else None
         if current is not None and not any(str(g["game_id"]) == current for g in fetch_user_games(str(user.id))):
-            await update.message.reply_text(_taken_text(current))
+            await reply(_taken_text(current))
+            return
+        if info is not None and info.get("status") != "completed" and not (confirmed and shown_game == current):
+            await reply(
+                f"This group follows Game {current}, which is still being played ({info.get('phase_code')}). "
+                f"A new game would replace it here: Game {current}'s maps and reminders would stop coming "
+                f"to this group. Its players are told.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        "Replace it", callback_data=_newgame_confirm_data(anonymous, random_powers, current, user.id)
+                    ),
+                    InlineKeyboardButton("Cancel", callback_data=f"ngno|{user.id}"),
+                ]]),
+            )
             return
         ensure_registered(user)
         # One call creates the game linked to this group, or nothing (409): a
@@ -284,7 +316,7 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         })
         game_id = str(linked["game_id"])
     except requests.RequestException as e:
-        await update.message.reply_text(f"❌ Could not create a game: {e}")
+        await reply(f"❌ Could not create a game: {e}")
         return
     set_current_game(str(user.id), game_id)
     naming = (
@@ -297,7 +329,7 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if random_powers
         else "Tap the button to pick your power"
     )
-    await update.message.reply_text(
+    await reply(
         f"🎮 *Game {game_id} for this group!*\n\n"
         f"{naming}\n\n"
         f"{pick} -- it opens a private chat with me, where "
@@ -306,8 +338,31 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"(/dummy {game_id} <power> in the private chat).\n\n"
         f"After every turn I'll post the orders and the result as maps here, and deadline reminders."
         f"{_replaced_note(linked)}",
-        reply_markup=_join_button(context.bot.username, game_id),
+        reply_markup=_join_button(bot_username, game_id),
         parse_mode='Markdown',
+    )
+
+
+async def newgame_callback(query: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The buttons of /newgame's replace question (asked and answered in the group)."""
+    chat = query.message.chat
+    parts = query.data.split("|")
+    if str(query.from_user.id) != parts[-1]:
+        await query.answer("Only the player who sent /newgame can answer this.", show_alert=True)
+        return
+    await query.answer()
+    if parts[0] == "ngno":
+        await query.edit_message_text("Cancelled. This group keeps its game.")
+        return
+    flags, old = parts[1], parts[2]
+    await query.edit_message_text("Replacing the group's game...")
+
+    async def reply(text: str, reply_markup: Any = None, parse_mode: Optional[str] = None) -> None:
+        await chat.send_message(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+    await _start_group_game(
+        reply, context.bot.username, query.from_user, chat, flags[0] == "1", flags[1] == "1",
+        confirmed=True, shown_game=old,
     )
 
 
