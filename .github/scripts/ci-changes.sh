@@ -20,7 +20,7 @@ while IFS= read -r path; do
   [ -n "$path" ] || continue
   seen=1
   case "$path" in
-    docs/* | mkdocs.yml | docker/docs.Dockerfile) docs=true ;;
+    docs/* | mkdocs.yml | docker/docs.Dockerfile | docker/docs-requirements.*) docs=true ;;
   esac
   case "$path" in
     docs/TELEGRAM_BOT_COMMANDS.md) code=true ;;

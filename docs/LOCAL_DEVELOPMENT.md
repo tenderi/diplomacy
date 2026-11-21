@@ -41,8 +41,7 @@ brew services start postgresql@16
 ```bash
 python3.14 -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.txt   # hash-locked; generated from requirements.in
 ```
 
 ## 2. Database
@@ -132,7 +131,7 @@ PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000 --reloa
 In a second terminal:
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend && npm ci && npm run dev
 ```
 
 The app runs at **http://localhost:5173**; Vite proxies API routes to the backend. Set

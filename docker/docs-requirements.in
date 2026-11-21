@@ -1,0 +1,4 @@
+# The documentation site's build (docker/docs.Dockerfile, CI's docs job). Compiled with
+# hashes into docs-requirements.txt (see requirements.in).
+mkdocs>=1.6,<2
+mkdocs-material>=9.5,<10

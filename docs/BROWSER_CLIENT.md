@@ -15,7 +15,7 @@ PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000
 Frontend, in a second terminal:
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend && npm ci && npm run dev
 ```
 
 Open http://localhost:5173. Vite proxies API calls to the backend and serves the SPA for app

@@ -1,0 +1,54 @@
+# Dependency updates as PRs, which the Test Suite gates like any other change.
+#
+# cooldown: a release must be a week old before it is proposed. Hijacked packages are
+# usually caught and pulled within days, so waiting skips most of them; security
+# updates for a known advisory are not delayed by it.
+#
+# Python: the .in files are the inputs and the hash-locked .txt files are generated
+# with pip-compile (requirements.in); Dependabot regenerates the locks.
+# Not here on purpose: docker-compose.yml's postgres and caddy images. A change to that
+# file needs the maintainer's approval on the host before it deploys (docs/DEPLOYMENT.md,
+# Approving a host change), so those are bumped by hand.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: pip
+    directory: /docker
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    groups:
+      docs-site:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    groups:
+      base-images:
+        patterns: ["*"]
