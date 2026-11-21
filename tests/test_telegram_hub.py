@@ -382,7 +382,7 @@ class TestMenuActions:
              patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:
             query, _ = _press("g|5|pt")
         run.assert_not_awaited()
-        assert query.edit_message_text.call_args[0][0] == "⚠️ Still waiting on: ITALY, TURKEY. Their units will hold if you process now."
+        assert query.edit_message_text.call_args[0][0] == "⚠️ Still waiting on: ITALY, TURKEY. If you process now, their units will hold."
         # DD2: the button pins the phase the warning was about.
         assert ("✅ Process anyway", "ptforce|5|S1901M") in _buttons(query.edit_message_text.call_args[1]["reply_markup"])
 

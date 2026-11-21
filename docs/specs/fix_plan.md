@@ -29,12 +29,12 @@
 Found by the 2026-11-21 bot play-through: these texts tell players something false, or
 leave them at a dead end.
 
-- [ ] DU1: the "process now" warnings say "Their units will hold" / "treat their units as
+- [x] DU1: the "process now" warnings say "Their units will hold" / "treat their units as
       holding" in every phase (`hub.py` `_process_turn`, `orders.py` `processturn`). In a
       retreat phase an unordered dislodged unit is disbanded; in an adjustment phase a
       missing build is waived and a missing disband follows the civil-disorder rule. Make
       the warning phase-aware.
-- [ ] DU2: the hub of a finished game (a draw, a solo) still ends with "You have nothing
+- [x] DU2: the hub of a finished game (a draw, a solo) still ends with "You have nothing
       to order this phase; wait for the other powers." (`hub.py` `show_hub`,
       `orders.py` ~655). Say the game is over, and offer nothing to wait for.
 - [ ] DU3: `/newgame` in a group whose game is still in progress silently relinks the
