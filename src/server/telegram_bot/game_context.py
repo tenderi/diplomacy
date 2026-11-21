@@ -122,8 +122,15 @@ def group_game(chat_id: Any) -> Optional[str]:
     or None. A command typed in a group is about this game, never about the
     caller's current game. Raises ``requests.RequestException`` when the API
     can't answer."""
+    info = group_game_info(chat_id)
+    return info["game_id"] if info else None
+
+
+def group_game_info(chat_id: Any) -> Optional[dict[str, Any]]:
+    """``GET /channels/{chat_id}/game`` for a linked group -- ``game_id`` (a
+    string), ``status``, ``phase_code``, ``channel_name`` -- or None."""
     info = api_get(f"/channels/{chat_id}/game") or {}
-    return str(info["game_id"]) if info.get("linked") else None
+    return {**info, "game_id": str(info["game_id"])} if info.get("linked") else None
 
 
 def in_group(chat: Any) -> bool:

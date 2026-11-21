@@ -186,12 +186,18 @@ class TestGroupGuard:
 class TestNewGame:
     @pytest.fixture(autouse=True)
     def _group_has_no_game(self):  # type: ignore[no-untyped-def]
-        with patch.object(channel_commands, "group_game", return_value=None):
+        with patch.object(channel_commands, "group_game_info", return_value=None):
             yield
+
+    @staticmethod
+    def _group_plays(game_id: str, status: str = "active"):  # type: ignore[no-untyped-def]
+        return patch.object(channel_commands, "group_game_info", return_value={
+            "game_id": game_id, "status": status, "phase_code": "S1902M", "channel_name": "Friday Diplomacy",
+        })
 
     def test_a_group_with_another_players_game_gets_no_new_game(self) -> None:
         update, context = _message_update("/newgame public")
-        with patch.object(channel_commands, "group_game", return_value="3"), \
+        with self._group_plays("3"), \
              patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "7", "power": "FRANCE"}]), \
              patch.object(channel_commands, "api_post") as post:
             asyncio.run(newgame(update, context))
@@ -200,9 +206,82 @@ class TestNewGame:
             "This group already plays Game 3, and a group has one game. Only a player of Game 3 can replace it."
         )
 
+    def test_replacing_a_game_in_progress_asks_first_and_creates_nothing(self) -> None:
+        update, context = _message_update("/newgame anonymous random")
+        with self._group_plays("3"), \
+             patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "3", "power": "FRANCE"}]), \
+             patch.object(channel_commands, "api_post") as post:
+            asyncio.run(newgame(update, context))
+        post.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == (
+            "This group follows Game 3, which is still being played (S1902M). A new game would replace it "
+            "here: Game 3's maps and reminders would stop coming to this group. Its players are told."
+        )
+        confirm, cancel = update.message.reply_text.call_args[1]["reply_markup"].inline_keyboard[0]
+        assert (confirm.callback_data, cancel.callback_data) == ("ngok|11|3|555", "ngno|555")
+
+    def test_a_finished_game_is_replaced_without_asking(self) -> None:
+        update, context = _message_update("/newgame public")
+        with self._group_plays("3", status="completed"), \
+             patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "3", "power": "FRANCE"}]), \
+             patch.object(channel_commands, "ensure_registered"), \
+             patch.object(channel_commands, "api_post", return_value={"game_id": 42, "replaced_game_id": "3"}) as post:
+            asyncio.run(newgame(update, context))
+        post.assert_called_once()
+        assert update.message.reply_text.call_args[0][0].endswith("It replaces Game 3, which no longer belongs to this group.")
+
+    @staticmethod
+    def _press(data: str, user_id: int = 555) -> tuple[Mock, Mock]:
+        query = Mock(data=data)
+        query.from_user = Mock(id=user_id, first_name="Pat", last_name=None, username="pat")
+        query.message = Mock()
+        query.message.chat = Mock(id=GROUP_CHAT, type="supergroup", title="Friday Diplomacy")
+        query.message.chat.send_message = AsyncMock()
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        context = Mock(user_data={})
+        context.bot.username = "DiplomacyTestBot"
+        return query, context
+
+    def test_confirming_creates_the_game_and_relinks(self) -> None:
+        query, context = self._press("ngok|10|3|555")
+        with self._group_plays("3"), \
+             patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "3", "power": "FRANCE"}]), \
+             patch.object(channel_commands, "ensure_registered"), \
+             patch.object(channel_commands, "api_post", return_value={"game_id": 42, "replaced_game_id": "3"}) as post:
+            asyncio.run(bot_app.button_callback(Mock(callback_query=query), context))
+        post.assert_called_once_with("/games/create", {
+            "map_name": "standard", "telegram_id": "555", "auto_process": True, "anonymous": True,
+            "random_powers": False, "channel_id": str(GROUP_CHAT), "channel_name": "Friday Diplomacy",
+        })
+        assert "Game 42 for this group" in query.message.chat.send_message.call_args[0][0]
+
+    def test_cancelling_changes_nothing(self) -> None:
+        query, context = self._press("ngno|555")
+        with patch.object(channel_commands, "api_post") as post:
+            asyncio.run(bot_app.button_callback(Mock(callback_query=query), context))
+        post.assert_not_called()
+        query.edit_message_text.assert_called_once_with("Cancelled. This group keeps its game.")
+
+    def test_only_the_asker_may_confirm(self) -> None:
+        query, context = self._press("ngok|10|3|555", user_id=999)
+        with patch.object(channel_commands, "api_post") as post:
+            asyncio.run(bot_app.button_callback(Mock(callback_query=query), context))
+        post.assert_not_called()
+        assert query.answer.call_args[0][0] == "Only the player who sent /newgame can answer this."
+
+    def test_confirming_after_the_group_moved_to_another_game_asks_again(self) -> None:
+        query, context = self._press("ngok|10|3|555")
+        with self._group_plays("8"), \
+             patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "8", "power": "FRANCE"}]), \
+             patch.object(channel_commands, "api_post") as post:
+            asyncio.run(bot_app.button_callback(Mock(callback_query=query), context))
+        post.assert_not_called()
+        assert "This group follows Game 8" in query.message.chat.send_message.call_args[0][0]
+
     def test_a_player_of_the_groups_game_may_replace_it(self) -> None:
         update, context = _message_update("/newgame public")
-        with patch.object(channel_commands, "group_game", return_value="3"), \
+        with self._group_plays("3", status="completed"), \
              patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "3", "power": "FRANCE"}]), \
              patch.object(channel_commands, "ensure_registered"), \
              patch.object(channel_commands, "api_post") as post:

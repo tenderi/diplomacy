@@ -297,7 +297,12 @@ There are three delivery surfaces, and they are not interchangeable:
   told (see *Linked group post* above).
   `/newgame` makes **one** call, `POST /games/create` with `channel_id` (bot only): the game
   is created linked to the group or, on a 409, deleted again, never left unlinked in the
-  public list; the bot also checks the rule before it asks. A command typed in a group is about that group's game, never the caller's current game: the bot asks
+  public list; the bot also checks the rule before it asks. When the group's game is
+  **still being played** (`GET /channels/{chat_id}/game` carries its `status` and
+  `phase_code`), `/newgame` first posts what would happen with *Replace it* / *Cancel* buttons
+  (`ngok|{anon}{random}|{old game}|{asker}` / `ngno|{asker}`, answered in the group, by the
+  asker only) and creates nothing until the asker confirms; a finished game's link is
+  replaced without asking. A command typed in a group is about that group's game, never the caller's current game: the bot asks
   `GET /channels/{chat_id}/game` (bot secret only) — `/status`, `/viewmap`, `/map` and
   `/players` answer for it (or say how to link one), through `game_context.group_read_game`;
   a typed id for any other game is refused, not swapped for the group's game. `/status`
@@ -343,6 +348,7 @@ place the full picture exists.
 | Game rolled back (admin) | all players: "Game N has been rolled back by an admin to phase …" (pending orders and draw votes cleared) | — | next poll | `routes/games.py` restore |
 | Game deleted (admin) | all players, sent before the rows go: "Game N has been deleted by an admin." | — | — | `routes/admin.py` delete game |
 | Dummy toggled | all players: "POWER in game N is now played by civil disorder." or "… is open again -- /join N to take it." (when the toggle completes a draw quorum the draw rows apply instead) | — | next poll | `routes/games.py` `set_dummy_power` |
+| Game unlinked from its group by another game taking it (`link_or_409`: `/newgame`, `/linkgroup`, an admin; only when the game is not finished) | every seated human, one DM: "Game N is no longer linked to group <title>; its maps and reminders now come only by DM." (plain text, the title unescaped) | — | next poll | `routes/channels.py` `link_or_409` |
 | Auto-process toggled | all players except the caller: "Game N now processes each turn as soon as all orders are in. …" or "… no longer processes turns automatically." | — | next poll | `routes/games.py` auto-process |
 | Wait flag raised or lowered | all players except the caller: "POWER asks game N to wait before the turn is processed." or "POWER is ready in game N." | — | next poll | `routes/games.py` `set_wait_flag` |
 | Deadline proposal made | all players except the proposer and any power that is out: "POWER proposes a 24-hour deadline for game N, counted from when the proposal passes." (or "clearing game N's deadline") + "Needs K yes votes (1/K so far). Vote with the buttons below.", with ✅ Vote yes / ❌ Vote no / 🎮 Game menu buttons; when the proposer is the only active power: "POWER's deadline proposal for game N was accepted immediately (they're the only active power): deadline now …" | — | next poll | `routes/games.py` deadline propose |

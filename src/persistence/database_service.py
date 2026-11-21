@@ -395,7 +395,7 @@ class DatabaseService:
 
     def get_game_by_channel(self, channel_id: str) -> Optional[Dict[str, Any]]:
         """The game linked to Telegram group ``channel_id`` as ``{"game_id",
-        "channel_name"}``, or None when the group has no game."""
+        "channel_name", "status", "phase_code"}``, or None when the group has no game."""
         with self.session_factory() as session:
             game_model = session.query(GameModel).filter(GameModel.channel_id == str(channel_id)).first()
             if game_model is None:
@@ -403,6 +403,8 @@ class DatabaseService:
             return {
                 "game_id": str(game_model.game_id),
                 "channel_name": (game_model.channel_settings or {}).get("channel_name"),
+                "status": str(game_model.status),
+                "phase_code": str(game_model.phase_code),
             }
 
     def unlink_game_from_channel(self, game_id: str) -> None:

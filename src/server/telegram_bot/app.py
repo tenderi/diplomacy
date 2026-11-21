@@ -50,6 +50,7 @@ from server.telegram_bot.notifications import (
     queue_status, start_background_loops, stop_background_loops,
 )
 from server.telegram_bot.channel_commands import (
+    newgame_callback,
     link_channel, unlink_channel, channel_info, channel_settings, newgame, linkgroup, unlinkgroup,
 )
 from server.telegram_bot.link_account import link_account
@@ -360,6 +361,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Handle button clicks from inline keyboards"""
     query = update.callback_query
     chat = query.message.chat if query.message is not None else None
+    if chat is not None and chat.type in GROUP_CHAT_TYPES and (query.data or "").split("|")[0] in ("ngok", "ngno"):
+        # /newgame's replace question is asked, and answered, in the group.
+        await newgame_callback(query, context)
+        return
     if chat is not None and chat.type in GROUP_CHAT_TYPES:
         # Nothing the bot posts in a group has callback buttons (only links to a
         # private chat); a button pressed there is one someone forwarded.
