@@ -412,3 +412,10 @@ def test_convoy_routes_agree_with_the_adjudicators_possible_route() -> None:
                 assert found == convoy_route_possible(_MAP, state, src, dst), (src, dst)
     routes = convoy_routes(_MAP, state, "LON", "NAF")
     assert [[str(f) for f in r] for r in routes] == [["F ENG", "F MAO"]]
+
+
+def test_an_army_ordered_to_its_own_province_is_told_to_hold() -> None:
+    state = _state("FRANCE A PAR")
+    assert _notes(state, "FRANCE", "A PAR - PAR")["A PAR - PAR"] == [
+        "A PAR is already in PAR: to stay there, order it to hold"
+    ]

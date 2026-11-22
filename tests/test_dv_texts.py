@@ -17,6 +17,7 @@ NOW = datetime(2026, 11, 22, 12, 0, 0)
         (timedelta(hours=2, minutes=30), "2h 30m"),
         (timedelta(days=2), "2d"),
         (timedelta(seconds=10), "under a minute"),
+        (timedelta(minutes=-5), "already passed"),
     ],
 )
 def test_time_left_text(delta: timedelta, expected: str) -> None:

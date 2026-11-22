@@ -1259,9 +1259,11 @@ def schedule_view(schedule: Optional[deadline_schedule.DeadlineSchedule]) -> Opt
 
 def time_left_text(deadline: datetime, now: Optional[datetime] = None) -> str:
     """How long until ``deadline`` (naive UTC), to the nearest minute: ``"6h"``,
-    ``"1d 2h"``, ``"45m"``, ``"2h 30m"``; ``"under a minute"`` when it is that close."""
+    ``"1d 2h"``, ``"45m"``, ``"2h 30m"``; ``"under a minute"`` when it is that close, ``"already passed"`` after it."""
     now = now or utcnow_naive()
     minutes = round((naive_utc(deadline) - now).total_seconds() / 60)
+    if minutes < 0:
+        return "already passed"
     if minutes < 1:
         return "under a minute"
     days, rest = divmod(minutes, 1440)

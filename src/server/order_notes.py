@@ -308,6 +308,14 @@ class _Context:
                     f"it crosses water only when fleets convoy it",
                 )
             ]
+        if dest.province == unit.province:
+            return [
+                _note(
+                    IMPOSSIBLE,
+                    "move_to_self",
+                    f"{name} is already in {dest.province}: to stay there, order it to hold",
+                )
+            ]
         if self.map.province_type(unit.province) is not ProvinceType.COAST:
             return [
                 _note(
