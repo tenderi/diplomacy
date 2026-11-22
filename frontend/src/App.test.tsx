@@ -125,4 +125,18 @@ describe('App', () => {
       })
     })
   })
+
+  it('shows a Page not found page with a link home for unknown routes (DW5)', () => {
+    clearTokens()
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 401 })))
+    const { container } = render(
+      <MemoryRouter initialEntries={['/nonexistent']}>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </MemoryRouter>
+    )
+    expect(within(container).getByRole('heading', { name: 'Page not found' })).toBeInTheDocument()
+    expect(within(container).getByRole('link', { name: 'Back to home' }).getAttribute('href')).toBe('/')
+  })
 })

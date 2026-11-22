@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useLocation, useParams } from 'react-router'
+import { Routes, Route, Navigate, Link, useLocation, useParams } from 'react-router'
 import { useAuth } from './contexts/AuthContext'
 import { AppLayout } from './components/AppLayout'
 import { Toaster } from './components/ui/sonner'
@@ -15,6 +15,17 @@ import Sandbox from './pages/Sandbox'
 
 // Remount per game: GameView keeps the previous board on screen during a refresh, which
 // must not carry over to a different game reached by an in-app link.
+function NotFound() {
+  return (
+    <div className="p-5">
+      <h1 className="text-2xl font-semibold mb-2">Page not found</h1>
+      <p>
+        <Link to="/" className="underline">Back to home</Link>
+      </p>
+    </div>
+  )
+}
+
 function GameViewForRoute() {
   const { gameId } = useParams()
   return <GameView key={gameId} />
@@ -78,7 +89,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
     </AppLayout>
     <Toaster richColors position="top-center" />
