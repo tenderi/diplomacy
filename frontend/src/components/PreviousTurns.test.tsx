@@ -53,6 +53,13 @@ describe('phaseLabel', () => {
 })
 
 describe('PreviousTurns', () => {
+  it('makes the turn select at least 40px tall (DW5)', async () => {
+    stub({ resolutions })
+    const { container } = render(<PreviousTurns gameId="7" phase="S1903M" myPower="FRANCE" />)
+    const select = await within(container).findByLabelText('Previous turn')
+    expect(select.classList.contains('h-10')).toBe(true)
+  })
+
   it('lists the turns before the newest, newest first, and shows the selected one', async () => {
     stub({ resolutions })
     const { container } = render(<PreviousTurns gameId="7" phase="S1903M" myPower="FRANCE" />)

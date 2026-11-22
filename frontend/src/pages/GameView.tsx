@@ -1185,8 +1185,11 @@ export default function GameView() {
           and the results (`.game-columns` in index.css), and stays in view while that
           column scrolls. A portrait phone keeps one column in this DOM order: status,
           results, map, orders. */}
-      <div className={mapUrl ? 'game-columns' : undefined} data-testid="game-columns">
-      <div className="game-status">
+      <div
+        className={mapUrl ? 'game-columns max-sm:flex max-sm:flex-col' : undefined}
+        data-testid="game-columns"
+      >
+      <div className="game-status max-sm:order-1">
       {state.status === 'ACTIVE' && !notStarted && (
         <Card className="mb-6">
           <CardHeader>
@@ -1283,7 +1286,7 @@ export default function GameView() {
       )}
       </div>
 
-      <div className="game-results">
+      <div className="game-results max-sm:order-3">
         <ResultsSection
           resolution={resolution}
           myPower={myPower ?? null}
@@ -1295,7 +1298,7 @@ export default function GameView() {
       </div>
 
       {mapUrl && (
-        <div className="game-map mb-6">
+        <div className="game-map mb-6 max-sm:order-4">
           <div className="flex flex-wrap items-center gap-2 mb-2">
             {(Object.entries(MAP_MODE_LABELS) as [MapMode, string][])
               .filter(([mode]) => mode !== 'orders' || myPower)
@@ -1330,7 +1333,7 @@ export default function GameView() {
         </div>
       )}
 
-      <div className="game-side">
+      <div className="game-side max-sm:order-2">
       {!myPower && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Join game</h2>

@@ -91,6 +91,16 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Sandbox', () => {
+  it('keeps the Resolve bar sticky at the bottom at phone width (DW4)', async () => {
+    stubFetch()
+    renderAt('/sandbox')
+    await screen.findByRole('button', { name: 'Resolve S1901M' })
+    const bar = screen.getByTestId('sandbox-actions')
+    expect(bar.className).toContain('max-sm:sticky')
+    expect(bar.className).toContain('max-sm:bottom-0')
+    expect(bar).toContainElement(screen.getByRole('button', { name: 'Start over' }))
+  })
+
   it('starts from the opening position and shows its map', async () => {
     const calls = stubFetch()
     renderAt('/sandbox')

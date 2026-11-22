@@ -381,7 +381,10 @@ export default function Sandbox() {
         </Alert>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div
+        className="flex flex-wrap gap-2 mb-6 max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:mb-4 max-sm:border-t max-sm:bg-background max-sm:py-2"
+        data-testid="sandbox-actions"
+      >
         <Button onClick={handleResolve} disabled={resolving || !active}>
           {resolving ? 'Resolving...' : `Resolve ${view.phase}`}
         </Button>

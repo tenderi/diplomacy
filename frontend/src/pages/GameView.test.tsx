@@ -1389,6 +1389,28 @@ describe('GameView — results panel (E4)', () => {
     expect(within(container).getByText(/PIC, GAS/)).toBeInTheDocument()
   })
 
+  it('puts the order form right after the status card and the map last at phone width (DW4)', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    await waitFor(() => expect(container.querySelector('#orders-panel')).not.toBeNull())
+    const cols = container.querySelector('[data-testid="game-columns"]') as HTMLElement
+    expect(cols.className).toContain('max-sm:flex-col')
+    const orderOf = (sel: string) =>
+      (cols.querySelector(sel) as HTMLElement).className.match(/max-sm:order-(\d)/)?.[1]
+    expect([orderOf('.game-status'), orderOf('.game-side'), orderOf('.game-results'), orderOf('.game-map')]).toEqual(
+      ['1', '2', '3', '4']
+    )
+    expect(cols.querySelector('.game-side')?.querySelector('#orders-panel')).not.toBeNull()
+  })
+
   it('lets the viewer switch the board image between board / own pending orders / last resolution', async () => {
     const fetchMock = stubFetchActive(activeMovementState, francePlayers)
     vi.stubGlobal('fetch', fetchMock)

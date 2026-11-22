@@ -82,7 +82,7 @@ export default function PreviousTurns({
       <h2 className="text-lg font-medium mb-2">Previous turns</h2>
       <select
         aria-label="Previous turn"
-        className="w-full rounded-md border bg-background px-2 py-1.5 text-sm mb-3"
+        className="h-10 w-full rounded-md border bg-background px-2 py-1.5 text-sm mb-3"
         value={entry.key}
         onChange={(e) => setSelected(e.target.value)}
       >

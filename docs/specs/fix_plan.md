@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-22.
-- **Open tracks:** DW (phone-width web UI findings; DW4 and DW5 remain), DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** DW (phone-width web UI findings; only the map-legend part of DW5 remains), DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -34,12 +34,13 @@
       for A BUD before submitting." *below* the button, while the order helper still says
       "A BUD has no order, so it will hold". Put the warning where a player sees it and
       make the helper agree with the half-filled row.
-- [ ] DW4: at 390px the game page's order form sits ~2.5 screens down, behind the status
-      card, results, previous turns and the map; the sandbox's Resolve buttons sit above
-      the map, far from the order rows, and aren't sticky. Bring the controls closer.
-- [ ] DW5: small polish: the "Previous turn" `<select>` is 32px tall (other controls 40–44px);
-      the map's legend and title are unreadable at phone width until zoomed
-      (`src/rendering/legend.py`); `/nonexistent` silently redirects to Home.
+- [x] DW4: at 390px the game page's order form sat ~2.5 screens down; on a phone the order
+      form now follows the status card (results, then the map, after it), and the sandbox's
+      Resolve / Step back / Start over bar is sticky at the bottom of the viewport.
+- [x] DW5a: the "Previous turn" `<select>` is 40px tall; `/nonexistent` shows a "Page not
+      found" page with a link home.
+- [ ] DW5b: the map's legend and title are unreadable at phone width until zoomed
+      (`src/rendering/legend.py`).
 
 # Track DV — Smaller bot-text findings (2026-11-21 play-through)
 
