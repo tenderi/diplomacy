@@ -1183,8 +1183,8 @@ export default function GameView() {
 
       {/* DP4: from a landscape phone up, the map sits beside the turn status, the orders
           and the results (`.game-columns` in index.css), and stays in view while that
-          column scrolls. A portrait phone keeps one column in this DOM order: status,
-          results, map, orders. */}
+          column scrolls. A portrait phone keeps one column, reordered with
+          `max-sm:order-*`: status, orders (the side column), results, map. */}
       <div
         className={mapUrl ? 'game-columns max-sm:flex max-sm:flex-col' : undefined}
         data-testid="game-columns"
