@@ -151,6 +151,16 @@ describe('UnitOrdersSection', () => {
     expect(seen[seen.length - 1]).toEqual(['F EDI'])
   })
 
+  it('clears the reported units when the section unmounts (DW3)', async () => {
+    const seen: string[][] = []
+    const { unmount } = render(<Harness onIncompleteChange={(u) => seen.push(u)} />)
+    open('Order type for F EDI')
+    fireEvent.click(await screen.findByRole('option', { name: 'Move' }))
+    expect(seen[seen.length - 1]).toEqual(['F EDI'])
+    unmount()
+    expect(seen[seen.length - 1]).toEqual([])
+  })
+
   it('enables Submit once a target is chosen, and names the province', async () => {
     render(<Harness names={{ NTH: 'North Sea', CLY: 'Clyde' }} />)
     open('Order type for F EDI')

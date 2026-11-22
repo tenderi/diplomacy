@@ -216,6 +216,9 @@ export function UnitOrdersSection({
   const incompleteKey = incomplete.map(unitKey).join('\n')
   useEffect(() => {
     onIncompleteChange?.(incompleteKey ? incompleteKey.split('\n') : [])
+    // Unmounting (the text fallback, or the Adjustment phase's build rows) must not leave
+    // the last half-filled units behind in the parent.
+    return () => onIncompleteChange?.([])
   }, [incompleteKey, onIncompleteChange])
   return (
     <>
