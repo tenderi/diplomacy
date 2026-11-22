@@ -447,7 +447,7 @@ async def _show_deadline(send: Sender, game_id: str, power: str) -> None:
         if proposal.get("proposed_by") == power:
             rows.append([_btn("↩️ Withdraw my proposal", game_id, "dlw")])
     else:
-        lines.append("\nPropose a new deadline; it applies when a majority of players agree:")
+        lines.append("\nPropose a new deadline; it applies when a majority of players agree (`/deadline <id> <hours>` sets one at once):")
         rows.append([_btn(f"{h}h", game_id, "dlp", str(h)) for h in DEADLINE_CHOICES])
         if current:
             rows.append([_btn("No deadline", game_id, "dlp", "clear")])

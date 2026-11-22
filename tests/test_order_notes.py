@@ -91,14 +91,14 @@ def test_a_convoyed_move_with_no_fleet_chain_is_impossible_this_turn() -> None:
 def test_an_army_in_an_inland_province_cannot_be_convoyed() -> None:
     state = _state("FRANCE A PAR")
     assert _notes(state, "FRANCE", "A PAR - LON")["A PAR - LON"] == [
-        "A PAR cannot reach LON this turn: PAR is inland, so no fleet can convoy it"
+        "A PAR cannot reach LON this turn: LON is not next to PAR, and an army in an inland province cannot be convoyed"
     ]
 
 
 def test_an_army_cannot_be_convoyed_into_an_inland_province() -> None:
     state = _state("FRANCE A BRE")
     assert _notes(state, "FRANCE", "A BRE - MUN")["A BRE - MUN"] == [
-        "A BRE cannot reach MUN this turn: MUN is inland, so no fleet can convoy it there"
+        "A BRE cannot reach MUN this turn: MUN is not next to BRE, and an army can be convoyed only to a coastal province"
     ]
 
 

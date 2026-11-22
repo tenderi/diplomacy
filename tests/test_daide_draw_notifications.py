@@ -84,11 +84,13 @@ async def test_a_daide_draw_vote_is_announced_to_the_telegram_players() -> None:
     expected = (
         f"ENGLAND has voted to end game {game_id} in a draw (1/7 agreed). "
         "Draw votes last until this phase is processed. "
-        "Use /draw to agree or /nodraw to withdraw."
+        "Use /draw to agree."
     )
     # The DAIDE voter has no Telegram id, so nobody is excluded: the player
-    # seated as ENGLAND on Telegram did not cast this vote and hears of it too.
-    assert _dms(probe) == {tg: [expected] for _h, tg in users}
+    # seated as ENGLAND on Telegram did not cast this vote and hears of it too:
+    # told, as a voted power, how to withdraw (DV1); everyone else how to agree.
+    voted = expected.replace("Use /draw to agree.", "You have already voted. Use /nodraw to withdraw.")
+    assert _dms(probe) == {tg: [voted if power == "ENGLAND" else expected] for power, (_h, tg) in zip(POWERS, users)}
 
 
 async def test_a_daide_draw_vote_withdrawal_is_announced() -> None:

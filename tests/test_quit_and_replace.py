@@ -311,7 +311,7 @@ class TestVacantSeatBlocksDraw:
         assert body["quorum_reached"] is False
         text = notify.call_args[0][1]
         assert text.endswith(
-            f"Use /draw to agree or /nodraw to withdraw. Vacant: GERMANY. Someone can take the seat "
+            f"Use /draw to agree. Vacant: GERMANY. Someone can take the seat "
             f"with /replace {game_id} GERMANY, or the game's creator can make it a dummy with "
             f"/dummy {game_id} GERMANY."
         )

@@ -96,14 +96,14 @@ def test_deadline_view_of_a_finished_game_offers_no_proposals() -> None:
 
 
 @pytest.mark.parametrize(("legal", "expected"), [
-    ({"phase_type": "MOVEMENT", "units": []}, "France has nothing to order this phase."),
-    ({"phase_type": "RETREAT", "units": [{}, {}]}, "France owes retreats for 2 units."),
+    ({"phase_type": "MOVEMENT", "units": []}, "FRANCE has nothing to order this phase."),
+    ({"phase_type": "RETREAT", "units": [{}, {}]}, "FRANCE owes retreats for 2 units."),
     ({"phase_type": "ADJUSTMENT", "units": [{}], "adjustment": {"action": "build", "slots": 1}},
-     "France owes 1 build."),
+     "FRANCE owes 1 build."),
     ({"phase_type": "ADJUSTMENT", "units": [{}], "adjustment": {"action": "disband", "slots": 2}},
-     "France owes 2 disbands."),
+     "FRANCE owes 2 disbands."),
     ({"phase_type": "ADJUSTMENT", "units": [{}], "adjustment": {"action": "none", "slots": 0}},
-     "France has nothing to build or disband."),
+     "FRANCE has nothing to build or disband."),
 ])
 def test_process_turn_says_what_the_caller_owes(legal: dict, expected: str) -> None:
     with patch.object(bot_orders, "resolve_game_and_power", return_value=("1", "FRANCE")), \

@@ -708,7 +708,7 @@ def _owed_text(game_id: str, telegram_id: Optional[str]) -> str:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except (GameContextError, requests.RequestException):
         return "Enter your orders."
-    name = power.title()
+    name = power.upper()
     units = data.get("units") or []
     if data.get("phase_type") == "ADJUSTMENT":
         adj = data.get("adjustment") or {}

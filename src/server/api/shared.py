@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from typing import Callable, Coroutine, Dict, Any, Iterable, Optional, TYPE_CHECKING
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
+from persistence.database import utcnow_naive
 from persistence.database_service import DatabaseService, DeadlineProposalChange
 from persistence.game_repo import GameRepo, StaleGameError
 from sqlalchemy.exc import SQLAlchemyError
@@ -678,14 +679,26 @@ def after_draw_vote(
             label = power_label(game_id, power)
             text = (
                 f"{label} has voted to end game {game_id} in a draw {tally}. "
-                "Draw votes last until this phase is processed. "
-                "Use /draw to agree or /nodraw to withdraw."
+                "Draw votes last until this phase is processed."
                 if vote
                 else f"{label} has withdrawn its vote to end game {game_id} in a draw {tally}."
             )
-            if vacant:
-                text += " " + vacant_seat_hint(game_id, vacant)
-            notify_players(int(row.id), text, exclude_telegram_id=exclude_telegram_id, skip_out=True)
+            tail = " " + vacant_seat_hint(game_id, vacant) if vacant else ""
+            own = None
+            if vote:
+                # The line says what the reader can do: agree, or, having voted already,
+                # withdraw (DV1). It goes before the vacant-seat hint, as it always did.
+                yes = set(result.get("votes") or ())
+                agree = f"{text} Use /draw to agree.{tail}"
+                voted = f"{text} You have already voted. Use /nodraw to withdraw.{tail}"
+                text = agree
+
+                def own(powers: list[str]) -> Optional[str]:
+                    return voted if any(p in yes for p in powers) else None
+
+            else:
+                text += tail
+            notify_players(int(row.id), text, exclude_telegram_id=exclude_telegram_id, own=own, skip_out=True)
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify draw vote for game {game_id}: {e}")
 
@@ -1112,7 +1125,7 @@ def waived_line(n: int, partial: bool = False) -> str:
 def chosen_waive_line(n: int) -> str:
     """A build the power waived itself, in its own results block (CL1): "1 build waived."
     The group is not told: a waive the power chose is no one's news but its own."""
-    return f"{n} build waived." if n == 1 else f"{n} builds waived."
+    return f"{n} build was waived." if n == 1 else f"{n} builds were waived."
 
 
 def _units(n: int) -> str:
@@ -1242,6 +1255,19 @@ def schedule_view(schedule: Optional[deadline_schedule.DeadlineSchedule]) -> Opt
     if schedule is None:
         return None
     return {**schedule.to_json(), "description": schedule.describe()}
+
+
+def time_left_text(deadline: datetime, now: Optional[datetime] = None) -> str:
+    """How long until ``deadline`` (naive UTC), to the nearest minute: ``"6h"``,
+    ``"1d 2h"``, ``"45m"``, ``"2h 30m"``; ``"under a minute"`` when it is that close."""
+    now = now or utcnow_naive()
+    minutes = round((naive_utc(deadline) - now).total_seconds() / 60)
+    if minutes < 1:
+        return "under a minute"
+    days, rest = divmod(minutes, 1440)
+    hours, mins = divmod(rest, 60)
+    parts = [f"{n}{u}" for n, u in ((days, "d"), (hours, "h"), (mins, "m")) if n]
+    return " ".join(parts[:2] if days else parts)
 
 
 def format_scheduled_deadline(

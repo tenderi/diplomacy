@@ -130,7 +130,7 @@ Deals are not binding, and neither are promises. That's the game.
 ## 6. Deadlines, draws, and leaving
 
 - **Deadline:** game menu → **⏰ Deadline**. Propose 12 h, 24 h or 48 h. It applies
-  when a majority of players agree (**✅/❌ Vote** buttons). Ten minutes before a
+  when a majority of players agree (**✅/❌ Vote** buttons); `/deadline <id> <hours>` sets one at once. Ten minutes before a
   deadline, everyone gets a reminder. Units without orders hold.
 - **Draw:** `/draw` votes to end the game as a shared draw. It ends when every surviving
   power agrees. `/nodraw` takes your vote back.

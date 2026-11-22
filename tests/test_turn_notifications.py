@@ -243,7 +243,7 @@ def test_setting_a_deadline_tells_everyone_but_the_setter_and_rearms_the_reminde
         texts = probe.messages()
     assert recipients == everyone - {setter_tg}
     assert (
-        f"Deadline for game {game_id} set to {api_shared.format_deadline_utc(datetime.datetime.fromisoformat(future))}."
+        f"{REQUIRED_POWERS[0]} set the deadline for game {game_id} to {api_shared.format_deadline_utc(datetime.datetime.fromisoformat(future))} (6h left)."
         " Orders in by then; the turn is processed automatically when it passes."
         " This deadline covers the current phase only."
     ) in texts

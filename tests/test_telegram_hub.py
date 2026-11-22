@@ -187,6 +187,12 @@ class TestDeadlineButtons:
             query, _ = _press("g|3|dl")
         datas = [d for _t, d in _buttons(query.edit_message_text.call_args[1]["reply_markup"])]
         assert {"g|3|dlp|12", "g|3|dlp|24", "g|3|dlp|48"} <= set(datas)
+        text = query.edit_message_text.call_args[0][0]
+        # DV2: the menu says what /deadline does too: one player's command sets it at once.
+        assert text.endswith(
+            "Propose a new deadline; it applies when a majority of players agree "
+            "(`/deadline <id> <hours>` sets one at once):"
+        )
 
     def test_proposing_posts_the_hours(self, two_games) -> None:
         pending = {"proposed_by": "GERMANY", "value_hours": 24.0, "yes_votes": ["GERMANY"],

@@ -118,7 +118,7 @@ def test_adjudicate_resolves_every_power_and_reports_refused_orders(client: Test
                 {
                     "kind": "impossible",
                     "code": "inland_destination",
-                    "text": "A LVP cannot reach PAR this turn: PAR is inland, so no fleet can convoy it there",
+                    "text": "A LVP cannot reach PAR this turn: PAR is not next to LVP, and an army can be convoyed only to a coastal province",
                 }
             ],
         }

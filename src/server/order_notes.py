@@ -313,8 +313,8 @@ class _Context:
                 _note(
                     IMPOSSIBLE,
                     "inland_army",
-                    f"{name} cannot reach {dest.province} this turn: {unit.province} is inland, "
-                    f"so no fleet can convoy it",
+                    f"{name} cannot reach {dest.province} this turn: {dest.province} is not next to "
+                    f"{unit.province}, and an army in an inland province cannot be convoyed",
                 )
             ]
         if dest_type is not ProvinceType.COAST:
@@ -322,8 +322,8 @@ class _Context:
                 _note(
                     IMPOSSIBLE,
                     "inland_destination",
-                    f"{name} cannot reach {dest.province} this turn: {dest.province} is inland, "
-                    f"so no fleet can convoy it there",
+                    f"{name} cannot reach {dest.province} this turn: {dest.province} is not next to "
+                    f"{unit.province}, and an army can be convoyed only to a coastal province",
                 )
             ]
         return []

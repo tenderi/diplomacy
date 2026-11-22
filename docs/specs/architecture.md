@@ -358,7 +358,7 @@ place the full picture exists.
 | Broadcast message | all players except the sender | the broadcast text (when `auto_post_broadcasts`, default on) | next poll | `routes/messages.py` |
 | Rumour (anonymous broadcast) | all players, **the sender included**: "🕵️ Rumour in game {id}: …" | "🕵️ Rumour in game {id}: …" (same setting) | next poll | `routes/messages.py` |
 | Private message | recipient only | — | next poll | `routes/messages.py` |
-| Draw vote cast (not final) | all players except the voter and any power that is out (conceded or eliminated): "FRANCE has voted to end game N in a draw (2/7 agreed). Draw votes last until this phase is processed. Use /draw to agree or /nodraw to withdraw.", plus the vacant-seat hint when a seat is empty | — | next poll | `api.shared.after_draw_vote` |
+| Draw vote cast (not final) | all players except the voter and any power that is out (conceded or eliminated): "FRANCE has voted to end game N in a draw (2/7 agreed). Draw votes last until this phase is processed. Use /draw to agree." (a recipient whose power has already voted reads "You have already voted. Use /nodraw to withdraw." instead), plus the vacant-seat hint when a seat is empty | — | next poll | `api.shared.after_draw_vote` |
 | Draw vote withdrawn | all players except the voter and any power that is out: "FRANCE has withdrawn its vote to end game N in a draw (1/7 agreed).", plus the vacant-seat hint when a seat is empty | — | next poll | `api.shared.after_draw_vote` |
 | Draw vote repeated, or a withdrawal with no vote to withdraw | nobody (`GameService.submit_draw_vote` returns `changed: false`) | — | — | `api.shared.after_draw_vote` |
 | Draw quorum reached → game ends | all players except the voter: "Game N has ended in a draw shared by AUSTRIA, ENGLAND and FRANCE."; a sharer reads itself as "you" ("… shared by you, AUSTRIA and ENGLAND."). When a concession or a new dummy completed the quorum, the cause leads ("ITALY has conceded, and game N has ended in a draw shared by …"; the conceder is left out, a dummy toggle leaves nobody out). Every player's cached game list is invalidated | "🤝 Draw - Game N" + the same sentence; no maps (no turn was processed) | next poll | `api.shared.announce_draw` → `notify_game_drawn` |
@@ -518,8 +518,8 @@ than one such power), and the channel post "FRANCE: 2 builds were waived: no ord
 
 **A build the power waived itself is acknowledged to it alone.** `GameService.chosen_waives`
 counts the explicit `WAIVE` orders in the processed adjustment; the power's results block
-(so a power whose only adjustment was a waive still gets its block) ends "1 build waived."
-or "2 builds waived.". The group post does not mention it: unlike a waive for want of
+(so a power whose only adjustment was a waive still gets its block) ends "1 build was waived."
+or "2 builds were waived.". The group post does not mention it: unlike a waive for want of
 orders, nothing was missed.
 
 These lines come before "Next deadline: …", which still ends the DM and the post: on the
@@ -529,7 +529,7 @@ post end with "Next deadline: …", and the game-started DM with "First deadline
 When the phase just processed had a deadline and the new one has none, they end with
 "No deadline is set for <phase>. To set one, use /deadline …" instead, in its own paragraph (the
 channel post, where `/deadline` is refused, says "A player can set one from the game menu in a
-private chat with the bot (/game <id>)." instead). A deadline announcement ("Deadline for game N set to …")
+private chat with the bot (/game <id>)." instead). A deadline announcement ("FRANCE set the deadline for game N to … (6h left)." -- the setter's power and the time left, to the nearest minute)
 adds "This deadline covers the current phase only." `POST /games/{id}/deadline` refuses a deadline at or
 before now (422, "That deadline has already passed. Choose a time in the future."). After a processed
 movement turn, a power whose seat is vacant (its player quit; not a dummy) and which still has units and ordered nothing that turn (orders it sent before quitting stand) adds
