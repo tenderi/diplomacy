@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-22.
-- **Open tracks:** DW (phone-width web UI findings), DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** DW (phone-width web UI findings; DW4 and DW5 remain), DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -25,12 +25,12 @@
 
 # Track DW — Phone-width web UI findings (2026-11-22 play-through, 390x844)
 
-- [ ] DW1: logging in after a redirect from a protected page (`/games/1`) lands on `/games`
+- [x] DW1: logging in after a redirect from a protected page (`/games/1`) lands on `/games`
       instead of the page the player was going to; a game link from a notification loses
       its target. Return to the original route after login.
-- [ ] DW2: `/games/999` shows "Game not found" but keeps polling state, players and
+- [x] DW2: `/games/999` shows "Game not found" but keeps polling state, players and
       messages, a stream of 404s; stop polling once the game is known not to exist.
-- [ ] DW3: choosing "Support" without a target disables Submit and shows "Choose a target
+- [x] DW3: choosing "Support" without a target disables Submit and shows "Choose a target
       for A BUD before submitting." *below* the button, while the order helper still says
       "A BUD has no order, so it will hold". Put the warning where a player sees it and
       make the helper agree with the half-filled row.

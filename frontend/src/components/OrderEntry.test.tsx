@@ -70,7 +70,15 @@ const GROUPED_ORDERS = [
   'F EDI S A LVP H',
 ]
 
-function Harness({ names = {}, phaseCode }: { names?: Record<string, string>; phaseCode?: string }) {
+function Harness({
+  names = {},
+  phaseCode,
+  onIncompleteChange,
+}: {
+  names?: Record<string, string>
+  phaseCode?: string
+  onIncompleteChange?: (units: string[]) => void
+}) {
   const [orders, setOrders] = useState<Record<string, string>>({})
   return (
     <UnitOrdersSection
@@ -85,6 +93,7 @@ function Harness({ names = {}, phaseCode }: { names?: Record<string, string>; ph
       onSubmit={() => {}}
       provinceNames={names}
       phaseCode={phaseCode}
+      onIncompleteChange={onIncompleteChange}
     />
   )
 }
@@ -123,6 +132,23 @@ describe('UnitOrdersSection', () => {
     )
     expect(submitDisabled()).toBe(true)
     expect(screen.getByText('Choose a target for F EDI before submitting.')).toBeTruthy()
+  })
+
+  it('shows the missing-target warning above the Submit button (DW3)', async () => {
+    render(<Harness />)
+    open('Order type for F EDI')
+    fireEvent.click(await screen.findByRole('option', { name: 'Move' }))
+    const warning = screen.getByText('Choose a target for F EDI before submitting.')
+    const button = screen.getByRole('button', { name: 'Submit orders' })
+    expect(warning.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('reports the half-filled units to onIncompleteChange (DW3)', async () => {
+    const seen: string[][] = []
+    render(<Harness onIncompleteChange={(u) => seen.push(u)} />)
+    open('Order type for F EDI')
+    fireEvent.click(await screen.findByRole('option', { name: 'Move' }))
+    expect(seen[seen.length - 1]).toEqual(['F EDI'])
   })
 
   it('enables Submit once a target is chosen, and names the province', async () => {

@@ -1,6 +1,7 @@
 import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
-import { Link, Navigate } from 'react-router'
+import { Link, Navigate, useLocation } from 'react-router'
+import { safeNext } from '@/lib/redirect'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,8 +13,10 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const location = useLocation()
+  const from = (location.state as { from?: unknown } | null)?.from
 
-  if (user) return <Navigate to="/games" replace />
+  if (user) return <Navigate to={safeNext(from)} replace />
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -60,7 +63,7 @@ export default function Login() {
         <Link to="/forgot-password" className={TAP_LINK}>Forgot password?</Link>
       </p>
       <p className="mt-2 text-sm text-muted-foreground">
-        No account? <Link to="/register" className={TAP_LINK}>Register</Link>
+        No account? <Link to="/register" state={{ from }} className={TAP_LINK}>Register</Link>
       </p>
     </div>
   )

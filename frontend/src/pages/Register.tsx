@@ -1,6 +1,7 @@
 import { TAP_LINK } from '@/lib/touch'
 import { useState } from 'react'
-import { Link, Navigate } from 'react-router'
+import { Link, Navigate, useLocation } from 'react-router'
+import { safeNext } from '@/lib/redirect'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,8 +14,10 @@ export default function Register() {
   const [password, setPassword] = useState('')
   const [nickname, setNickname] = useState('')
   const [error, setError] = useState('')
+  const location = useLocation()
+  const from = (location.state as { from?: unknown } | null)?.from
 
-  if (user) return <Navigate to="/games" replace />
+  if (user) return <Navigate to={safeNext(from)} replace />
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -76,7 +79,7 @@ export default function Register() {
         <Button type="submit">Register</Button>
       </form>
       <p className="mt-4 text-sm text-muted-foreground">
-        Already have an account? <Link to="/login" className={TAP_LINK}>Login</Link>
+        Already have an account? <Link to="/login" state={{ from }} className={TAP_LINK}>Login</Link>
       </p>
     </div>
   )

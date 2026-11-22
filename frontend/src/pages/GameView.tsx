@@ -346,6 +346,8 @@ export default function GameView() {
   const [scheduleText, setScheduleText] = useState<string | null>(null)
   const [deadlineProposal, setDeadlineProposal] = useState<DeadlineProposal | null>(null)
   const [leaving, setLeaving] = useState(false)
+  /** Units with an order type but no target yet (from OrderEntry), for the order helper. */
+  const [incompleteUnits, setIncompleteUnits] = useState<string[]>([])
   /** The last processed turn's per-order outcomes (GET .../last_resolution), so "what
    * happened to my orders" survives a reload, not just the inline process_turn response. */
   const [resolution, setResolution] = useState<LastResolution | null>(null)
@@ -425,13 +427,20 @@ export default function GameView() {
             setDeadlineProposal(d.pending_proposal ?? null)
           }
         }
-      } catch {
-        // A failed background refresh keeps what is on screen; the next tick retries.
+      } catch (e) {
+        // A game that does not exist will not start to: stop polling it (DW2).
+        if (e instanceof ApiError && e.status === 404) stop()
+        // Any other failure keeps what is on screen; the next tick retries.
       } finally {
         inFlight = false
       }
     }
     const id = setInterval(() => void refresh(), POLL_INTERVAL_MS)
+    function stop() {
+      cancelled = true
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
     const onVisible = () => void refresh()
     document.addEventListener('visibilitychange', onVisible)
     return () => {
@@ -1447,6 +1456,7 @@ export default function GameView() {
                 submitting={submitting}
                 provinceNames={provinceNames}
                 phaseCode={state?.phase}
+                onIncompleteChange={setIncompleteUnits}
                 unitOwners={Object.fromEntries(
                   Object.entries(state?.units_by_power ?? {}).flatMap(([pw, us]) =>
                     us.map((u) => [u.location.split('/')[0], pw] as const)
@@ -1458,6 +1468,7 @@ export default function GameView() {
               <OrderNotes
                 gameId={gameId}
                 power={myPower}
+                incomplete={incompleteUnits}
                 orders={
                   useOrdersFallback
                     ? ordersFallbackText.split('\n').map((o) => o.trim()).filter(Boolean)
