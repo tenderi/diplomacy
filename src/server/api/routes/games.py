@@ -1552,7 +1552,8 @@ def set_deadline(
         if deadline is not None:
             when = api_shared.format_scheduled_deadline(deadline, api_shared.game_schedule(game_id))
             text = (
-                f"Deadline for game {game_id} set to {when}. Orders in by then; the turn "
+                f"{power_label(game_id, member.power_name)} set the deadline for game {game_id} to {when} "
+                f"({api_shared.time_left_text(deadline)} left). Orders in by then; the turn "
                 f"is processed automatically when it passes. This deadline covers the current phase only."
             )
         else:

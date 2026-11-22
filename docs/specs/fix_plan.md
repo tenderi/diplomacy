@@ -16,8 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-11-21.
-- **Open tracks:** DV (smaller bot-text findings from the 2026-11-21 play-through), then F (a human playing the game end to end — the first play-throughs are
+- **Last updated:** 2026-11-22.
+- **Open tracks:** DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -25,13 +25,13 @@
 
 # Track DV — Smaller bot-text findings (2026-11-21 play-through)
 
-- [ ] DV1: draw-vote DMs end "Use /draw to agree or /nodraw to withdraw" even for a player
+- [x] DV1: draw-vote DMs end "Use /draw to agree or /nodraw to withdraw" even for a player
       who has already voted; tailor the line to the recipient's vote.
-- [ ] DV2: the deadline-set DM names neither who set it nor how long is left, and the hub
+- [x] DV2: the deadline-set DM names neither who set it nor how long is left, and the hub
       says a deadline "applies when a majority of players agree" while any one player's
       `/deadline` sets it at once. Make the hub text match the behaviour and add the
       setter's power and the time left to the DM.
-- [ ] DV3: one wording for a waived build: an explicit WAIVE says "1 build waived.", a
+- [x] DV3: one wording for a waived build: an explicit WAIVE says "1 build waived.", a
       missed one "Your 1 build was waived: no orders came in."; the caller's reply says
       "Austria owes 1 build." where everything else says "AUSTRIA"; the `/order A ROM -
       PAR` note "PAR is inland, so no fleet can convoy it there" is odd advice for an army.

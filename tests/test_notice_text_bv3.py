@@ -40,12 +40,12 @@ def test_the_set_deadline_notice_shows_the_schedules_local_time() -> None:
     assert resp.status_code == 200, resp.text
     schedule = api_shared.game_schedule(game_id)
     expected = (
-        f"Deadline for game {game_id} set to {api_shared.format_scheduled_deadline(future, schedule)}. "
+        f"ITALY set the deadline for game {game_id} to {api_shared.format_scheduled_deadline(future, schedule)} (6h left). "
         "Orders in by then; the turn is processed automatically when it passes. "
         "This deadline covers the current phase only."
     )
     text = notify.call_args[0][1]
-    assert re.match(re.escape(f"Deadline for game {game_id} set to ") + HELSINKI + r"\. ", text)
+    assert re.match(re.escape(f"ITALY set the deadline for game {game_id} to ") + HELSINKI + r" \(6h left\)\. ", text)
     assert text == expected
 
 

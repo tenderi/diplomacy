@@ -101,7 +101,7 @@ def test_a_non_final_draw_vote_is_announced_to_the_others() -> None:
     expected = (
         f"ENGLAND has voted to end game {game_id} in a draw (1/7 agreed). "
         "Draw votes last until this phase is processed. "
-        "Use /draw to agree or /nodraw to withdraw."
+        "Use /draw to agree."
     )
     assert _recipients(mock_post) == {tg: [expected] for tg in everyone - {voter_tg}}
 
@@ -307,3 +307,27 @@ def test_players_marks_a_conceded_and_an_eliminated_power_out() -> None:
     with patch.object(api_shared.game_service, "eliminated_powers", return_value=frozenset({"ITALY"})):
         eliminated = rows()
     assert [p for p, r in eliminated.items() if r["out"]] == ["ITALY"]
+
+
+def test_a_second_draw_vote_tells_the_first_voter_how_to_withdraw() -> None:
+    """DV1: the closing line fits the reader: a power that has voted is told how to
+    withdraw, the others how to agree."""
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    (h0, tg0), (h1, tg1) = users[0], users[1]
+    assert client.post(
+        f"/games/{game_id}/draw_vote", json={"power": POWERS[0], "vote": True}, headers=h0
+    ).status_code == 200
+    with OutboxProbe() as probe:
+        resp = client.post(
+            f"/games/{game_id}/draw_vote", json={"power": POWERS[1], "vote": True}, headers=h1
+        )
+    assert resp.status_code == 200, resp.text
+    head = (
+        f"{POWERS[1]} has voted to end game {game_id} in a draw (2/7 agreed). "
+        "Draw votes last until this phase is processed."
+    )
+    got = _recipients(probe)
+    assert got[tg0] == [f"{head} You have already voted. Use /nodraw to withdraw."]
+    others = {tg for _h, tg in users} - {tg0, tg1}
+    assert {tg: got[tg] for tg in others} == {tg: [f"{head} Use /draw to agree."] for tg in others}

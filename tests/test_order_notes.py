@@ -91,14 +91,14 @@ def test_a_convoyed_move_with_no_fleet_chain_is_impossible_this_turn() -> None:
 def test_an_army_in_an_inland_province_cannot_be_convoyed() -> None:
     state = _state("FRANCE A PAR")
     assert _notes(state, "FRANCE", "A PAR - LON")["A PAR - LON"] == [
-        "A PAR cannot reach LON this turn: PAR is inland, so no fleet can convoy it"
+        "A PAR cannot reach LON this turn: LON is not next to PAR, and an army in an inland province cannot be convoyed"
     ]
 
 
 def test_an_army_cannot_be_convoyed_into_an_inland_province() -> None:
     state = _state("FRANCE A BRE")
     assert _notes(state, "FRANCE", "A BRE - MUN")["A BRE - MUN"] == [
-        "A BRE cannot reach MUN this turn: MUN is inland, so no fleet can convoy it there"
+        "A BRE cannot reach MUN this turn: MUN is not next to BRE, and an army can be convoyed only to a coastal province"
     ]
 
 
@@ -412,3 +412,10 @@ def test_convoy_routes_agree_with_the_adjudicators_possible_route() -> None:
                 assert found == convoy_route_possible(_MAP, state, src, dst), (src, dst)
     routes = convoy_routes(_MAP, state, "LON", "NAF")
     assert [[str(f) for f in r] for r in routes] == [["F ENG", "F MAO"]]
+
+
+def test_an_army_ordered_to_its_own_province_is_told_to_hold() -> None:
+    state = _state("FRANCE A PAR")
+    assert _notes(state, "FRANCE", "A PAR - PAR")["A PAR - PAR"] == [
+        "A PAR is already in PAR: to stay there, order it to hold"
+    ]

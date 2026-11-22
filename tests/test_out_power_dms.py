@@ -37,7 +37,7 @@ def test_draw_vote_and_withdrawal_skip_a_conceded_power() -> None:
     assert resp.status_code == 200, resp.text
     vote = (
         f"ENGLAND has voted to end game {game_id} in a draw (1/6 agreed). "
-        "Draw votes last until this phase is processed. Use /draw to agree or /nodraw to withdraw."
+        "Draw votes last until this phase is processed. Use /draw to agree."
     )
     assert _recipients(probe) == {tg: [vote] for tg in others}
     with OutboxProbe() as probe:
