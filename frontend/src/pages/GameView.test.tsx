@@ -2251,6 +2251,25 @@ describe('GameView — turn status stays current (BQ3)', () => {
     expect(box.stateGets).toBe(before + 2)
   })
 
+  it('stops polling a game that does not exist (DW2)', async () => {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        urls.push(url)
+        return jsonResponse({ detail: 'Game not found' }, 404)
+      })
+    )
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { container } = renderGame10()
+    expect(await within(container).findByText('Game not found')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(30_000)
+    const afterFirstTick = urls.length
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(urls.length).toBe(afterFirstTick)
+    vi.useRealTimers()
+  })
+
   it('does not start a refresh while the previous one is still in flight', async () => {
     const { box, fetchMock } = mutableStub(pending)
     vi.stubGlobal('fetch', fetchMock)

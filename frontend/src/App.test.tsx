@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, within, waitFor } from '@testing-library/react'
+import { useState } from 'react'
+import { render, within, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { AuthContext, AuthProvider } from '@/contexts/AuthContext'
 import App from '@/App'
@@ -39,6 +40,49 @@ describe('App', () => {
       await waitFor(() => {
         expect(within(container).getByRole('heading', { name: /login/i })).toBeInTheDocument()
       })
+    })
+
+    it('returns to the protected page after logging in (DW1)', async () => {
+      const mockUser = { id: 1, email: 'a@b.com', nickname: 'Test', telegram_id: null, telegram_linked: false }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve({
+            ok: false,
+            status: 404,
+            text: () => Promise.resolve(JSON.stringify({ detail: 'Game not found' })),
+          } as Response)
+        )
+      )
+      function Host() {
+        const [user, setUser] = useState<typeof mockUser | null>(null)
+        const auth = {
+          user,
+          loading: false,
+          login: async () => setUser(mockUser),
+          register: vi.fn(),
+          logout: vi.fn(),
+          refreshUser: vi.fn(),
+        }
+        return (
+          <AuthContext.Provider value={auth}>
+            <App />
+          </AuthContext.Provider>
+        )
+      }
+      const { container } = render(
+        <MemoryRouter initialEntries={['/games/1']}>
+          <Host />
+        </MemoryRouter>
+      )
+      const c = within(container)
+      await c.findByRole('heading', { name: 'Login' })
+      fireEvent.change(container.querySelector('#email')!, { target: { value: 'a@b.com' } })
+      fireEvent.change(container.querySelector('#password')!, { target: { value: 'secret123' } })
+      fireEvent.click(c.getByRole('button', { name: 'Login' }))
+      // /games/1 (here: its "Game not found" page), not the /games list.
+      expect(await c.findByText('Game not found')).toBeInTheDocument()
+      expect(c.queryByRole('heading', { name: 'Games', level: 1 })).toBeNull()
     })
 
     it('renders protected content when user is set', async () => {

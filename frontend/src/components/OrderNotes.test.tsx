@@ -74,4 +74,23 @@ describe('OrderNotes', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     expect(container.textContent).toBe('')
   })
+
+  it('calls a half-filled unit incomplete instead of saying it will hold (DW3)', async () => {
+    const view: OrderNotesView = {
+      orders: [],
+      notes: [{ kind: 'warning', code: 'unordered', text: 'A BUD has no order, so it will hold' }],
+    }
+    vi.stubGlobal('fetch', vi.fn(() => respond(view)))
+    render(<OrderNotes gameId="7" power="AUSTRIA" orders={['A VIE H']} incomplete={['A BUD']} />)
+    expect(await screen.findByText('A BUD is incomplete: choose a target.')).toBeTruthy()
+    expect(screen.queryByText('A BUD has no order, so it will hold.')).toBeNull()
+  })
+
+  it('shows the incomplete note even when no finished order was sent (DW3)', () => {
+    const fetchMock = vi.fn(() => respond(VIEW))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<OrderNotes gameId="7" power="AUSTRIA" orders={[]} incomplete={['A BUD']} />)
+    expect(screen.getByText('A BUD is incomplete: choose a target.')).toBeTruthy()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })

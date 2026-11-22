@@ -3,7 +3,7 @@
  * sandbox (`Sandbox`): the per-unit order pickers, the adjustment-phase slot pickers,
  * the adjudicated-result list, and the unit/legal-order types they work on.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -179,6 +179,7 @@ export function UnitOrdersSection({
   provinceNames = {},
   unitOwners = {},
   phaseCode,
+  onIncompleteChange,
 }: {
   phase: string
   myUnits: UnitOut[]
@@ -195,6 +196,9 @@ export function UnitOrdersSection({
   unitOwners?: Record<string, string>
   /** Phase code ("S1901M"); a new one discards half-made choices, as the orders are replaced. */
   phaseCode?: string
+  /** Called with the units whose order type has no target yet, so the order helper can
+   * call them incomplete instead of saying they hold (DW3). */
+  onIncompleteChange?: (units: string[]) => void
 }) {
   // An order type chosen but with no target yet. It is not an order, so it lives here
   // and never reaches `orderByUnit` (BQ1).
@@ -209,6 +213,13 @@ export function UnitOrdersSection({
     const id = unitKey(u)
     return !orderByUnit[id] && needsTarget(pendingType[id] ?? '')
   })
+  const incompleteKey = incomplete.map(unitKey).join('\n')
+  useEffect(() => {
+    onIncompleteChange?.(incompleteKey ? incompleteKey.split('\n') : [])
+    // Unmounting (the text fallback, or the Adjustment phase's build rows) must not leave
+    // the last half-filled units behind in the parent.
+    return () => onIncompleteChange?.([])
+  }, [incompleteKey, onIncompleteChange])
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
@@ -300,14 +311,14 @@ export function UnitOrdersSection({
       </ul>
       {onSubmit && (
         <>
-          <Button onClick={onSubmit} disabled={submitting || incomplete.length > 0}>
-            {submitting ? 'Submitting...' : 'Submit orders'}
-          </Button>
           {incomplete.length > 0 && (
-            <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+            <p className="mb-2 text-sm text-amber-700 dark:text-amber-400">
               Choose a target for {incomplete.map(unitKey).join(', ')} before submitting.
             </p>
           )}
+          <Button onClick={onSubmit} disabled={submitting || incomplete.length > 0}>
+            {submitting ? 'Submitting...' : 'Submit orders'}
+          </Button>
         </>
       )}
     </>

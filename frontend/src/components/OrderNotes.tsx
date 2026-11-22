@@ -31,7 +31,19 @@ function sentence(text: string): string {
 }
 
 /** Asks for notes on `orders` (debounced) and lists them; renders nothing without any. */
-export function OrderNotes({ gameId, power, orders }: { gameId: string; power: string; orders: string[] }) {
+export function OrderNotes({
+  gameId,
+  power,
+  orders,
+  incomplete = [],
+}: {
+  gameId: string
+  power: string
+  orders: string[]
+  /** Units (e.g. "A BUD") with an order type chosen but no target yet: the server only
+   * sees the finished orders and would say they hold, so say they are incomplete (DW3). */
+  incomplete?: string[]
+}) {
   const [view, setView] = useState<OrderNotesView | null>(null)
   const key = orders.join('\n')
   useEffect(() => {
@@ -59,7 +71,15 @@ export function OrderNotes({ gameId, power, orders }: { gameId: string; power: s
     }
   }, [gameId, power, key])
 
-  const notes = helperNotes(view)
+  const notes = helperNotes(view).map((n) => {
+    const unit = n.code === 'unordered' ? incomplete.find((u) => n.text === `${u} has no order, so it will hold`) : undefined
+    return unit ? { ...n, text: `${unit} is incomplete: choose a target` } : n
+  })
+  // A half-filled row with no finished order sends no draft, so the server says nothing.
+  for (const u of incomplete) {
+    const text = `${u} is incomplete: choose a target`
+    if (!notes.some((n) => n.text === text)) notes.push({ kind: 'warning', code: 'incomplete', text })
+  }
   if (notes.length === 0) return null
   return (
     <div role="status" aria-live="polite" className="mt-3 max-w-xl rounded-lg border border-border p-3 text-sm">

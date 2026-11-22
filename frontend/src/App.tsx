@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useParams } from 'react-router'
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router'
 import { useAuth } from './contexts/AuthContext'
 import { AppLayout } from './components/AppLayout'
 import { Toaster } from './components/ui/sonner'
@@ -22,8 +22,9 @@ function GameViewForRoute() {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
+  const location = useLocation()
   if (loading) return <div className="p-5">Loading...</div>
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
   return <>{children}</>
 }
 
