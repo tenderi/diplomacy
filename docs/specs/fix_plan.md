@@ -10,13 +10,13 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DX**.
+>   history. Track letters run in sequence; the next free one is **DY**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-11-22.
+- **Last updated:** 2026-11-23.
 - **Open tracks:** DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
