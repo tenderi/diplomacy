@@ -35,6 +35,9 @@ def client():
     return BotTestClient(app)
 
 
+_BOT = {"X-Bot-Secret": os.environ["DIPLOMACY_BOT_SECRET"]}
+
+
 def _skip_if_no_db():
     if not _get_db_url():
         pytest.skip("Database URL not configured (SQLALCHEMY_DATABASE_URL)")
@@ -209,14 +212,14 @@ def test_telegram_link_already_linked_to_other_account(client):
     code_resp = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token_a}"})
     code = code_resp.json()["code"]
     tg_id = f"tg_409_{int(time.time() * 1000)}"
-    client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code})
+    client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code}, headers=_BOT)
     # User B registers and gets link code
     reg_b = client.post("/auth/register", json={"email": _unique_email("link_b"), "password": "pass12345"})
     token_b = reg_b.json()["access_token"]
     code_resp_b = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token_b}"})
     code_b = code_resp_b.json()["code"]
     # Try to link same telegram_id to user B -> 409
-    resp = client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code_b})
+    resp = client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code_b}, headers=_BOT)
     assert resp.status_code == 409
 
 
@@ -228,11 +231,11 @@ def test_telegram_link_already_linked_same_user(client):
     code_resp = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token}"})
     code = code_resp.json()["code"]
     tg_id = f"tg_same_{int(time.time() * 1000)}"
-    client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code})
+    client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code}, headers=_BOT)
     # Call link again with same code (consumed) would fail; use new code
     code_resp2 = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token}"})
     code2 = code_resp2.json()["code"]
-    resp = client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code2})
+    resp = client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code2}, headers=_BOT)
     assert resp.status_code == 200
     assert "already linked" in resp.json().get("message", "").lower()
 
@@ -279,7 +282,7 @@ def test_link_code_and_telegram_link(client):
     link_resp = client.post("/auth/telegram/link", json={
         "telegram_id": telegram_id,
         "code": code,
-    })
+    }, headers=_BOT)
     assert link_resp.status_code == 200
 
     me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -303,7 +306,7 @@ def test_unlink_telegram(client):
     assert code_resp.status_code == 200
     code = code_resp.json()["code"]
     tg_id = f"tg_unlink_{int(time.time() * 1000)}"
-    client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code})
+    client.post("/auth/telegram/link", json={"telegram_id": tg_id, "code": code}, headers=_BOT)
     me_before = client.get("/auth/me", headers=headers)
     assert me_before.json().get("telegram_linked") is True
 
@@ -323,7 +326,7 @@ def test_telegram_link_invalid_code(client):
     resp = client.post("/auth/telegram/link", json={
         "telegram_id": "123",
         "code": "000000",
-    })
+    }, headers=_BOT)
     assert resp.status_code == 400
 
 
@@ -457,7 +460,7 @@ class TestLinkingAFreshWebLoginToAPlayedTelegram:
         played = db_service.get_user_by_telegram_id(tg)
         email, old_token, web_id, code = self._web_code(client)
 
-        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code})
+        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code}, headers=_BOT)
         assert resp.status_code == 200, resp.text
         assert resp.json()["merged"] is True
 
@@ -476,10 +479,10 @@ class TestLinkingAFreshWebLoginToAPlayedTelegram:
         _skip_if_no_db()
         first_email, _, _, first_code = self._web_code(client, "owner")
         tg = f"tg_owned_{int(time.time() * 1000)}"
-        assert client.post("/auth/telegram/link", json={"telegram_id": tg, "code": first_code}).status_code == 200
+        assert client.post("/auth/telegram/link", json={"telegram_id": tg, "code": first_code}, headers=_BOT).status_code == 200
         _, _, second_id, second_code = self._web_code(client, "intruder")
 
-        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": second_code})
+        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": second_code}, headers=_BOT)
         assert resp.status_code == 409
         assert resp.json()["detail"].startswith("This Telegram is already linked to another account that has its own web login")
         from server.api.shared import db_service
@@ -497,7 +500,7 @@ class TestLinkingAFreshWebLoginToAPlayedTelegram:
         assert joined.status_code == 200 and joined.json()["status"] == "ok", joined.text
         code = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token}"}).json()["code"]
 
-        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code})
+        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code}, headers=_BOT)
         assert resp.status_code == 409
         assert db_service.get_user_by_id(web_id).email == email
         assert db_service.get_user_by_telegram_id(tg).email is None
@@ -513,3 +516,53 @@ def test_link_code_response_names_the_bot(client):
     assert resp.status_code == 200, resp.text
     assert resp.json()["bot_username"] == BOT_USERNAME
     assert BOT_USERNAME
+
+
+class TestTelegramLinkNeedsTheBotSecret:
+    """Only the bot can vouch that a ``telegram_id`` is the one sending ``/link``.
+    Without the secret, a web user could bind their own code to anyone's Telegram."""
+
+    def _code(self, client, prefix):
+        email = _unique_email(prefix)
+        reg = client.post("/auth/register", json={"email": email, "password": "pass12345"})
+        assert reg.status_code == 200, reg.text
+        token = reg.json()["access_token"]
+        code = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token}"}).json()["code"]
+        return email, token, reg.json()["user"]["id"], code
+
+    @pytest.mark.parametrize("headers", [{}, {"X-Bot-Secret": "wrong"}])
+    def test_a_bot_only_account_is_not_taken_over(self, client, headers):
+        _skip_if_no_db()
+        from server.api.shared import db_service
+        from tests.test_quit_and_replace import _game_with_france
+
+        _, victim_tg = _game_with_france(client)
+        victim = db_service.get_user_by_telegram_id(victim_tg)
+        email, token, attacker_id, code = self._code(client, "takeover")
+
+        resp = client.post("/auth/telegram/link", json={"telegram_id": victim_tg, "code": code}, headers=headers)
+
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "Not authenticated: this endpoint requires the 'X-Bot-Secret' header."
+        assert db_service.get_user_by_telegram_id(victim_tg).id == victim.id
+        assert db_service.get_user_by_telegram_id(victim_tg).email is None
+        assert db_service.get_user_by_id(attacker_id).email == email
+        me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.json()["telegram_linked"] is False
+        # The code was not consumed: the real bot can still use it.
+        ok = client.post("/auth/telegram/link", json={"telegram_id": f"tg_own_{attacker_id}", "code": code}, headers=_BOT)
+        assert ok.status_code == 200, ok.text
+
+    def test_an_unregistered_telegram_id_is_not_pre_claimed(self, client):
+        _skip_if_no_db()
+        from server.api.shared import db_service
+
+        _, token, _, code = self._code(client, "preclaim")
+        tg = f"tg_preclaim_{int(time.time() * 1000)}"
+
+        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code})
+
+        assert resp.status_code == 401
+        assert db_service.get_user_by_telegram_id(tg) is None
+        me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.json()["telegram_linked"] is False
