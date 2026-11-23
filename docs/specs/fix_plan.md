@@ -17,30 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-22.
-- **Open tracks:** DW (phone-width web UI findings; only the map-legend part of DW5 remains), DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DW — Phone-width web UI findings (2026-11-22 play-through, 390x844)
-
-- [x] DW1: logging in after a redirect from a protected page (`/games/1`) lands on `/games`
-      instead of the page the player was going to; a game link from a notification loses
-      its target. Return to the original route after login.
-- [x] DW2: `/games/999` shows "Game not found" but keeps polling state, players and
-      messages, a stream of 404s; stop polling once the game is known not to exist.
-- [x] DW3: choosing "Support" without a target disables Submit and shows "Choose a target
-      for A BUD before submitting." *below* the button, while the order helper still says
-      "A BUD has no order, so it will hold". Put the warning where a player sees it and
-      make the helper agree with the half-filled row.
-- [x] DW4: at 390px the game page's order form sat ~2.5 screens down; on a phone the order
-      form now follows the status card (results, then the map, after it), and the sandbox's
-      Resolve / Step back / Start over bar is sticky at the bottom of the viewport.
-- [x] DW5a: the "Previous turn" `<select>` is 40px tall; `/nonexistent` shows a "Page not
-      found" page with a link home.
-- [ ] DW5b: the map's legend and title are unreadable at phone width until zoomed
-      (`src/rendering/legend.py`).
 
 # Track DV — Smaller bot-text findings (2026-11-21 play-through)
 

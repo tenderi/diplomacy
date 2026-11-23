@@ -1352,7 +1352,7 @@ export default function GameView() {
                     onChange={(e) => setJoinPower(e.target.value)}
                     aria-label="Power to join as"
                     className={cn(
-                      'h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm',
+                      'h-10 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
                     )}
                   >
@@ -1371,7 +1371,7 @@ export default function GameView() {
                     aria-label="Game password"
                     autoComplete="off"
                     className={cn(
-                      'h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm',
+                      'h-10 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
                     )}
                   />

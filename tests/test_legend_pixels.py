@@ -33,6 +33,14 @@ def _fresh_cache() -> None:
     Map.clear_map_cache()
 
 
+@pytest.fixture(autouse=True)
+def _unscaled_footer(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
+    """These tests pin the footer's layout at its configured sizes; the enlargement
+    for wide maps has its own tests (``test_footer_scales_with_the_map_width``)."""
+    if request.node.name != "test_footer_scales_with_the_map_width":
+        monkeypatch.setattr(legend, "FOOTER_BASE_WIDTH", 10**9)
+
+
 def blank(width: int = BOARD[0]) -> Image.Image:
     return Image.new("RGBA", (width, BOARD[1]), (255, 255, 255, 255))
 
@@ -350,3 +358,20 @@ def test_footer_explains_the_sea_hatching() -> None:
     gaps = sum(1 for p in box if out.getpixel(p)[:3] == FOOTER_BG)
     assert stripes > 40 and gaps > 40  # grey stripes with the footer showing between them
     assert add_footer(blank(1400), None, set(), []).height == BOARD[1]  # no powers, no key
+
+
+def test_footer_scales_with_the_map_width() -> None:
+    """On the 1835px map the footer is enlarged 3x, so its text is ~9px tall when a
+    phone shows the map 390px wide; a small image keeps the configured sizes."""
+    assert legend.footer_scale(400) == 1
+    assert legend.footer_scale(1835) == 3
+    wide = add_footer(blank(1800), None, {"move"}, [], title_prefix="Orders")
+    small = add_footer(blank(600), None, {"move"}, [], title_prefix="Orders")
+    assert wide.width == 1800
+    # the strip is 3x as tall, and its title text is inked at 3x the height
+    assert wide.height - BOARD[1] == 3 * (small.height - BOARD[1])
+    def ink_height(img: Image.Image, y0: int, scale: int) -> int:
+        box = ink_bbox(img, (PAD * scale, y0, PAD * scale + 60 * scale, img.height))
+        assert box is not None
+        return box[3] - box[1]
+    assert ink_height(wide, BOARD[1] + 4, 3) >= 2.5 * ink_height(small, BOARD[1] + 4, 1)

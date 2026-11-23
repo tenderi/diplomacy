@@ -25,6 +25,13 @@ RED = POWERS["AUSTRIA"]
 WHITE, DARK = (255, 255, 255), (26, 26, 26)
 
 
+@pytest.fixture(autouse=True)
+def _unscaled_footer(monkeypatch: pytest.MonkeyPatch) -> None:
+    from rendering import legend
+
+    monkeypatch.setattr(legend, "FOOTER_BASE_WIDTH", 10**9)
+
+
 def _sprite(kind: str, fill: tuple[int, int, int] = RED) -> Image.Image:
     return token_sprite(kind, fill, outline=CASING)
 
