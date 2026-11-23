@@ -210,6 +210,17 @@ def _plus_badge(d: DrawTarget, at: tuple[float, float]) -> None:
     d.line([(x, y - br * 0.55), (x, y + br * 0.55)], fill=(255, 255, 255), width=2.5)
 
 
+#: Map width, in pixels, that the footer's configured sizes are drawn for. A wider
+#: map gets the whole footer enlarged by ``width / FOOTER_BASE_WIDTH`` (rounded), so
+#: its text keeps a legible size when a phone scales the picture down to its screen.
+FOOTER_BASE_WIDTH = 600
+
+
+def footer_scale(width: int) -> int:
+    """Whole-number enlargement of the footer for a map ``width`` pixels wide."""
+    return max(1, round(width / FOOTER_BASE_WIDTH))
+
+
 def add_footer(
     image: Image.Image,
     phase_info: dict | None,
@@ -223,8 +234,14 @@ def add_footer(
     rows as needed."""
     spec = _cfg.get_footer_specs()
     pad, row_h, gap, sym_w = spec["padding"], spec["row_height"], spec["item_gap"], spec["symbol_width"]
-    title_font = font(spec["title_font_size"])
-    item_font = font(spec["item_font_size"], bold=False)
+    # The strip is laid out, and its symbols drawn, on a canvas ``scale`` times
+    # narrower than the map, then enlarged; the text is drawn afterwards at its
+    # enlarged size, so it stays sharp. A phone shows the whole map ~390px wide, and
+    # type sized for a 600px canvas would be a few pixels tall there.
+    scale = footer_scale(image.width)
+    strip_w = -(-image.width // scale)
+    title_font = font(spec["title_font_size"] * scale)
+    item_font = font(spec["item_font_size"] * scale, bold=False)
     title = " — ".join(t for t in (title_prefix, phase_title(phase_info)) if t)
     measure = ImageDraw.Draw(image)
 
@@ -243,40 +260,35 @@ def add_footer(
     for item in items:
         kind, _, label = item
         f = title_font if kind == "title" else item_font
-        width = measure.textlength(label, font=f) + (0 if kind == "title" else sym_w + 8)
-        if x > pad and x + width > image.width - pad:
+        width = measure.textlength(label, font=f) / scale + (0 if kind == "title" else sym_w + 8)
+        if x > pad and x + width > strip_w - pad:
             x, row = float(pad), row + 1
         placed.append((item, x, row))
         x += width + gap * (1.5 if kind == "title" else 1)
 
     rows = max(1, row + 1) if items else 0
     height = rows * row_h + 2 * pad if rows else 0
-    out = Image.new("RGBA", (image.width, image.height + height), rgb(_cfg.get_color("footer_background")) + (255,))
+    background = rgb(_cfg.get_color("footer_background")) + (255,)
+    out = Image.new("RGBA", (image.width, image.height + height * scale), background)
     out.alpha_composite(image, (0, 0))
     if not rows:
         return out
-    draw = ImageDraw.Draw(out)
-    draw.line([(0, image.height), (image.width, image.height)], fill=_casing(), width=2)
-    ink = rgb(_cfg.get_color("footer_text"))
+    strip = Image.new("RGBA", (strip_w, height), background)
 
     def mid(r: int) -> float:
-        return image.height + pad + r * row_h + row_h / 2
+        return pad + r * row_h + row_h / 2
 
     for (kind, key, label), x, r in placed:
         y = mid(r)
-        if kind == "title":
-            draw.text((x, y), label, fill=ink, font=title_font, anchor="lm")
-            continue
         if kind == "power":
-            paste_token(out, (x + sym_w / 2, y), "", _cfg.get_power_color(key))
+            paste_token(strip, (x + sym_w / 2, y), "", _cfg.get_power_color(key))
         elif kind == "sea":
-            _paste_sea_swatch(out, x, y, sym_w)
+            _paste_sea_swatch(strip, x, y, sym_w)
         elif kind == "unit":
-            paste_token(out, (x + sym_w / 2, y), key, _cfg.get_color("void"))
+            paste_token(strip, (x + sym_w / 2, y), key, _cfg.get_color("void"))
         elif kind == "legend" and LEGEND[key][1] is None:
-            _token_symbol(out, key, x, y, sym_w)
-        draw.text((x + sym_w + 8, y), label, fill=ink, font=item_font, anchor="lm")
-    with antialiased_overlay(out) as d:
+            _token_symbol(strip, key, x, y, sym_w)
+    with antialiased_overlay(strip) as d:
         for (kind, key, _), x, r in placed:
             if kind != "legend":
                 continue
@@ -285,4 +297,15 @@ def add_footer(
                 symbol(d, x, mid(r), sym_w)
             else:
                 _token_marks(d, key, x, mid(r), sym_w)
+    if scale > 1:
+        strip = strip.resize((strip_w * scale, height * scale), Image.LANCZOS)
+    out.alpha_composite(strip.crop((0, 0, image.width, strip.height)), (0, image.height))
+
+    draw = ImageDraw.Draw(out)
+    draw.line([(0, image.height), (image.width, image.height)], fill=_casing(), width=2 * scale)
+    ink = rgb(_cfg.get_color("footer_text"))
+    for (kind, _, label), x, r in placed:
+        tx = x if kind == "title" else x + sym_w + 8
+        draw.text((tx * scale, image.height + mid(r) * scale), label, fill=ink,
+                  font=title_font if kind == "title" else item_font, anchor="lm")
     return out

@@ -116,7 +116,9 @@ per power on the board, wrapping onto more rows when needed.
 
 - **Format:** PNG; the SVG is rasterized at its native 1835×1360 and flattened onto white
   (the raster is transparent along every border, which a dark viewer showed as black), then
-  the footer is appended below.
+  the footer is appended below. The footer is drawn for a 600px-wide map and enlarged by
+  `round(width / 600)` (3x on the 1835px map, so its text is ~9px when a phone shows the map
+  390px wide); the symbols are drawn small then enlarged, the text drawn at its final size.
 - **Layers:** base map and tints → province names and supply-centre markers → order lines → unit tokens → build tokens → markers →
   footer. Overlays are drawn on a 3× supersampled layer and downscaled (`antialias.py`).
 - **Caching:** in memory and on disk at `/tmp/diplomacy_map_cache`, keyed by everything that
