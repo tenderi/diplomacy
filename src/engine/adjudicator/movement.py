@@ -372,10 +372,19 @@ class _Resolver:
                 isinstance(o, SupportMove)
                 and o.origin.province == m.unit.province
                 and o.dest.province == m.dest.province
-                and self._coast_compatible(o.dest.coast, m.dest.coast)
+                and self._coast_compatible(o.dest.coast, self._move_dest_coast(m))
             ):
                 out.append(o)
         return out
+
+    def _move_dest_coast(self, m: Move) -> Optional[str]:
+        """The coast the move actually goes to: the written one, or the sole coast
+        a fleet can reach when the order names none (6.B.2). A support naming a
+        different coast does not match the move (6.B.9)."""
+        unit = self.unit_by_prov.get(m.unit.province)
+        if unit is None:
+            return m.dest.coast
+        return _move_dest_location(m, unit, self.map).coast
 
     @staticmethod
     def _coast_compatible(support_coast: Optional[str], move_coast: Optional[str]) -> bool:
@@ -393,7 +402,7 @@ class _Resolver:
                     isinstance(m, Move)
                     and m.unit.province == s.origin.province
                     and m.dest.province == s.dest.province
-                    and self._coast_compatible(s.dest.coast, m.dest.coast)
+                    and self._coast_compatible(s.dest.coast, self._move_dest_coast(m))
                 ):
                     return True
             return False
