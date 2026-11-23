@@ -308,6 +308,11 @@ finds its own seat in an anonymous game from `GET /users/me/games` (or
 "Spring 1901"), `status` and `is_creator`. `POST /auth/me/link_code` returns `{code, expires_in_seconds, expires_at,
 bot_username}`; `bot_username` is the bot's Telegram username (`DIPLOMACY_BOT_USERNAME`, default
 `IronChancellorBot`), which the `/link-telegram` page links as `t.me/<it>`.
+The player sends the code to the bot (`/link <code>`), and the bot redeems it with
+`POST /auth/telegram/link {telegram_id, code}`, which takes **the bot secret only** (401
+otherwise, and the code stays unused): the body's `telegram_id` is trusted as the account
+that sent the code, which only the bot can vouch for. If that Telegram account already
+exists without a web login, it takes over the code's web login (`merged: true`).
 
 **The view carries no pending orders.** It is public (`GET /games/{id}/state` needs no
 login, and game ids are sequential), and orders are secret until the turn is processed.

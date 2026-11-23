@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.bot_client import BotTestClient
+from tests.test_quit_and_replace import BOT_SECRET
 
 from persistence.database import GameModel
 from server._api_module import app
@@ -146,7 +147,7 @@ def _nicknames(client: TestClient, game_id: str) -> list[object]:
 
 def _link(client: TestClient, headers: dict[str, str], tg: str) -> None:
     code = client.post("/auth/me/link_code", headers=headers).json()["code"]
-    assert client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code}).status_code == 200
+    assert client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code}, headers={"X-Bot-Secret": BOT_SECRET}).status_code == 200
 
 
 def test_a_web_nickname_shows_in_the_cached_seat_list(client: TestClient) -> None:

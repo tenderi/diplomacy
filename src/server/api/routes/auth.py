@@ -757,8 +757,16 @@ def _check_link_rate_limit(ip: str, telegram_id: str) -> None:
 
 
 @router.post("/telegram/link")
-def link_telegram(req: LinkTelegramRequest, request: Request) -> Dict[str, Any]:
-    """Link Telegram to an account using a code (called by Telegram bot when user sends /link <code>). No JWT."""
+def link_telegram(
+    req: LinkTelegramRequest, request: Request, _: None = Depends(require_bot_secret)
+) -> Dict[str, Any]:
+    """Link Telegram to an account using a code: the bot's ``/link <code>``. **Bot secret only.**
+
+    The body's ``telegram_id`` is trusted as the account the code is sent from,
+    and only the bot can vouch for that. Without ``require_bot_secret`` a web
+    user could mint a code for their own account and bind it to anyone's
+    ``telegram_id`` (taking over a bot-only account through the merge below).
+    """
     client_ip = request.client.host if request.client else "unknown"
     _check_link_rate_limit(client_ip, req.telegram_id)
     user_id = db_service.consume_link_code(req.code)
