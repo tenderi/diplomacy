@@ -99,4 +99,4 @@ echo "  1. python3.14 -m venv venv && source venv/bin/activate && pip install -r
 echo "  2. ./setup_database.sh   (database user, database, .env, migrations)"
 echo "  3. (optional) TELEGRAM_BOT_TOKEN=... PYTHONPATH=src python -m server.telegram_bot"
 echo "  4. PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000"
-echo "  5. (optional) cd frontend && npm install && npm run dev  → http://localhost:5173"
+echo "  5. (optional) cd frontend && npm ci && npm run dev  → http://localhost:5173"

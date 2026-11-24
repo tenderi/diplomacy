@@ -26,7 +26,7 @@ jobs:
       code: ${{ steps.diff.outputs.code }}
       docs: ${{ steps.diff.outputs.docs }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
 
@@ -63,10 +63,10 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.14'
           cache: pip
@@ -76,13 +76,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libcairo2 libcairo2-dev
         working-directory: .
 
+      # Hash-locked, ruff included (requirements.in pins it: an unpinned ruff broke CI
+      # when a new release added default rules, 2026-07-23).
       - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # Pinned: unpinned ruff broke CI when a new release added default rules
-          # (2026-07-23). Keep in sync with the version used locally.
-          pip install ruff==0.15.12
+        run: pip install --no-deps --require-hashes -r requirements.txt
 
       - name: Lint with ruff
         run: ruff check src/ --output-format=github
@@ -122,20 +119,26 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # No dependency runs code at install time; vite and esbuild need no install scripts.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
+
+      # What ships in the bundle: runtime dependencies, high and critical. Dev tooling's
+      # advisories (some, like picomatch's, have no fixed release) come as Dependabot alerts.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Type-check
-        run: npx tsc -b --noEmit
+        run: npx --no-install tsc -b --noEmit
 
       - name: Run tests
         run: npm run test:coverage
@@ -148,48 +151,51 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.14'
 
       - name: Install security tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install bandit pip-audit
+        run: pip install --no-deps --require-hashes -r requirements.txt
 
+      # Every lock: the dev environment and what each image installs.
       - name: Run pip-audit dependency check
-        run: pip-audit -r requirements.txt --progress-spinner=off
+        run: |
+          for lock in requirements.txt requirements-api.txt requirements-bot.txt docker/docs-requirements.txt; do
+            echo "== $lock"
+            pip-audit --require-hashes --disable-pip -r "$lock" --progress-spinner=off
+          done
 
       - name: Run bandit security check
         run: bandit -r src/ -ll -f json -o bandit-report.json
 
       - name: Upload bandit results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: bandit-report
           path: bandit-report.json
           if-no-files-found: ignore
 
   # The docs site's strict build (docker/docs.Dockerfile), so a broken link fails the PR
-  # rather than the deploy after the merge. Same pins as the Dockerfile; a test checks.
+  # rather than the deploy after the merge. Same lock as the Dockerfile; a test checks.
   docs:
     needs: changes
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.14'
 
       - name: Install MkDocs
-        run: pip install "mkdocs>=1.6,<2" "mkdocs-material>=9.5,<10"
+        run: pip install --no-deps --require-hashes -r docker/docs-requirements.txt
 
       - name: Build the docs site (strict)
         run: mkdocs build --strict --site-dir "$RUNNER_TEMP/site"

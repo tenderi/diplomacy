@@ -1,0 +1,16 @@
+# What the API image runs (docker/api.Dockerfile), and nothing else. Compiled with
+# hashes into requirements-api.txt; edit this file, never the .txt (see requirements.in).
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.32.0,<1.0.0
+pydantic>=2.11.0,<3.0.0
+sqlalchemy>=2.0.40,<3.0.0
+psycopg2-binary>=2.9.10,<3.0.0
+alembic>=1.16.0,<2.0.0
+requests>=2.31.0,<3.0.0
+python-telegram-bot>=22.0,<23.0
+Pillow>=13.0.0,<14.0.0
+cairosvg>=2.7.0,<3.0.0
+pytz>=2024.2
+PyJWT>=2.9.0,<3.0.0
+bcrypt>=5.0.0,<6.0.0
+python-multipart>=0.0.17   # FastAPI form parsing (routes/auth.py)
