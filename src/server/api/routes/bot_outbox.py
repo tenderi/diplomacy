@@ -71,7 +71,7 @@ async def get_outbox(
 
     ``wait`` > 0 makes it a long-poll: when nothing is pending, the request
     is held (without a database connection) until a row is committed or
-    ``wait`` seconds pass, and then returns what is there (``[]`` on timeout).
+    ``wait`` seconds pass, and then returns what is there (``{"items": [], "count": 0}`` on timeout).
     """
     items = await wait_for_rows(
         lambda: db_service.fetch_pending_bot_notifications(limit=limit, after_id=after_id), wait
