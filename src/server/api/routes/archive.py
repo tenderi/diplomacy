@@ -337,7 +337,8 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
 
 def _checked_seats(players: List[Dict[str, Any]]) -> List[Tuple[str, Any]]:
     """``(power, telegram_id)`` per exported seat; 400 on a power this map does
-    not have, or one seated twice (``create_player`` would write both rows)."""
+    not have, one seated twice (``create_player`` would write both rows), or a
+    player seated in two powers (one seat per user per game)."""
     known = frozenset(game_service.map.home_centers)
     seats: List[Tuple[str, Any]] = []
     for entry in players:
@@ -346,6 +347,9 @@ def _checked_seats(players: List[Dict[str, Any]]) -> List[Tuple[str, Any]]:
             raise HTTPException(status_code=400, detail=f"Unknown power {entry.get('power')!r} in players")
         if any(power == seated for seated, _ in seats):
             raise HTTPException(status_code=400, detail=f"Power {power} is seated twice in players")
+        telegram_id = entry.get("telegram_id")
+        if telegram_id and any(str(telegram_id) == str(other) for _, other in seats if other):
+            raise HTTPException(status_code=400, detail=f"Player {telegram_id} is seated in two powers in players")
         seats.append((power, entry.get("telegram_id")))
     return seats
 

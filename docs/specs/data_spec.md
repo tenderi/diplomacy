@@ -200,7 +200,7 @@ phase-checked write compares against (`expected_phase_code`), so `GameService.re
 refuses a `phase_code` that differs from the board's (`ValueError`). A saved-game import
 (`POST /games/import`) takes it from the imported board, and refuses with 400, before
 creating anything, a document whose `game.phase_code` disagrees with that board, a
-`players` entry naming an unknown power or a power twice, a message `timestamp` that is not
+`players` entry naming an unknown power, a power twice or one Telegram user in two powers, a message `timestamp` that is not
 ISO 8601 (an aware one is stored as naive UTC), or a snapshot whose `state` does not parse or whose `phase_code` is not that state's phase.
 
 There are no relational unit, order or supply-centre tables: `state_json` holds the
@@ -223,7 +223,13 @@ from.
 Player-to-power assignment is not an engine concern.
 Columns: `id`, `game_id` (FK, cascade), `power_name`, `user_id` (FK to `users`), `is_active`,
 `is_eliminated`, `home_supply_centers` (JSON), `controlled_supply_centers` (JSON),
-`orders_submitted`, `last_order_time`, `created_at`; `(game_id, power_name)` is unique. Only
+`orders_submitted`, `last_order_time`, `created_at`; `(game_id, power_name)` is unique
+(`uq_game_power`), and so is `(game_id, user_id)` where `user_id` is set
+(`uq_players_game_user`, a partial index): one user holds at most one seat per game, while
+any number of seats may be vacant. `DatabaseService.create_player` and `claim_vacant_seat`
+take the game row `FOR UPDATE` and re-check under it that the user has no seat in the game
+(`SeatHeldError`, which a join answers with `already_joined` and `/replace` with 409); the
+index is the backstop. Only
 `user_id` and `is_active` are read for the API view: the board's `state_json` is the truth
 for centres, and whether a power is **out** is not read from `is_eliminated` either but
 derived from the board by `GameService.eliminated_powers` (a power with no units and no

@@ -358,6 +358,11 @@ class PlayerModel(Base):
     __table_args__ = (
         UniqueConstraint('game_id', 'power_name', name='uq_game_power'),
         Index('ix_players_game', 'game_id'),
+        # One seat per user per game; a vacant seat (no user) does not count.
+        Index(
+            'uq_players_game_user', 'game_id', 'user_id', unique=True,
+            postgresql_where=text('user_id IS NOT NULL'), sqlite_where=text('user_id IS NOT NULL'),
+        ),
     )
     
     # Relationships

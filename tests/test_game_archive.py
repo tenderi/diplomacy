@@ -331,6 +331,8 @@ def _with(doc: dict, part: str, value: object) -> dict:
     ("players", [{"power": "PRUSSIA", "telegram_id": None}], "Unknown power 'PRUSSIA' in players"),
     ("players", [{"power": "FRANCE", "telegram_id": None}, {"power": "france", "telegram_id": None}],
      "Power FRANCE is seated twice in players"),
+    ("players", [{"power": "FRANCE", "telegram_id": "777"}, {"power": "ITALY", "telegram_id": 777}],
+     "Player 777 is seated in two powers in players"),
     ("messages", "last Tuesday", "Malformed message timestamp 'last Tuesday'"),
     ("snapshots", {"not": "a board"}, "Malformed state in snapshot 1"),
     ("snapshot_phase", "S1901M", "Snapshot 1's phase_code 'S1901M' does not match its board's phase 'F1901M'"),
