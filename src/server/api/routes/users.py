@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
+from sqlalchemy.exc import IntegrityError
 
 from .auth import get_current_user, get_current_user_optional, http_bearer, set_nickname_or_409
 from server.nickname import normalize_nickname
@@ -47,8 +48,19 @@ def persistent_register_user(req: RegisterPersistentUserRequest, x_bot_secret: O
         }
         
     # Create new user
-    user = db_service.create_user(telegram_id=req.telegram_id)
-        
+    try:
+        user = db_service.create_user(telegram_id=req.telegram_id)
+    except IntegrityError:  # a concurrent call registered it between the check and the write
+        existing_user = db_service.get_user_by_telegram_id(req.telegram_id)
+        if existing_user is None:
+            raise
+        return {
+            "status": "already_registered",
+            "user_id": existing_user.id,
+            "telegram_id": existing_user.telegram_id,
+            "nickname": existing_user.nickname,
+        }
+
     return {
         "status": "ok",
         "user_id": user.id,

@@ -473,8 +473,11 @@ def register(req: RegisterRequest, request: Request) -> Dict[str, Any]:
             password_hash=password_hash,
             nickname=req.nickname,
         )
-    except IntegrityError:  # the nickname was taken between the check and the write
-        raise HTTPException(status_code=409, detail="That nickname is taken")
+    except IntegrityError as e:  # taken between the check and the write: say which
+        constraint = str(getattr(getattr(e.orig, "diag", None), "constraint_name", "") or "")
+        if "nickname" not in constraint and db_service.get_user_by_email(email):
+            raise HTTPException(status_code=409, detail="Email already registered") from e
+        raise HTTPException(status_code=409, detail="That nickname is taken") from e
     access = _create_access_token(user.id)
     refresh = _create_refresh_token(user.id)
     return {

@@ -23,12 +23,6 @@
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
 
-# Track DY — Concurrency audit (2026-11-24)
-
-- [x] DY1: two simultaneous joins by one user (a double-click, web and bot at once) seated
-      them in two powers; seat writes now re-check under the game-row lock, and
-      `uq_players_game_user` makes it one seat per user per game.
-
 # Track DV — Smaller bot-text findings (2026-11-21 play-through)
 
 - [x] DV1: draw-vote DMs end "Use /draw to agree or /nodraw to withdraw" even for a player
