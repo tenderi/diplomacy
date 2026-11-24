@@ -503,10 +503,15 @@ class GameService:
             return must_act <= ordered
         return len(parsed) >= adjustments_owed(self._map, state, power)
 
-    def clear_orders(self, game_id: str, power: str) -> None:
+    def clear_orders(self, game_id: str, power: str, expected_phase_code: Optional[str] = None) -> None:
+        """Drop ``power``'s pending orders. Given ``expected_phase_code``, raises
+        ``StaleGameError`` (nothing cleared) if the game has since moved to
+        another phase, so a clear cannot wipe the new phase's orders."""
         power = power.upper()
         self._repo.modify_pending_orders(
-            game_id, lambda pending: {p: o for p, o in pending.items() if p != power}
+            game_id,
+            lambda pending: {p: o for p, o in pending.items() if p != power},
+            expected_phase_code=expected_phase_code,
         )
 
     # -- turn processing --------------------------------------------------

@@ -293,7 +293,18 @@ def clear_orders_for_power(
     _authorize_power(credentials, str(game_id), power, req.telegram_id, x_bot_secret)
     # A queued "clear" that arrives after the phase moved on would wipe orders
     # the player entered for the *new* phase (e.g. from the browser).
+    # Read the phase before the staleness check and clear only within it: a turn
+    # processed in between must not lose the new phase's orders.
+    game = game_service.load(str(game_id))
+    phase = game.state.phase_name if game is not None else None
     _refuse_if_stale(str(game_id), req.client_timestamp)
-    game_service.clear_orders(str(game_id), power)
+    try:
+        game_service.clear_orders(str(game_id), power, expected_phase_code=phase)
+    except StaleGameError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=f"The turn was processed while your orders were being cleared; none were cleared. "
+            f"Check the new board and try again. ({e})",
+        ) from e
     invalidate_cache(f"games/{game_id}")
     return {"status": "ok"}
