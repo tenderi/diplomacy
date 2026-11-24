@@ -2615,7 +2615,7 @@ describe('GameView — DG1 page states', () => {
     )
   }
 
-  it('a finished game has no phase line, order form or submit button, but keeps messaging', async () => {
+  it('a finished game has no phase line, order form or submit button, and takes no new messages', async () => {
     const units = [{ kind: 'A', power: 'FRANCE', location: 'PAR' }]
     const state = {
       ...activeMovementState,
@@ -2632,6 +2632,9 @@ describe('GameView — DG1 page states', () => {
     expect(within(container).queryByRole('button', { name: /submit orders/i })).not.toBeInTheDocument()
     expect(within(container).queryByRole('button', { name: /vote for draw/i })).not.toBeInTheDocument()
     expect(within(container).getByRole('heading', { name: 'Messages' })).toBeInTheDocument()
+    expect(within(container).getByText('The game has ended: messages can no longer be sent.')).toBeInTheDocument()
+    expect(within(container).queryByPlaceholderText('Type a message...')).not.toBeInTheDocument()
+    expect(within(container).queryByRole('button', { name: 'Send' })).not.toBeInTheDocument()
   })
 
   it('says no turn has been resolved on the Last resolution tab before any turn', async () => {

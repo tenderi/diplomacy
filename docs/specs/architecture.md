@@ -572,7 +572,15 @@ units, so 3500 leaves room for the longest heading a DM or group post puts in fr
 text; a message that didn't fit would be dropped by the bot as a permanent send error. The
 bot shows the 400's reason to the sender; the web composer has `maxLength` 3500 (a JS
 string length counts the same units), shows the characters left from 3000 on, and won't
-send blank text. **Reading** (`GET /games/{id}/messages`): no credentials reads the
+send blank text. **A finished game takes no messages**: once the game is `COMPLETED`, a
+private message, a broadcast, a rumour and a group broadcast (`/channel/broadcast`) are a
+409 "Game N has ended; messages can no longer be sent." (checked after the 404 and the 403
+sender check, so a non-member learns nothing). The bot answers "Game N has ended. Messages
+can no longer be sent, so your message was not sent." (a queued message replayed into an
+ended game gets "The game has ended, so your message was not sent." as its delivery
+report), the game menu's Messages screen shows the history without the write buttons, and
+the web page keeps the history readable but drops the composer. DAIDE press is relayed
+between live sessions and stores nothing, so it is untouched. **Reading** (`GET /games/{id}/messages`): no credentials reads the
 broadcasts only; a valid Bearer token, or `telegram_id` with the bot secret, adds the
 caller's own private messages. On this and every other request, GET or write, the bot sends
 the secret only in the `X-Bot-Secret` header: never in the URL, where it would end up in
@@ -771,8 +779,8 @@ messages by `recipient_power`, so whoever takes a seat (`/replace`, `/join` on a
 seat) reads every message sent to that power before they held it: the newcomer learns what
 was promised to the power they now play. This is the maintainer's decision (issue #253).
 
-**A `COMPLETED` game accepts no writes, except press.** `/message` and `/broadcast` stay open
-on purpose: a post-mortem chat is a normal Diplomacy custom (BZ5). `GameService.submit_orders`, `process_turn`,
+**A `COMPLETED` game accepts no writes.** That includes press: `/message`, `/broadcast` and
+the group broadcast are a 409 (issue #504 reversed the earlier post-mortem chat, BZ5). `GameService.submit_orders`, `process_turn`,
 `submit_draw_vote` and `concede` all raise `GameOverError` (a `ValueError`, deliberately *not*
 an `OrderError` — routes map that to 404, and a finished game is found) once
 `state.status is COMPLETED`; the routes answer **409** with a message naming the outcome

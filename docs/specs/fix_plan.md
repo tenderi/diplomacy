@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-24.
-- **Open tracks:** DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** DV (only DV4b, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -35,9 +35,11 @@
       missed one "Your 1 build was waived: no orders came in."; the caller's reply says
       "Austria owes 1 build." where everything else says "AUSTRIA"; the `/order A ROM -
       PAR` note "PAR is inland, so no fleet can convoy it there" is odd advice for an army.
-- [ ] DV4 (needs a decision first, ask the maintainer): `/message` in a finished game is
-      accepted and delivered; results DMs list orders alphabetically, without outcomes;
-      a `/newgame` creator who hasn't joined can't `/unlinkgroup`.
+- [x] DV4a: `/message` (and broadcast, rumour, group broadcast) in a finished game was
+      accepted and delivered; the API now refuses with a 409, and the bot and web say so.
+- [ ] DV4b (needs a decision first, ask the maintainer): results DMs list orders
+      alphabetically, without outcomes; a `/newgame` creator who hasn't joined can't
+      `/unlinkgroup`.
 
 # Track F — Manual acceptance (maintainer)
 

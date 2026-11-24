@@ -50,6 +50,7 @@ from .api_client import (
     drain_outbox_once,
 )
 from .outbox import get_outbox
+from .utils import ended_refusal
 
 logger = logging.getLogger("diplomacy.telegram_bot.notifications")
 
@@ -348,6 +349,11 @@ def format_delivery_report(result: DeliveryResult) -> str:
             f"❌ Not delivered (queued since {when}): {entry.description}\n"
             f"The server kept failing ({result.error} on {MAX_SERVER_ERRORS} tries), "
             f"so I stopped trying. It did not refuse it: please send it again."
+        )
+    if ended_refusal(result.error) and entry.endpoint.rsplit("/", 1)[-1] in ("message", "broadcast"):
+        return (
+            f"❌ Not delivered (queued since {when}): {entry.description}\n"
+            f"The game has ended, so your message was not sent."
         )
     return (
         f"❌ Not delivered (queued since {when}): {entry.description}\n"

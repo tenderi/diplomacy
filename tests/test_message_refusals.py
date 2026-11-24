@@ -6,12 +6,13 @@ and an unregistered Telegram id got a bare "Not authenticated".
 import pytest
 from fastapi.testclient import TestClient
 
+from engine.types import GameStatus
 from tests.bot_client import BotTestClient
 
 from server._api_module import app
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
-from tests.test_seat_guards import _as, _game
+from tests.test_seat_guards import BOT, _as, _game, _telegram_user
 
 pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")]
 
@@ -59,3 +60,62 @@ def test_an_unknown_telegram_id_without_the_secret_stays_generic(client: TestCli
     game_id, _ = _game(client, ["FRANCE", "GERMANY"])
     r = client.post(f"/games/{game_id}/broadcast", json={"telegram_id": "424242424242", "text": "hi"})
     assert (r.status_code, r.json()["detail"]) == (401, "Not authenticated: bot_secret required for telegram_id auth")
+
+
+def _end(game_id: str) -> None:
+    """Mark the game finished: FRANCE has won (restoring a COMPLETED board)."""
+    from dataclasses import replace
+    from engine.serialization import state_to_dict
+    from server.api.shared import game_service
+
+    game = game_service.load(game_id)
+    done = replace(game.state, status=GameStatus.COMPLETED, winners=frozenset({"FRANCE"}))
+    game_service.restore_snapshot(game_id, state_to_dict(done), phase_code=game_service.view(game_id)["phase"])
+    assert game_service.view(game_id)["status"] == "COMPLETED"
+
+
+def _finished_game(client: TestClient) -> tuple[str, dict[str, str]]:
+    game_id, seats = _game(client, ["FRANCE", "GERMANY"])
+    fill_with_dummies(game_id)
+    _end(game_id)
+    return game_id, seats
+
+
+@pytest.mark.parametrize("endpoint,extra", SENDS)
+def test_a_finished_game_takes_no_messages(client: TestClient, endpoint: str, extra: dict) -> None:
+    game_id, seats = _finished_game(client)
+    r = client.post(f"/games/{game_id}/{endpoint}", json=_as(seats["FRANCE"], text="gg", **extra))
+    assert (r.status_code, r.json()["detail"]) == (
+        409, f"Game {game_id} has ended; messages can no longer be sent.",
+    )
+
+
+def test_a_finished_game_refuses_a_rumour_and_keeps_its_history(client: TestClient) -> None:
+    game_id, seats = _game(client, ["FRANCE", "GERMANY"])
+    fill_with_dummies(game_id)
+    assert client.post(f"/games/{game_id}/broadcast", json=_as(seats["FRANCE"], text="before")).status_code == 200
+    _end(game_id)
+    r = client.post(f"/games/{game_id}/broadcast", json=_as(seats["FRANCE"], text="shh", anonymous=True))
+    assert (r.status_code, r.json()["detail"]) == (409, f"Game {game_id} has ended; messages can no longer be sent.")
+    r = client.get(f"/games/{game_id}/messages", params={"telegram_id": seats["FRANCE"]}, headers=BOT)
+    assert [m["text"] for m in r.json()["messages"]] == ["before"]
+
+
+def test_a_non_member_still_gets_403_not_409_for_a_finished_game(client: TestClient) -> None:
+    game_id, _ = _finished_game(client)
+    r = client.post(f"/games/{game_id}/broadcast", json=_as(_telegram_user(client), text="hi"))
+    assert (r.status_code, r.json()["detail"]) == (403, "Sender not in game")
+
+
+def test_a_group_broadcast_of_a_finished_game_is_refused(client: TestClient) -> None:
+    from server.api.shared import db_service
+
+    game_id, seats = _game(client, ["FRANCE", "GERMANY"])
+    fill_with_dummies(game_id)
+    db_service.link_game_to_channel(game_id, "-100777", any_displacer=True)
+    body = {"telegram_id": seats["FRANCE"], "message": "hi"}
+    live = client.post(f"/games/{game_id}/channel/broadcast", headers=BOT, json=body)
+    assert live.status_code == 200, live.text
+    _end(game_id)
+    r = client.post(f"/games/{game_id}/channel/broadcast", headers=BOT, json=body)
+    assert (r.status_code, r.json()["detail"]) == (409, f"Game {game_id} has ended; messages can no longer be sent.")

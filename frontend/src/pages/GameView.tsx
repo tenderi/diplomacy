@@ -1511,7 +1511,10 @@ export default function GameView() {
             )
           })}
         </ul>
-        {!iAmOut && (
+        {state.status === 'COMPLETED' && (
+          <p className="mt-2 text-sm text-muted-foreground">The game has ended: messages can no longer be sent.</p>
+        )}
+        {!iAmOut && state.status !== 'COMPLETED' && (
         <div className="mt-2 space-y-2">
           <Label className={`flex items-center gap-2 ${TAP_ROW}`}>
             <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
