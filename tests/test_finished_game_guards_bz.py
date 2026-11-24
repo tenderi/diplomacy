@@ -1,8 +1,8 @@
 """Track BZ: what a finished game still does (BZ2, BZ3, BZ5).
 
 A finished game cannot be taken over (BZ2), holds no pending deadline proposal
-(BZ3), shows no open draw vote unless a draw ended it (BZ3), and still carries
-post-mortem press (BZ5, deliberate).
+(BZ3), shows no open draw vote unless a draw ended it (BZ3), and takes no press (BZ5
+allowed post-mortem press; issue #504 closed it).
 """
 from __future__ import annotations
 
@@ -82,16 +82,17 @@ def test_a_game_not_ended_by_a_draw_shows_no_open_draw_vote(client: TestClient) 
     assert body["game_status"] == "COMPLETED"
 
 
-def test_press_is_still_accepted_after_the_game_ends(client: TestClient) -> None:
-    """Post-mortem chat is deliberate (BZ5): press is the one write a finished game takes."""
+def test_press_is_refused_after_the_game_ends(client: TestClient) -> None:
+    """Issue #504: a finished game takes no messages (it used to, as post-mortem chat, BZ5)."""
     game_id, tg = _game_with_france(client)
     other = _telegram_user(client, "postmortem")
     assert client.post(f"/games/{game_id}/join", json=_as(other, power="GERMANY")).status_code == 200
     _end_in_a_draw(game_id)
+    ended = f"Game {game_id} has ended; messages can no longer be sent."
     r = client.post(f"/games/{game_id}/message", json=_as(tg, recipient_power="GERMANY", text="gg"))
-    assert r.status_code == 200, r.text
+    assert (r.status_code, r.json()["detail"]) == (409, ended)
     r = client.post(f"/games/{game_id}/broadcast", json=_as(tg, text="well played"))
-    assert r.status_code == 200, r.text
+    assert (r.status_code, r.json()["detail"]) == (409, ended)
 
 
 def test_replacing_into_a_dummy_seat_is_409(client: TestClient) -> None:

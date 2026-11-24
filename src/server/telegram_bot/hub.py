@@ -409,6 +409,16 @@ async def _show_messages(send: Sender, user_id: str, game_id: str, power: str) -
         players = api_get(f"/games/{game_id}/players") or []
     except requests.RequestException:
         players = []
+    try:
+        ended = bool(game_end_line(api_get(f"/games/{game_id}/state") or {}))
+    except requests.RequestException:
+        ended = False  # the API refuses a message to a finished game anyway
+    if ended:
+        await send(
+            f"{text}\n\n{game_over_note(game_id)} Messages can no longer be sent.",
+            reply_markup=InlineKeyboardMarkup([_back(game_id)]), parse_mode=None,
+        )
+        return
     # ``seated``, not ``user_id``: an anonymous game never says who holds a seat.
     seated = sorted({
         p["power"] for p in players

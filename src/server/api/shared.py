@@ -1479,6 +1479,14 @@ def require_not_eliminated(game_id: str, power: str, action: str) -> None:
         )
 
 
+def require_game_running(game_id: str) -> None:
+    """409 once the game has ended: a finished game takes no new player messages
+    (its history stays readable)."""
+    view = game_service.view(str(game_id))
+    if view is not None and view["status"] == "COMPLETED":
+        raise HTTPException(status_code=409, detail=f"Game {game_id} has ended; messages can no longer be sent.")
+
+
 def notify_last_power_standing(
     game_id: str,
     numeric_game_id: int,

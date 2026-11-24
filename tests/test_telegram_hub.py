@@ -363,7 +363,7 @@ class TestMenuActions:
     def test_messages_offer_a_key_per_other_seated_player(self, two_games) -> None:
         players = [{"power": "GERMANY", "user_id": 1}, {"power": "FRANCE", "user_id": 2},
                    {"power": "ITALY", "user_id": None}, {"power": "AUSTRIA", "user_id": 3}]
-        with patch("server.telegram_bot.hub.api_get", return_value=players), \
+        with patch("server.telegram_bot.hub.api_get", side_effect=lambda path, **_kw: STATE if path.endswith("/state") else players), \
              patch("server.telegram_bot.hub.recent_messages_text", return_value="No messages in game 3 yet."):
             query, _ = _press("g|3|msgs")
         assert _buttons(query.edit_message_text.call_args[1]["reply_markup"]) == [
@@ -376,7 +376,7 @@ class TestMenuActions:
         players = [{"power": "GERMANY", "user_id": None, "seated": True},
                    {"power": "FRANCE", "user_id": None, "seated": True},
                    {"power": "ITALY", "user_id": None, "seated": False}]
-        with patch("server.telegram_bot.hub.api_get", return_value=players), \
+        with patch("server.telegram_bot.hub.api_get", side_effect=lambda path, **_kw: STATE if path.endswith("/state") else players), \
              patch("server.telegram_bot.hub.recent_messages_text", return_value="No messages in game 3 yet."):
             query, _ = _press("g|3|msgs")
         assert _buttons(query.edit_message_text.call_args[1]["reply_markup"]) == [

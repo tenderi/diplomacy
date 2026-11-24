@@ -18,7 +18,7 @@ from persistence.database_service import ChannelTakenError
 from .auth import get_current_user_optional, http_bearer, require_bot_secret
 from ..shared import (
     BOT_USERNAME, db_service, game_service, is_admin_token, is_bot_secret, logger, notify_players, phase_label,
-    player_rows, require_not_eliminated,
+    player_rows, require_game_running, require_not_eliminated,
 )
 from ...response_cache import invalidate_cache
 
@@ -429,6 +429,7 @@ def post_broadcast_to_channel(
         raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
     channel_id = channel_info.get("channel_id")
     power = _broadcast_power(game_id, req, credentials, x_bot_secret, x_admin_token)
+    require_game_running(game_id)
 
     # req.message is free text a caller supplied -- escape it before
     # folding it into a Markdown-formatted post, or an unescaped

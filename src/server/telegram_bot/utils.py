@@ -88,3 +88,9 @@ def game_end_line(view: dict) -> Optional[str]:
 def game_over_note(game_id: object) -> str:
     """The refusal for an action on a finished game."""
     return f"Game {game_id} has ended."
+
+
+def ended_refusal(error: object) -> bool:
+    """Whether an API refusal says the game has ended (the 409 a message to a
+    finished game gets)."""
+    return " has ended" in str(error or "")

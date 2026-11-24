@@ -11,6 +11,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from .api_client import ApiUnreachableError, api_get, api_post_reliable, queued_reply
+from .utils import ended_refusal, game_over_note
 from .game_context import GameContextError, fetch_user_games, resolve_game_and_power
 
 logger = logging.getLogger("diplomacy.telegram_bot.messages")
@@ -70,6 +71,8 @@ def send_diplomatic_message(
     if outcome.status == "queued":
         return queued_reply(outcome)
     kind = "Rumour" if anonymous else "Message" if recipient_power else "Broadcast"
+    if ended_refusal(outcome.error):
+        return f"{game_over_note(game_id)} Messages can no longer be sent, so your {kind.lower()} was not sent."
     return f"{kind} error: {outcome.error}"
 
 
