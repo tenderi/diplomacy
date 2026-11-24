@@ -505,7 +505,7 @@ user who exists and is active; otherwise 401).
 |---|---|---|
 | `POST /sandbox/start` | `{game_id?}` | `{source_game_id, state, view}`: that game's current board (404 if unknown), or the opening position |
 | `POST /sandbox/legal_orders` | `{state, power}` | `legal_orders_for_power`, the shape of `GET /games/{id}/legal_orders/{power}` |
-| `POST /sandbox/adjudicate` | `{state, orders: {power: [order_str]}}` | `{order_results: {power: [{order, ok, reason}]}, resolution, state, view}`; 409 once the board's game is over |
+| `POST /sandbox/adjudicate` | `{state, orders: {power: [order_str]}}` | `{order_results: {power: [{order, ok, reason, notes}]}, resolution, state, view}`; 409 once the board's game is over |
 | `POST /sandbox/map` | `{state, orders, overlay}` (`board`, `orders` or `resolution`) | `image/png`: the board, the orders as pending arrows, or the orders adjudicated on this board and coloured by result |
 
 `view` is `GameService.sandbox_view`: the board fields of §4 (`phase`, `phase_type`,

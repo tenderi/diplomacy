@@ -826,8 +826,8 @@ after any crash, and a deadline may pass while it is. The contract is that **no 
 message is ever lost in either direction** — only delayed, and always with the original time
 preserved.
 
-**Player → server** (`telegram_bot/outbox.py`, `api_client.api_post_reliable`). Orders and
-diplomatic messages are written to a SQLite queue (the `bot_data` volume) *before* the first
+**Player → server** (`telegram_bot/outbox.py`, `api_client.api_post_reliable`). Orders,
+diplomatic messages and `/feedback` are written to a SQLite queue (the `bot_data` volume) *before* the first
 attempt.
 Outcomes are `delivered` / `queued` / `rejected`; the handler shows the matching
 reply, and a background loop (`notifications.outbox_replay_loop`) retries queued entries
