@@ -303,8 +303,8 @@ def clear_orders_for_power(
     except StaleGameError as e:
         raise HTTPException(
             status_code=409,
-            detail=f"The turn was processed while your orders were being cleared; none were cleared. "
-            f"Check the new board and try again. ({e})",
+            detail="The turn was processed while your orders were being cleared; none were cleared. "
+            "Check the new board and try again.",
         ) from e
     invalidate_cache(f"games/{game_id}")
     return {"status": "ok"}

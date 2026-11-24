@@ -115,6 +115,7 @@ def test_clear_route_returns_409_when_the_turn_moved(client):
     with patch.object(route_game_service, "load", return_value=stale):
         resp = client.post(f"/games/{gid}/orders/FRANCE/clear", json={"telegram_id": tg, "bot_secret": BOT_SECRET})
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"].startswith(
-        "The turn was processed while your orders were being cleared; none were cleared."
+    assert resp.json()["detail"] == (
+        "The turn was processed while your orders were being cleared; none were cleared. "
+        "Check the new board and try again."
     )
