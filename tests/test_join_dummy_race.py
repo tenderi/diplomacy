@@ -107,7 +107,7 @@ def test_a_toggle_racing_a_join_sees_the_seat_taken(client: TestClient) -> None:
     waits, reads the seat the join wrote, and refuses it."""
     game_id, _ = _game(client, ["FRANCE"])
     tg = _telegram_user(client)
-    real_lock = database_service_module._lock_game_refusing_dummy
+    real_lock = database_service_module._lock_game_for_seat
     other: list[Any] = []
     started = threading.Event()
     finished = threading.Event()
@@ -120,15 +120,15 @@ def test_a_toggle_racing_a_join_sees_the_seat_taken(client: TestClient) -> None:
         finally:
             finished.set()
 
-    def join_holds_the_lock(session: Any, gid: int, power: str) -> None:
-        real_lock(session, gid, power)
+    def join_holds_the_lock(session: Any, gid: int, power: str, user_id: Any, *, refuse_dummy: bool) -> None:
+        real_lock(session, gid, power, user_id, refuse_dummy=refuse_dummy)
         if not started.is_set():
             started.set()
             threading.Thread(target=toggle, daemon=True).start()
             # Unlocked, the toggle finishes here; locked, it waits for this join.
             finished.wait(timeout=1.0)
 
-    with patch.object(database_service_module, "_lock_game_refusing_dummy", side_effect=join_holds_the_lock):
+    with patch.object(database_service_module, "_lock_game_for_seat", side_effect=join_holds_the_lock):
         r = client.post(f"/games/{game_id}/join", json=_as(tg, power="ITALY"))
         assert finished.wait(timeout=10)
     assert r.status_code == 200, r.text

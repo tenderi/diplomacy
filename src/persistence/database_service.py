@@ -8,6 +8,7 @@ to ensure proper data integrity and consistency.
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import text, or_
 from sqlalchemy import func as sa_func
@@ -64,15 +65,62 @@ class DummySeatError(Exception):
         self.power = power
 
 
-def _lock_game_refusing_dummy(session: Session, game_id: int, power: str) -> None:
-    """Take the game's row ``FOR UPDATE`` and raise ``DummySeatError`` if
-    ``power`` is one of its dummies. ``GameRepo.modify_dummy_powers`` takes the
-    same lock and reads the seats under it, so a join and a dummy toggle on one
-    seat serialize: whichever commits second sees the other (CC3). The game row
-    is locked before any player row is written, the one lock order both use."""
+class SeatHeldError(Exception):
+    """The user a seat write names already holds another seat in that game
+    (``player_id``, ``power``): one person, one power. Raised by
+    ``create_player``/``claim_vacant_seat``, decided under the game-row lock."""
+
+    def __init__(self, player_id: int, power: str) -> None:
+        super().__init__(f"already seated as {power}")
+        self.player_id = player_id
+        self.power = power
+
+
+def _held_seat(session: Session, game_id: int, user_id: int) -> Optional[PlayerModel]:
+    """The seat ``user_id`` holds in ``game_id`` (the earliest, should there be two)."""
+    return (
+        session.query(PlayerModel)
+        .filter_by(game_id=game_id, user_id=user_id)
+        .order_by(PlayerModel.id)
+        .first()
+    )
+
+
+def _lock_game_for_seat(
+    session: Session, game_id: int, power: str, user_id: Optional[int], *, refuse_dummy: bool
+) -> None:
+    """Take the game's row ``FOR UPDATE`` before a seat write, then decide under
+    it: ``DummySeatError`` if ``refuse_dummy`` and ``power`` is one of its
+    dummies, ``SeatHeldError`` if ``user_id`` already holds a seat in the game.
+
+    ``GameRepo.modify_dummy_powers`` takes the same lock and reads the seats
+    under it, so a join and a dummy toggle on one seat serialize: whichever
+    commits second sees the other (CC3). Every seat write naming a user takes
+    it too, so two joins by one user serialize and the second sees the first's
+    seat (DY1) -- a check before the lock let a double-click seat one user in
+    two powers. The game row is locked before any player row is written, the
+    one lock order all of them use."""
     row = session.query(GameModel).filter_by(id=game_id).with_for_update().first()
-    if row is not None and power in (row.dummy_powers or []):
+    if refuse_dummy and row is not None and power in (row.dummy_powers or []):
         raise DummySeatError(power)
+    if user_id is not None:
+        held = _held_seat(session, game_id, user_id)
+        if held is not None:
+            raise SeatHeldError(int(held.id), str(held.power_name))
+
+
+def _commit_seat(session: Session, game_id: int, user_id: Optional[int]) -> None:
+    """Commit a seat write; an ``IntegrityError`` from ``uq_players_game_user``
+    (a writer that skipped the lock) becomes ``SeatHeldError``, any other
+    (``uq_game_power``: the power was taken) propagates."""
+    try:
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        held = _held_seat(session, game_id, user_id) if user_id is not None else None
+        if held is None:
+            raise
+        raise SeatHeldError(int(held.id), str(held.power_name)) from e
 
 
 class ChannelTakenError(Exception):
@@ -455,13 +503,14 @@ class DatabaseService:
         self, game_id: int, power: str, user_id: Optional[int] = None, *, refuse_dummy: bool = False
     ) -> PlayerModel:
         """Insert a seat row. ``refuse_dummy`` (a join) raises ``DummySeatError``
-        if ``power`` is a dummy, decided under the game-row lock."""
+        if ``power`` is a dummy; ``SeatHeldError`` if ``user_id`` already holds
+        a seat in the game. Both are decided under the game-row lock
+        (``_lock_game_for_seat``). ``IntegrityError`` if ``power`` is taken."""
         with self.session_factory() as session:
-            if refuse_dummy:
-                _lock_game_refusing_dummy(session, game_id, power)
+            _lock_game_for_seat(session, game_id, power, user_id, refuse_dummy=refuse_dummy)
             player = PlayerModel(game_id=game_id, power_name=power, user_id=user_id, is_active=True)
             session.add(player)
-            session.commit()
+            _commit_seat(session, game_id, user_id)
             session.refresh(player)
             return player
 
@@ -707,20 +756,22 @@ class DatabaseService:
         unconditional ``assign_player_seat``), the second silently replacing the
         first, who had been told they joined. Returns whether this call got it.
         ``refuse_dummy`` raises ``DummySeatError`` if the seat's power is a
-        dummy, decided under the game-row lock (``create_player``).
+        dummy, and ``SeatHeldError`` is raised if ``user_id`` already holds
+        another seat in the game, both decided under the game-row lock
+        (``create_player``).
         """
         with self.session_factory() as session:
-            if refuse_dummy:
-                seat = session.query(PlayerModel).filter_by(id=player_id).first()
-                if seat is None:
-                    return False
-                _lock_game_refusing_dummy(session, int(seat.game_id), str(seat.power_name))
+            seat = session.query(PlayerModel).filter_by(id=player_id).first()
+            if seat is None:
+                return False
+            game_id = int(seat.game_id)
+            _lock_game_for_seat(session, game_id, str(seat.power_name), user_id, refuse_dummy=refuse_dummy)
             claimed = (
                 session.query(PlayerModel)
                 .filter(PlayerModel.id == player_id, PlayerModel.user_id.is_(None))
                 .update({PlayerModel.user_id: user_id, PlayerModel.is_active: True}, synchronize_session=False)
             )
-            session.commit()
+            _commit_seat(session, game_id, user_id)
             return claimed == 1
 
     # --- Games ---

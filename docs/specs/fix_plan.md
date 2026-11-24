@@ -10,18 +10,24 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DY**.
+>   history. Track letters run in sequence; the next free one is **DZ**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-11-23.
+- **Last updated:** 2026-11-24.
 - **Open tracks:** DV (only DV4, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DY — Concurrency audit (2026-11-24)
+
+- [x] DY1: two simultaneous joins by one user (a double-click, web and bot at once) seated
+      them in two powers; seat writes now re-check under the game-row lock, and
+      `uq_players_game_user` makes it one seat per user per game.
 
 # Track DV — Smaller bot-text findings (2026-11-21 play-through)
 

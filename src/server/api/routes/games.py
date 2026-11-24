@@ -29,7 +29,7 @@ from engine.types import GameStatus
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
 from persistence.database import utcnow_naive
-from persistence.database_service import DummySeatError
+from persistence.database_service import DummySeatError, SeatHeldError
 from persistence.game_repo import StaleGameError
 from server.game_service import GameOverError, OrderError
 from server.nickname import display_name
@@ -1053,11 +1053,17 @@ def join_game(
         # BL2: a conceded power's seat is dead; taking it back revives nothing.
         api_shared.require_not_eliminated(str(game_id), req.power, "its seat cannot be taken")
     _require_join_password(str(game_id), user, req.join_password)
-    if random_powers:
-        power, taken = _take_random_seat(game_id, int(user.id), (view or {}).get("dummy_powers", []))
-    else:
-        power = str(req.power).upper()
-        taken = _take_chosen_seat(game_id, int(user.id), power)
+    try:
+        if random_powers:
+            power, taken = _take_random_seat(game_id, int(user.id), (view or {}).get("dummy_powers", []))
+        else:
+            power = str(req.power).upper()
+            taken = _take_chosen_seat(game_id, int(user.id), power)
+    except SeatHeldError as e:
+        # A simultaneous join by the same user (a double-click, the web and the
+        # bot at once) seated them first: the check above ran before that seat
+        # existed, and the seat write re-checks under the game-row lock (DY1).
+        return {"status": "already_joined", "player_id": e.player_id, "power": e.power}
     # Notification logic (only if user has telegram_id)
     telegram_id_val = getattr(user, "telegram_id", None)
     if telegram_id_val:
@@ -1218,6 +1224,9 @@ def replace_player(
         claimed = db_service.claim_vacant_seat(int(player.id), int(user.id), refuse_dummy=True)  # type: ignore
     except DummySeatError as e:
         raise _dummy_seat_conflict(req.power, game_id) from e
+    except SeatHeldError as e:
+        # Seated by a simultaneous join or replace since the check above (DY1).
+        raise HTTPException(status_code=409, detail="User is already in the game") from e
     if not claimed:
         raise HTTPException(status_code=409, detail="Someone else has just taken this power.")
     telegram_id_val = getattr(user, "telegram_id", None)
