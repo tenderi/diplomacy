@@ -68,7 +68,7 @@ WELCOME_TEXT = (
 GROUP_WELCOME = (
     "🏛️ *Diplomacy in this group*\n\n"
     "• /newgame anonymous|public -- start a game for this group (players known only by power, or by nickname); "
-    "everyone joins with the button I post\n"
+    "you are seated in it, everyone else joins with the button I post\n"
     "• /linkgroup [game id] -- make an existing game this group's game (a group has one)\n"
     "• /status -- this group's game: phase and who has ordered\n"
     "• /viewmap, /players -- this group's game: its board and its players\n\n"

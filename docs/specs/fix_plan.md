@@ -16,29 +16,12 @@
 
 ## Status
 
-- **Last updated:** 2026-11-24.
-- **Open tracks:** DV (only DV4c), then F (a human playing the game end to end — the first play-throughs are
+- **Last updated:** 2026-11-26.
+- **Open tracks:** F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DV — Smaller bot-text findings (2026-11-21 play-through)
-
-- [x] DV1: draw-vote DMs end "Use /draw to agree or /nodraw to withdraw" even for a player
-      who has already voted; tailor the line to the recipient's vote.
-- [x] DV2: the deadline-set DM names neither who set it nor how long is left, and the hub
-      says a deadline "applies when a majority of players agree" while any one player's
-      `/deadline` sets it at once. Make the hub text match the behaviour and add the
-      setter's power and the time left to the DM.
-- [x] DV3: one wording for a waived build: an explicit WAIVE says "1 build waived.", a
-      missed one "Your 1 build was waived: no orders came in."; the caller's reply says
-      "Austria owes 1 build." where everything else says "AUSTRIA"; the `/order A ROM -
-      PAR` note "PAR is inland, so no fleet can convoy it there" is odd advice for an army.
-- [x] DV4a: `/message` (and broadcast, rumour, group broadcast) in a finished game was
-      accepted and delivered; the API now refuses with a 409, and the bot and web say so.
-- [x] DV4b: results DMs list each order in submission order with its outcome.
-- [ ] DV4c: whoever creates a game (bot /newgame, also in a group, and the web) is seated in it like an ordinary join; if the join fails the game is still created and the reply says why.
 
 # Track F — Manual acceptance (maintainer)
 

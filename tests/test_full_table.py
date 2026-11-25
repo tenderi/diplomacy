@@ -189,9 +189,12 @@ def test_the_scheduler_processes_a_full_table(client: TestClient) -> None:
 def test_the_demo_game_is_a_full_table_its_player_can_process(client: TestClient) -> None:
     """The bot's demo: Germany plus six dummies the server plays (admin.py)."""
     tg = _telegram_user(client, "demo")
-    resp = client.post("/games/create", json=_as(tg, map_name="demo", dummy_powers=OTHERS, auto_process=True), headers=BOT)
+    resp = client.post(
+        "/games/create", json=_as(tg, map_name="demo", dummy_powers=OTHERS, auto_process=True, power="GERMANY"),
+        headers=BOT,
+    )
     game_id = str(resp.json()["game_id"])
-    assert client.post(f"/games/{game_id}/join", json=_as(tg, power="GERMANY")).status_code == 200
+    assert resp.json()["seat"] == {"status": "ok", "power": "GERMANY", "reason": None}
     resp = client.post(f"/games/{game_id}/process_turn", json={"telegram_id": tg}, headers=BOT)
     assert resp.status_code == 200, resp.text
     assert _phase(game_id) == "F1901M"

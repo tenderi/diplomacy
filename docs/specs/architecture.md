@@ -236,6 +236,40 @@ then `GameService.process_turn` + `DaideServer.notify_game_processed` (the same 
 HTTP route/deadline scheduler make) push a real `NOW`/`ORD` notification back over that
 same socket.
 
+## Creating a game
+
+Whoever creates a game is seated in it, exactly as if they had joined it straight away.
+`POST /games/create` resolves the creator (a Bearer user, or the bot's `telegram_id`) and,
+after the game exists and any group link (`channel_id`) has succeeded, runs the join
+route's own code (`routes/games.py` `_join`): the same power assignment, refusals, DMs, group
+post, start announcement and cache invalidation as `POST /games/{id}/join`. The creator is
+exempt from the join password and the group-membership check, as on any join of their game.
+One difference: in an anonymous game the group gets no "A new player has joined ... as
+POWER" line for the creator (`_join(post_join=False)`). Everyone in the group just watched
+them type `/newgame`, so that line would unmask them; their own DM still names the power.
+
+- **Which power.** A random-powers game deals the creator an open power. In a
+  choose-your-power game the request's `power` names it; without one the creator is left
+  unseated with the join's reason ("Choose a power to join as."). A `power` no join could take
+  (not a power, a civil-disorder dummy, any power in a random-powers game, or sent with no
+  creator) is refused with 400 before anything is created.
+- **A failed join does not undo the creation.** The response is `{"game_id", "seat"}` (plus
+  `replaced_game_id` with `channel_id`), `seat` being `{"status": "ok"|"already_joined",
+  "power", "reason": null}` or `{"status": "not_seated", "power": null, "reason": <the join's
+  refusal>}`, or the reason "The server failed while seating you: ..." if the database
+  fails during the join (`SQLAlchemyError`; the game stays). A bare `X-Bot-Secret` with no `telegram_id` creates an ownerless game and seats
+  nobody (`seat` null).
+- **The clients.** The web's create form asks "Your power" (not in a random-powers game) and
+  keeps *Create* disabled until it is chosen; the toast names the power or the reason. The
+  bot's demo sends `power: GERMANY`. `/newgame` in a group can't ask for a power in the group
+  (an anonymous game would show it to everyone): in a random-powers game the creator is dealt
+  one, and otherwise the bot DMs them the power picker (`_power_selection_prompt`) and the
+  group post says so; if the bot can't DM them (they never started a chat with it) or has no
+  picker to send (the game's seats couldn't be read) the post tells them to tap the Join
+  button too. The group post never names the creator's power.
+  `/unlinkgroup` stays a players-only command; a creator who never picks their power is not a
+  player, like anyone else who hasn't joined.
+
 ## Notifications: who gets told what, when
 
 There are three delivery surfaces, and they are not interchangeable:
@@ -340,7 +374,7 @@ place the full picture exists.
 | Deadline reminder (10 min out) | only the players of powers still owing orders (`orders_status.missing`; nobody, and so no post, when all have ordered), once per deadline (`games.reminded_deadline`, claimed by a conditional update, so neither a restart nor a second worker repeats it) | DM "Reminder: orders for Fall 1903 movement in game N are due in 7 minutes." (the real time left, rounded, at least 1 minute); group "⏰ Game N: orders for Fall 1903 movement are due in 7 minutes (still to come: FRANCE, ITALY; in a public game each power carries its nickname, "ITALY (Zed)"). Orders go to me in private." | — | `check_and_send_reminders` / `_send_deadline_reminder` |
 | Deadline set or cleared | all players except the setter | the same text, prefixed "⏰ " | next poll | `routes/games.py` `set_deadline` |
 | Weekly deadline schedule set or removed | all players except the setter | the same text, prefixed "⏰ " | next poll | `routes/games.py` `set_deadline_schedule` |
-| Player joined | nobody by DM while the table is being seated (seven joins would send 21), but every seated player except the joiner by DM when a vacated seat is taken over mid-game; the joiner's own "You have joined" confirmation, and a group post "X has joined game N as POWER." (a nickname in a public game, "A new player" in an anonymous one) when the game has a group | — | next poll | `routes/games.py` join |
+| Player joined (also the creator's own seat, taken by `POST /games/create`) | nobody by DM while the table is being seated (seven joins would send 21), but every seated player except the joiner by DM when a vacated seat is taken over mid-game; the joiner's own "You have joined" confirmation, and a group post "X has joined game N as POWER." (a nickname in a public game, "A new player" in an anonymous one) when the game has a group | — | next poll | `routes/games.py` join |
 | Game started (the last seat filled by a join, or the last unseated power made a dummy; DF3) | each seated human, one DM: "Game N has started! You play ITALY. It is Spring 1901 movement: orders are due." plus " First deadline: …" when one is set or a weekly schedule just armed it, with the game's buttons (📝 Enter orders first); dummies get none. Once per game: `games.start_announced_at` is claimed by one conditional UPDATE (`claim_game_start_announcement`), so concurrent last-seat requests cannot both announce and a later join, replace or dummy toggle never does. Two paths claim it without sending this DM: a waiting-list fill (its own "Game N created! You've been assigned …" and "now full" messages are that game's announcement) and a saved-game import (a game already under way). Arming a weekly schedule does not wait on the claim: whenever such a write leaves every seat filled and no deadline running (an imported game whose last unlinked seat is then taken), the schedule's next slot is armed whether or not the start is announced | "🎮 Game N is full -- the game has begun! …" | next poll | `api.shared.announce_game_started`, from `routes/games.py` join and `set_dummy_power` |
 | Player quit | the quitter: "You have quit game N." (instead of the general notice); all other players: "POWER has left game N. …" (the vacant-seat hint and "Until then its draw vote is still needed."), or, for an eliminated power, only "POWER (eliminated) has left game N." | — | next poll | `routes/games.py` quit |
 | Player replaced | all players **except the replacer**: "A new player has taken over Power in game N." (a nickname in a public game) | — | next poll | `routes/games.py` replace |

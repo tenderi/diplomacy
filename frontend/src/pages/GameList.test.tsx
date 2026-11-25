@@ -3,6 +3,17 @@ import { render, within, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { AuthContext } from '@/contexts/AuthContext'
 import GameList from './GameList'
+import { toast } from 'sonner'
+
+vi.mock('sonner', async (orig) => {
+  const mod = await orig<typeof import('sonner')>()
+  return { ...mod, toast: Object.assign(vi.fn(), mod.toast, { success: vi.fn(), warning: vi.fn() }) }
+})
+
+/** Pick the power the creator joins as (DV4c): Create stays disabled until then. */
+function choosePower(container: HTMLElement, power = 'FRANCE') {
+  fireEvent.change(within(container).getByRole('combobox', { name: 'Your power' }), { target: { value: power } })
+}
 
 const mockUser = {
   id: 1,
@@ -151,7 +162,9 @@ describe('GameList', () => {
         </AuthContext.Provider>
       </MemoryRouter>
     )
-    fireEvent.click(await within(container).findByRole('button', { name: /create new game/i }))
+    await within(container).findByRole('button', { name: /create new game/i })
+    choosePower(container)
+    fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
     expect(await within(container).findByText('game page')).toBeInTheDocument()
   })
 
@@ -175,6 +188,7 @@ describe('GameList', () => {
       </MemoryRouter>
     )
     fireEvent.click(await within(container).findByRole('radio', { name: new RegExp(`^${label}`) }))
+    choosePower(container)
     fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0].anonymous).toBe(anonymous)
@@ -201,9 +215,74 @@ describe('GameList', () => {
     )
     const box = await within(container).findByRole('checkbox', { name: /assign powers at random/i })
     if (tick) fireEvent.click(box)
+    else choosePower(container)
     fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0].random_powers).toBe(randomPowers)
+  })
+
+  describe('the creator joins the game they create (DV4c)', () => {
+    function renderCreating(seat: unknown) {
+      const posts: Record<string, unknown>[] = []
+      vi.stubGlobal('fetch', vi.fn((url: string, opts?: RequestInit) => {
+        if (opts?.method === 'POST' && url.includes('/games/create')) posts.push(JSON.parse(String(opts.body)))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(opts?.method === 'POST' ? { game_id: '99', seat } : { games: [] }),
+        } as Response)
+      }))
+      const { container } = render(
+        <MemoryRouter>
+          <AuthContext.Provider value={mockAuth}>
+            <GameList />
+          </AuthContext.Provider>
+        </MemoryRouter>
+      )
+      return { container, posts }
+    }
+
+    it('cannot create until the creator chooses their power, and sends it', async () => {
+      const { container, posts } = renderCreating({ status: 'ok', power: 'ITALY', reason: null })
+      const create = await within(container).findByRole('button', { name: /create new game/i })
+      expect(create).toBeDisabled()
+      expect(within(container).getByText('Choose your power to create the game.')).toBeInTheDocument()
+      choosePower(container, 'ITALY')
+      expect(create).toBeEnabled()
+      fireEvent.click(create)
+      await waitFor(() => expect(posts).toHaveLength(1))
+      expect(posts[0].power).toBe('ITALY')
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Game created: you play ITALY'))
+    })
+
+    it('offers no power to choose in a random-powers game, and names the one dealt', async () => {
+      const { container, posts } = renderCreating({ status: 'ok', power: 'TURKEY', reason: null })
+      fireEvent.click(await within(container).findByRole('checkbox', { name: /assign powers at random/i }))
+      expect(within(container).queryByRole('combobox', { name: 'Your power' })).toBeNull()
+      fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
+      await waitFor(() => expect(posts).toHaveLength(1))
+      expect('power' in posts[0]).toBe(false)
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Game created: you play TURKEY'))
+    })
+
+    it('a power left to civil disorder is not offered, and unticks the choice', async () => {
+      const { container } = renderCreating(null)
+      await within(container).findByRole('button', { name: /create new game/i })
+      choosePower(container, 'TURKEY')
+      fireEvent.click(within(container).getByLabelText('TURKEY'))
+      const select = within(container).getByRole('combobox', { name: 'Your power' }) as HTMLSelectElement
+      expect(select.value).toBe('')
+      expect([...select.options].map((o) => o.value)).toEqual(['', 'AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA'])
+    })
+
+    it('a creator who was not seated is told why', async () => {
+      const { container } = renderCreating({ status: 'not_seated', power: null, reason: 'Power already taken' })
+      await within(container).findByRole('button', { name: /create new game/i })
+      choosePower(container)
+      fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
+      await waitFor(() =>
+        expect(toast.warning).toHaveBeenCalledWith("Game created, but you weren't seated: Power already taken"),
+      )
+    })
   })
 
   it('a refused create says why and stays on the list', async () => {
@@ -219,7 +298,9 @@ describe('GameList', () => {
         </AuthContext.Provider>
       </MemoryRouter>
     )
-    fireEvent.click(await within(container).findByRole('button', { name: /create new game/i }))
+    await within(container).findByRole('button', { name: /create new game/i })
+    choosePower(container)
+    fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
     expect(await within(container).findByText('Leave at least one power to a human')).toBeInTheDocument()
   })
 
@@ -271,6 +352,7 @@ describe('GameList', () => {
     const turkey = await within(container).findByLabelText('TURKEY')
     fireEvent.click(turkey)
     fireEvent.click(within(container).getByLabelText('ITALY'))
+    choosePower(container)
     fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(([u, o]) => String(u).includes('/games/create') && o?.method === 'POST')

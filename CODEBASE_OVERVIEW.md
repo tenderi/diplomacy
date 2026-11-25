@@ -310,8 +310,9 @@ GitHub holds) on stdin; the hook checks out main's commit and runs the toolkit's
 
 1. `/start` in Telegram → `POST /users/persistent_register`.
 2. `POST /games/create` with `map_name` → `GameService.create_game` builds
-   `Game.new_standard()` and persists its `state_json`.
-3. `/join` → `POST /games/{id}/join` → a row in `players` (never engine-coupled).
+   `Game.new_standard()` and persists its `state_json`, then seats the creator through the
+   join path (`power`, or dealt one in a random-powers game).
+3. Everyone else: `/join` → `POST /games/{id}/join` → a row in `players` (never engine-coupled).
 4. *Enter orders* (`/orderall`) → bot fetches `GET /games/{id}/legal_orders/{power}` →
    inline keyboards per unit → `POST /games/set_orders` → `GameService.submit_orders`
    parses and validates, stores into `pending_orders`.

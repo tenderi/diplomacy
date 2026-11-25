@@ -34,7 +34,7 @@ Please don't use your real name: the system keeps none.
 ## Games
 
 **Games** lists your games and all open ones, and has a form to **Create new game**: choose
-which powers are left to civil disorder (for fewer than seven players), whether turns are
+the power you play (you join the game you create; in a random-powers game you are dealt one), which powers are left to civil disorder (for fewer than seven players), whether turns are
 processed as soon as every order is in, whether the powers are dealt at random, whether
 players are **Public** (nicknames shown) or **Anonymous**, and an optional password that makes
 the game private. The player naming and random powers cannot be changed afterwards. A game

@@ -12,10 +12,11 @@ from telegram.ext import ContextTypes
 
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import TelegramError
 
 from .api_client import api_delete, api_get, api_post
 from .game_context import GROUP_CHAT_TYPES, GameContextError, fetch_user_games, group_game, group_game_info, resolve_game_and_power, set_current_game
-from .games import ensure_registered
+from .games import _power_selection_prompt, ensure_registered
 from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.channel_commands")
@@ -267,7 +268,7 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(NEWGAME_CHOICE)
         return
     await _start_group_game(
-        update.message.reply_text, context.bot.username, user, chat, NEWGAME_MODES[modes[0]], random_powers,
+        update.message.reply_text, context.bot, user, chat, NEWGAME_MODES[modes[0]], random_powers,
         confirmed=False,
     )
 
@@ -278,8 +279,45 @@ def _newgame_confirm_data(anonymous: bool, random_powers: bool, old_game_id: str
     return f"ngok|{int(anonymous)}{int(random_powers)}|{old_game_id}|{user_id}"
 
 
+async def _send_creator_power_choice(bot: Any, user_id: Any, game_id: str) -> bool:
+    """DM the creator of a choose-your-power group game the powers to pick
+    from: choosing in the group would tell everyone (DV4c). False when the bot
+    can't message them privately (they never started a chat with it), or has
+    no picker to send (the game's seats couldn't be read)."""
+    try:
+        text, markup = _power_selection_prompt(game_id)
+        if markup is None:
+            logger.info("No power picker for game %s to send its creator: %s", game_id, text)
+            return False
+        await bot.send_message(
+            chat_id=user_id, text=f"You created Game {game_id}. Pick your power:\n\n{text}",
+            reply_markup=markup, parse_mode='Markdown',
+        )
+    except (TelegramError, requests.RequestException):
+        logger.info("Could not send the power choice of game %s to its creator", game_id, exc_info=True)
+        return False
+    return True
+
+
+async def _creator_seat_line(bot: Any, user: Any, game_id: str, seat: Optional[dict[str, Any]], random_powers: bool) -> str:
+    """What the group is told about the creator's own seat (DV4c: creating a
+    game joins it). The power itself is never named here: in an anonymous game
+    nobody may learn it, and the join DM tells the creator."""
+    if seat and seat.get("status") in ("ok", "already_joined"):
+        return "✅ Its creator is already seated: I've sent them their power in our private chat.\n\n"
+    if not random_powers and await _send_creator_power_choice(bot, user.id, game_id):
+        return "✅ Its creator picks their power in our private chat, where I've just sent the choice.\n\n"
+    if not random_powers:
+        return (
+            "Its creator isn't seated yet: I couldn't send them the power choice privately, so they "
+            "tap the button below too.\n\n"
+        )
+    reason = (seat or {}).get("reason") or "the server didn't say why."
+    return f"Its creator wasn't seated: {escape_markdown(reason)}\n\n"
+
+
 async def _start_group_game(
-    reply: Any, bot_username: Optional[str], user: Any, chat: Any, anonymous: bool, random_powers: bool,
+    reply: Any, bot: Any, user: Any, chat: Any, anonymous: bool, random_powers: bool,
     *, confirmed: bool, shown_game: Optional[str] = None,
 ) -> None:
     """Create a game for this group, or (not ``confirmed``) first ask before
@@ -319,26 +357,28 @@ async def _start_group_game(
         await reply(f"❌ Could not create a game: {e}")
         return
     set_current_game(str(user.id), game_id)
+    creator_line = await _creator_seat_line(bot, user, game_id, linked.get("seat"), random_powers)
     naming = (
         "🕶️ *Anonymous:* players are known only by their power -- keep your pick to yourself."
         if anonymous
         else "👥 *Public:* everyone's nickname is shown next to their power (set yours with /nickname)."
     )
     pick = (
-        "🎲 *Random powers:* tap the button to join and I'll deal you a power at random"
+        "🎲 *Random powers:* everyone else taps the button to join, and I'll deal them a power at random"
         if random_powers
-        else "Tap the button to pick your power"
+        else "Everyone else taps the button to pick their power"
     )
     await reply(
         f"🎮 *Game {game_id} for this group!*\n\n"
         f"{naming}\n\n"
+        f"{creator_line}"
         f"{pick} -- it opens a private chat with me, where "
-        f"you'll also send your orders. The game begins when all seven powers are taken; "
+        f"everyone sends their orders too. The game begins when all seven powers are taken; "
         f"with fewer players, the creator can leave seats to civil disorder "
         f"(/dummy {game_id} <power> in the private chat).\n\n"
         f"After every turn I'll post the orders and the result as maps here, and deadline reminders."
         f"{_replaced_note(linked)}",
-        reply_markup=_join_button(bot_username, game_id),
+        reply_markup=_join_button(bot.username, game_id),
         parse_mode='Markdown',
     )
 
@@ -361,7 +401,7 @@ async def newgame_callback(query: Any, context: ContextTypes.DEFAULT_TYPE) -> No
         await chat.send_message(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
     await _start_group_game(
-        reply, context.bot.username, query.from_user, chat, flags[0] == "1", flags[1] == "1",
+        reply, context.bot, query.from_user, chat, flags[0] == "1", flags[1] == "1",
         confirmed=True, shown_game=old,
     )
 
