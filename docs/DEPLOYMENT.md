@@ -223,7 +223,7 @@ What protects the host and the site, and where it lives:
   containers may touch on the host. The Caddyfile is also imported into the Caddy that
   serves the host's other sites. So a commit on `main`, from anyone or anything that
   can merge, changes what runs *inside* the containers and nothing else: not the other
-  projects on the host, not root's files, not the backup account's login in
+  projects on the host, not root's files, not the backup store's key in
   rclone's config. See [Approving a host change](#approving-a-host-change).
 
 - **Network.** Set ufw up yourself (no script does it, so a shared host's rules stay
@@ -424,59 +424,58 @@ curl -H "$ADMIN" "http://127.0.0.1:8000/admin/feedback?limit=50"      # player f
 
 `backup.sh` writes `pg_dump | gzip` to `/var/backups/diplomacy/` and keeps 14
 days (`BACKUP_DIR`, `BACKUP_KEEP_DAYS` override), then **copies the folder off-host**
-with rclone (any rclone remote; the default is Proton Drive) and deletes remote copies older than 60 days
+with rclone and deletes remote copies older than 60 days
 (`BACKUP_REMOTE_KEEP_DAYS`). `/etc/cron.d/diplomacy-backup` runs it nightly at
 03:17 UTC, logging to `/var/log/diplomacy-backup.log`. The job runs the host
 toolkit's copy of `backup.sh`, never the checkout's: rclone's config holds the
-backup account's login, so no deploy changes what root runs at night.
+backup store's key, so no deploy changes what root runs at night.
 `install.sh` (and `--toolkit`) runs its `backup.sh --install`, which (re)installs
 that job and installs rclone from rclone.org (checksum-verified) if it is missing
-or older than 1.64 -- Ubuntu's own package is too old to have the Proton Drive
-backend.
+or older than 1.64 (Ubuntu's own package is years older).
 
 The remote is `BACKUP_RCLONE_REMOTE` (in `.env`; default
-`proton:diplomacy-backups`; set it to e.g. `s3:my-bucket/diplomacy` for any other
-rclone backend, after `rclone config` has created that remote). Until a remote with that name exists, the upload
-is skipped with a note in the log and backups stay on the VPS disk only. Once
-it exists, a failed upload makes the run exit non-zero with an `ERROR:` line
-(the local dump is kept either way).
+`offsite:diplomacy-backups`, i.e. a remote named `offsite`). Until a remote with
+that name exists, the upload is skipped with a note in the log and backups stay
+on the VPS disk only. Once it exists, a failed upload makes the run exit
+non-zero with an `ERROR:` line (the local dump is kept either way).
 
-### One-time Proton Drive setup
+### One-time setup: an append-only S3 bucket
 
-rclone logs in as a whole Proton account, and Proton has no scoped tokens, so
-whoever controls the VPS can read and delete that account's entire drive.
-A separate, backups-only Proton account (the free tier is enough) limits
-a compromise of the public host to the Diplomacy dumps. Keep `rclone.conf` at mode
-600, and if the stack ever leaves the host, `rclone config delete proton`
-and end the session in Proton's account settings. Then, over SSH on the VPS:
+The VPS is the public, least-trusted host, so the backup store must not trust
+it: whoever controls the VPS controls whatever key rclone holds. Give it a key
+that can **add backups but never delete them**, and let the store expire old
+copies itself. With Amazon S3:
+
+- A private bucket with **versioning on** (an overwrite keeps the old version),
+  default encryption, public access blocked, and a bucket policy denying
+  requests without TLS (`aws:SecureTransport` false).
+- **Lifecycle rules**: expire the dated dumps (prefix
+  `diplomacy-backups/diplomacy-`) after about 16 days, just above the 14 local
+  days so a file is never uploaded twice, and noncurrent versions after a week.
+  The script's own 60-day prune then never finds anything.
+- An IAM user for the VPS allowed only `s3:ListBucket` on the bucket and
+  `s3:PutObject`, `s3:GetObject`, `s3:AbortMultipartUpload`,
+  `s3:ListMultipartUploadParts` on its objects, with an explicit **Deny** on
+  `s3:DeleteObject`, `s3:DeleteObjectVersion` and on changing the bucket's
+  versioning, lifecycle and policy.
+
+Then, as root on the VPS, with that user's access key:
 
 ```bash
-rclone config
-#   n                      (new remote)
-#   name>     proton       (backup.sh's default remote name)
-#   Storage>  protondrive
-#   username> the backups account's email
-#   password> y, then its password (stored obscured in /root/.config/rclone/rclone.conf)
-#   2fa>      leave blank -- rclone only stores this, and a code is stale by first use
-#   mailbox_password> blank unless the account uses Proton's two-password mode
-#   everything else: the default; then y to keep the remote, q to quit
+rclone config create s3backup s3 provider=AWS region=<region> \
+    location_constraint=<region> no_check_bucket=true \
+    access_key_id=<id> secret_access_key=<secret>
+rclone config create offsite alias remote=s3backup:<bucket>   # backup.sh's default name
 chmod 600 /root/.config/rclone/rclone.conf
-# The first real login happens here, so give a *fresh* 2FA code now (omit the
-# flag if 2FA is off). After it succeeds rclone keeps a refreshing session and
-# never needs a code again. A stale code fails with
-# "422 POST .../auth/v4/2fa: Incorrect login credentials".
-rclone mkdir proton:diplomacy-backups --protondrive-2fa=123456
 cd ~/diplomacy && ./backup.sh   # expect "off-host copy done"
 ```
 
-rclone's Proton Drive backend is **unofficial** (Proton publishes no Drive
-API), so a change on Proton's side can break uploads until rclone catches
-up. `backup.sh --install` only installs rclone when it is missing or too
-old; to take a newer release, `dpkg -r rclone && sudo ./install.sh --toolkit`. If
-Proton ends the saved session, `rclone config reconnect proton:` asks for the
-password and 2FA code again. Check the tail of
+Other projects on the host can share the bucket under their own prefixes
+(`offsite:<project>-backups`). Any other rclone backend works too: name the
+remote `offsite`, or set `BACKUP_RCLONE_REMOTE`. Check the tail of
 `/var/log/diplomacy-backup.log` now and then; every successful night ends with
-`off-host copy done`.
+`off-host copy done`. To take a newer rclone,
+`dpkg -r rclone && sudo ./install.sh --toolkit`.
 
 Restore into an empty database:
 

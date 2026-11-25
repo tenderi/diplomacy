@@ -2,7 +2,7 @@
 #
 # backup.sh — dump the game database to a dated, gzipped file, keep the last
 # BACKUP_KEEP_DAYS days of them locally, and copy them off the host with
-# rclone (to Proton Drive unless BACKUP_RCLONE_REMOTE names another remote).
+# rclone (to the remote BACKUP_RCLONE_REMOTE names; default offsite:).
 #
 #   ./backup.sh            take a backup now (the nightly cron job runs this)
 #   ./backup.sh --install  (root) install rclone >= 1.64 and the nightly cron
@@ -11,13 +11,14 @@
 #                          code as root (rclone's config holds the backup
 #                          account's login)
 #
-# Off-host copy: BACKUP_RCLONE_REMOTE (default proton:diplomacy-backups; may be
+# Off-host copy: BACKUP_RCLONE_REMOTE (default offsite:diplomacy-backups; may be
 # set in .env). Until that remote exists in rclone's config the upload is
 # skipped with a note, so the local backup still happens. Once it exists, a
 # failed upload makes the run exit non-zero with an ERROR line in the log.
-# Remote copies older than BACKUP_REMOTE_KEEP_DAYS (60) are deleted.
-# One-time remote setup is interactive (needs the Proton password + 2FA):
-#   rclone config   (new remote "proton", type protondrive; docs/DEPLOYMENT.md)
+# Remote copies older than BACKUP_REMOTE_KEEP_DAYS (60) are deleted; with an
+# append-only remote (docs/DEPLOYMENT.md, Backups) the store's own expiry runs
+# first and this finds nothing.
+# One-time remote setup: `rclone config` (docs/DEPLOYMENT.md, Backups).
 #
 # Restore:  gunzip -c <file> | docker compose exec -T postgres psql -U diplomacy diplomacy_db
 # (into an empty database; see docs/DEPLOYMENT.md).
@@ -35,9 +36,9 @@ BACKUP_DIR="${BACKUP_DIR:-/var/backups/diplomacy}"
 BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
 BACKUP_REMOTE_KEEP_DAYS="${BACKUP_REMOTE_KEEP_DAYS:-60}"
 BACKUP_RCLONE_REMOTE="${BACKUP_RCLONE_REMOTE:-$(env_var BACKUP_RCLONE_REMOTE)}"
-BACKUP_RCLONE_REMOTE="${BACKUP_RCLONE_REMOTE:-proton:diplomacy-backups}"
+BACKUP_RCLONE_REMOTE="${BACKUP_RCLONE_REMOTE:-offsite:diplomacy-backups}"
 CRON_FILE=/etc/cron.d/diplomacy-backup
-RCLONE_MIN_MINOR=64   # the protondrive backend arrived in rclone 1.64
+RCLONE_MIN_MINOR=64   # a floor: Ubuntu's own rclone package is years older
 
 rclone_ok() {
     command -v rclone >/dev/null 2>&1 || return 1
