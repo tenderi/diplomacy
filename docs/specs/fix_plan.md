@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-24.
-- **Open tracks:** DV (only DV4b, which awaits the maintainer decision), then F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** DV (only DV4c), then F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -37,9 +37,8 @@
       PAR` note "PAR is inland, so no fleet can convoy it there" is odd advice for an army.
 - [x] DV4a: `/message` (and broadcast, rumour, group broadcast) in a finished game was
       accepted and delivered; the API now refuses with a 409, and the bot and web say so.
-- [ ] DV4b (needs a decision first, ask the maintainer): results DMs list orders
-      alphabetically, without outcomes; a `/newgame` creator who hasn't joined can't
-      `/unlinkgroup`.
+- [x] DV4b: results DMs list each order in submission order with its outcome.
+- [ ] DV4c: whoever creates a game (bot /newgame, also in a group, and the web) is seated in it like an ordinary join; if the join fails the game is still created and the reply says why.
 
 # Track F — Manual acceptance (maintainer)
 

@@ -18,6 +18,9 @@ class _Repo:
     def get_resolution_history(self, _game_id: str) -> dict[str, dict[str, Any]]:
         return {"3": self._resolution}
 
+    def get_order_history(self, _game_id: str) -> dict[str, dict[str, list[str]]]:
+        return {"3": getattr(self, "orders", {})}
+
 
 def _r(order_str: str, order: dict[str, Any], result: str = "OK") -> dict[str, Any]:
     return {"order": order, "order_str": order_str, "result": result, "dislodged": False, "retreat_options": []}

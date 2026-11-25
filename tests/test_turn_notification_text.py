@@ -111,12 +111,12 @@ def test_a_retreat_phase_tells_the_dislodged_their_options_and_the_rest_to_wait(
     assert messages["GERMANY"] == [
         f"{head} your orders are due.\n"
         "Your A BUR was dislodged: it may retreat to GAS, PIC, RUH, or disband. With no order it is disbanded.\n"
-        f"{results}\nA BER held (no order).\nA BUR (no order) was dislodged by A PAR (FRANCE).\n"
-        "A HOL S A RUH - BEL succeeded.\nF KIE held (no order).\nA MUN held (no order).\nA RUH - BEL succeeded."
+        f"{results}\nA RUH - BEL succeeded.\nA HOL S A RUH - BEL succeeded.\nA BER held (no order).\n"
+        "A BUR (no order) was dislodged by A PAR (FRANCE).\nF KIE held (no order).\nA MUN held (no order)."
     ]
     assert messages["FRANCE"] == [
         f"{head} you have nothing to order this phase; wait for the other powers.\n"
-        f"{results}\nF BRE held (no order).\nA MAR S A PAR - BUR succeeded.\nA PAR - BUR succeeded."
+        f"{results}\nA PAR - BUR succeeded.\nA MAR S A PAR - BUR succeeded.\nF BRE held (no order)."
     ]
     for power in ("ITALY", "AUSTRIA", "RUSSIA", "TURKEY"):
         assert messages[power][0].startswith(f"{head} you have nothing to order this phase; wait for the other powers.\n{results}\nNo orders, so ")
