@@ -85,7 +85,9 @@ none of its business and stay where they are.
    - **Hold**, **move to** a neighbouring province, or -- for an army on a coast with
      fleets in the sea beside it -- **move by convoy** (`… VIA`) to any coast those fleets
      reach;
-   - **🤝 Support options**: help another unit hold, or help its move;
+   - **🤝 Support your …**: one button for each of your own units this one can support,
+     straight to "supports holding" or "supports move to …";
+   - **🤝 Support options**: every support it can give, your units' and anyone else's;
    - **🚢 Convoy options** (fleets): carry an army across the sea.
 
    **⬅️ Back** and **⏭ Skip** are on every step. At the end you see all your orders

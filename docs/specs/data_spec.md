@@ -665,7 +665,8 @@ gives them: `order_notes(map, state, power, orders)` takes the board and the pow
   route is carried by the player's own convoy orders (foreign fleets are named with their
   power, `France's F ENG`), `support_mismatch` / `support_moving_unit` / `convoy_mismatch`
   (the player's own supported or convoyed unit is ordered otherwise, or has no order),
-  `same_destination` (two own units into one province), `own_unit_support` (a support
+  `same_destination` (two own units into one province; it names the support that would
+  take the province instead, `F BLA S A GAL - RUM`, when this unit could legally give it), `own_unit_support` (a support
   for an attack on the player's own unit, DATC 6.D.10). Set notes: `unordered` (a unit
   with no order holds; a dislodged one is disbanded), `builds_left`, `disbands_left`.
 

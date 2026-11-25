@@ -341,10 +341,36 @@ def test_two_own_units_ordered_into_one_province() -> None:
     notes = _notes(state, "FRANCE", "A PAR - BUR", "A MAR - BUR", "A GAS H")
     assert notes["A PAR - BUR"] == [
         "you also ordered A MAR - BUR: two of your units moving into BUR bounce off each "
-        "other unless one has more support"
+        "other unless one has more support; to take BUR, order A PAR S A MAR - BUR instead"
     ]
     assert notes["A MAR - BUR"] == [
         "you also ordered A PAR - BUR: two of your units moving into BUR bounce off each "
+        "other unless one has more support; to take BUR, order A MAR S A PAR - BUR instead"
+    ]
+
+
+def test_a_fleet_and_army_into_one_province_are_told_the_support() -> None:
+    # Game 2, F1902: F BLA and A GAL both ordered into RUM. BLA does not touch
+    # GAL, but a support needs only the destination in reach.
+    state = _state("RUSSIA F BLA", "RUSSIA A GAL")
+    notes = _notes(state, "RUSSIA", "F BLA - RUM", "A GAL - RUM")
+    assert notes["F BLA - RUM"] == [
+        "you also ordered A GAL - RUM: two of your units moving into RUM bounce off each "
+        "other unless one has more support; to take RUM, order F BLA S A GAL - RUM instead"
+    ]
+
+
+def test_no_support_suggested_from_a_unit_that_cannot_reach_the_province() -> None:
+    # A LON goes to BEL only by convoy, so it cannot support into BEL; and F NTH
+    # cannot support a move only it could convoy (DATC 6.D.31).
+    state = _state("ENGLAND A LON", "ENGLAND F NTH")
+    notes = _notes(state, "ENGLAND", "A LON - BEL", "F NTH - BEL")
+    assert notes["A LON - BEL"][-1] == (
+        "you also ordered F NTH - BEL: two of your units moving into BEL bounce off each "
+        "other unless one has more support"
+    )
+    assert notes["F NTH - BEL"] == [
+        "you also ordered A LON - BEL: two of your units moving into BEL bounce off each "
         "other unless one has more support"
     ]
 
