@@ -102,6 +102,16 @@ def test_an_army_cannot_be_convoyed_into_an_inland_province() -> None:
     ]
 
 
+@pytest.mark.parametrize("order", ["F VIE - GAL", "F BRE - PAR"])
+def test_a_reachable_move_ordered_with_the_wrong_unit_type_has_no_reach_note(order: str) -> None:
+    # The army could make the move; the order is refused only for naming a fleet,
+    # and the error says so. A note claiming the provinces are not next to each
+    # other would be false.
+    state = _state("AUSTRIA A VIE", "FRANCE A BRE")
+    power = "AUSTRIA" if "VIE" in order else "FRANCE"
+    assert _notes(state, power, order)[order] == []
+
+
 def test_a_fleet_cannot_move_inland() -> None:
     state = _state("FRANCE F BRE")
     assert _notes(state, "FRANCE", "F BRE - PAR")["F BRE - PAR"] == [
