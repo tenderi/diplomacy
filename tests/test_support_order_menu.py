@@ -55,19 +55,20 @@ def _crowded_bucket() -> list[str]:
     return bucket
 
 
-def _legal_orders(bucket: list[str], unit_key: str, power: str = "GERMANY") -> dict:
+def _unit_view(unit_key: str) -> dict:
     kind, _, location = unit_key.partition(" ")
     province, _, coast = location.partition("/")
+    return {"kind": kind, "location": location, "province": province, "coast": coast or None}
+
+
+def _legal_orders(
+    bucket: list[str], unit_key: str, power: str = "GERMANY", others: tuple[str, ...] = ()
+) -> dict:
     return {
         "phase": "S1901M",
         "phase_type": "MOVEMENT",
         "power": power,
-        "units": [{
-            "kind": kind,
-            "location": location,
-            "province": province,
-            "coast": coast or None,
-        }],
+        "units": [_unit_view(u) for u in (unit_key, *others)],
         "orders_by_unit": {unit_key: bucket},
         "orders": list(bucket),
     }
@@ -105,10 +106,14 @@ class _Harness:
         return self.query.edit_message_text.call_args.args[0]
 
 
-def _run(coro_fn, harness: _Harness, bucket: list[str], unit_key: str, *args) -> None:
-    """Drive one menu function. `unit_key` is both the bucket key and the argument."""
+def _run(
+    coro_fn, harness: _Harness, bucket: list[str], unit_key: str, *args,
+    others: tuple[str, ...] = (),
+) -> None:
+    """Drive one menu function. `unit_key` is both the bucket key and the argument;
+    `others` are the power's other units."""
     games = {"games": [{"game_id": 1, "power": "GERMANY"}]}
-    legal = _legal_orders(bucket, unit_key)
+    legal = _legal_orders(bucket, unit_key, others=others)
     with patch("server.telegram_bot.game_context.api_get", return_value=games), \
          patch("server.telegram_bot.orders.api_get", return_value=legal):
         asyncio.run(coro_fn(harness.query, harness.context, "1", unit_key, *args))
@@ -271,3 +276,42 @@ def test_split_coast_supported_fleet_keeps_its_coast() -> None:
     _run(show_support_choices, h2, bucket, "F AEG", "BUL/SC")
     cached = h2.context.user_data["pending_orders"]["1"]
     assert cached == ["F AEG S F BUL/SC", "F AEG S F BUL/SC - CON"], cached
+
+
+# Game 2, F1902: Russia's F BLA. Its support of A GAL - RUM was the 16th of 26
+# orders, two menus down, while "F BLA - RUM" sat on the first screen; the player
+# took that for "not offered". (The foreign units are Turkey's and Austria's.)
+_BLA_BUCKET = [
+    "F BLA - ANK", "F BLA - ARM", "F BLA - BUL/EC", "F BLA - CON", "F BLA - RUM", "F BLA - SEV",
+    "F BLA C A ARM - RUM", "F BLA H", "F BLA S A ARM", "F BLA S A ARM - SEV",
+    "F BLA S A GAL - RUM", "F BLA S A MOS - SEV", "F BLA S A SER - RUM",
+    "F BLA S F ANK", "F BLA S F BUL/EC", "F BLA S F BUL/EC - RUM",
+]
+
+
+def test_own_units_it_can_support_get_a_first_level_button() -> None:
+    h = _Harness()
+    _run(show_possible_moves, h, _BLA_BUCKET, "F BLA", others=("A GAL", "A MOS", "F BAL"))
+
+    shortcuts = [
+        (b.text, b.callback_data) for row in h.keyboard() for b in row if "Support your" in b.text
+    ]
+    # F BAL is Russia's but out of reach; ARM, SER, ANK and BUL are foreign.
+    assert shortcuts == [
+        ("🤝 Support your A GAL", "suporig|1|F BLA|GAL"),
+        ("🤝 Support your A MOS", "suporig|1|F BLA|MOS"),
+    ], shortcuts
+    assert any(label.startswith("🤝 Support options (8)") for label in h.labels()), h.labels()
+
+
+def test_an_own_unit_shortcut_leads_to_its_support_move() -> None:
+    h = _Harness()
+    _run(show_support_choices, h, _BLA_BUCKET, "F BLA", "GAL", others=("A GAL",))
+    assert h.context.user_data["pending_orders"]["1"] == ["F BLA S A GAL - RUM"]
+
+
+def test_an_own_fleet_on_a_coast_is_matched_with_its_coast() -> None:
+    h = _Harness()
+    _run(show_possible_moves, h, _BLA_BUCKET, "F BLA", others=("F BUL/EC",))
+    callbacks = [cb for cb in h.callbacks() if cb.startswith("suporig|")]
+    assert callbacks == ["suporig|1|F BLA|BUL/EC"], callbacks

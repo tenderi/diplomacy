@@ -10,6 +10,7 @@ ready-to-submit order strings -- so nothing here re-derives adjacency,
 coasts, or order grammar locally.
 """
 import logging
+from collections.abc import Collection
 from typing import Any, Awaitable, Callable, Optional
 
 import requests
@@ -1025,7 +1026,7 @@ async def show_possible_moves(
         await send(f"❌ No legal orders found for {unit_key} in game {game_id}.")
         return
 
-    keyboard = _unit_order_keyboard(context, game_id, unit_key, bucket)
+    keyboard = _unit_order_keyboard(context, game_id, unit_key, bucket, _own_locations(data))
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
 
     emoji = "🛡️" if unit_key.startswith("A ") else "🚢"
@@ -1035,12 +1036,29 @@ async def show_possible_moves(
     )
 
 
+def _own_locations(data: dict[str, Any]) -> set[str]:
+    """The locations (``"BUL/EC"``) of the ordering power's own units, from a legal-orders view."""
+    return {str(u.get("location")) for u in data.get("units", []) if u.get("location")}
+
+
 def _unit_order_keyboard(
-    context: ContextTypes.DEFAULT_TYPE, game_id: str, unit_key: str, bucket: list[str]
+    context: ContextTypes.DEFAULT_TYPE,
+    game_id: str,
+    unit_key: str,
+    bucket: list[str],
+    own_locations: Collection[str] = (),
 ) -> list[list[InlineKeyboardButton]]:
     """One unit's order buttons: hold/moves inline, supports and convoys behind
     sub-menus. Caches the inline orders for the ``ord|`` callback. Shared by
-    ``/selectunit`` (one order) and ``/orderall`` (every unit in turn)."""
+    ``/selectunit`` (one order) and ``/orderall`` (every unit in turn).
+
+    Supporting one's own unit is the common case, so each of the player's own
+    units this one can support (``own_locations``) gets its own button straight
+    into that unit's support choices, ahead of the full "Support options" list.
+    Otherwise ``F BLA - RUM`` sat on the first screen while ``F BLA S A GAL -
+    RUM`` was two menus down, and a player read that as not on offer. The count
+    stays bounded by the board: at most the own units next to this one's reach.
+    """
     convoy_orders = [o for o in bucket if _order_verb(o) == "C"]
     support_orders = [o for o in bucket if _order_verb(o) == "S"]
     # Retreats before the disband: the disband is the last resort, not the default.
@@ -1049,6 +1067,18 @@ def _unit_order_keyboard(
     )
 
     keyboard = order_buttons(context, game_id, direct_orders)
+    own_targets = sorted({
+        t for t in (_support_target(o) for o in support_orders)
+        if t in own_locations and t != unit_key.partition(" ")[2]
+    })
+    for target in own_targets:
+        kind = next(o.split()[3] for o in support_orders if _support_target(o) == target)
+        keyboard.append(
+            [InlineKeyboardButton(
+                f"🤝 Support your {kind} {_location_label(target)}",
+                callback_data=f"suporig|{game_id}|{unit_key}|{target}",
+            )]
+        )
     if support_orders:
         keyboard.append(
             [InlineKeyboardButton(
@@ -1224,7 +1254,7 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
             await send(f"❌ Could not retrieve legal orders: {escape_markdown(str(e))}")
             return
         bucket = data.get("orders_by_unit", {}).get(step, [])
-        keyboard = _unit_order_keyboard(context, game_id, step, bucket)
+        keyboard = _unit_order_keyboard(context, game_id, step, bucket, _own_locations(data))
         emoji = "🛡️" if step.startswith("A ") else "🚢"
         title = f"🎯 *Unit {progress}: {emoji} {step}*"
         if data.get("phase_type") == "RETREAT":

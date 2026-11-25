@@ -560,15 +560,48 @@ class _Context:
         ]
         if not others:
             return []
-        names = [self.show(o) for o in sorted(others, key=lambda o: o.unit.province)]
-        return [
-            _note(
-                WARNING,
-                "same_destination",
-                f"you also ordered {_join(names, 'and')}: two of your units moving into "
-                f"{order.dest.province} bounce off each other unless one has more support",
+        others.sort(key=lambda o: o.unit.province)
+        names = [self.show(o) for o in others]
+        text = (
+            f"you also ordered {_join(names, 'and')}: two of your units moving into "
+            f"{order.dest.province} bounce off each other unless one has more support"
+        )
+        supports = [s for s in (self._support_instead(order, o) for o in others) if s]
+        if supports:
+            text += f"; to take {order.dest.province}, order {_join(supports)} instead"
+        return [_note(WARNING, "same_destination", text)]
+
+    def _support_instead(self, order: Move, other: Move) -> str | None:
+        """``order``'s unit supporting ``other`` into the same province, if that is legal.
+
+        The fix for two own units bouncing: one moves, the other supports it. A
+        unit that could not reach the province by itself (an army going there by
+        convoy) cannot support into it, and a fleet cannot support a move only it
+        could convoy (DATC 6.D.31) -- the same rules ``legal_orders`` offers by.
+        """
+        supporter = self.unit(order.unit.province)
+        mover = self.unit(other.unit.province)
+        dest = other.dest.province
+        if supporter is None or mover is None or not _can_reach(self.map, supporter, dest):
+            return None
+        if (
+            supporter.kind is UnitKind.FLEET
+            and mover.kind is UnitKind.ARMY
+            and (
+                other.via_convoy
+                or not self.map.is_adjacent(mover.location, other.dest, UnitKind.ARMY)
             )
-        ]
+            and not convoy_route_possible(
+                self.map, self.state, mover.province, dest, without=supporter.province
+            )
+        ):
+            return None
+        support = SupportMove(
+            self.power, unit=supporter.location, origin=mover.location, dest=Location(dest)
+        )
+        if not validate(support, self.state, self.map).ok:
+            return None
+        return self.show(support)
 
     def _own_order_of(self, province: str) -> tuple[Unit, Order] | None:
         """The player's own unit in ``province`` and its order (a hold if it has none)."""
