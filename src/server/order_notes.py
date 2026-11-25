@@ -316,6 +316,10 @@ class _Context:
                     f"{name} is already in {dest.province}: to stay there, order it to hold",
                 )
             ]
+        if _can_reach(self.map, unit, dest.province):
+            # The army could make this move: the order was refused for another reason
+            # (``F VIE - GAL`` for an army), which its error already names.
+            return []
         if self.map.province_type(unit.province) is not ProvinceType.COAST:
             return [
                 _note(
