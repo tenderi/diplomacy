@@ -472,29 +472,29 @@ esac
         result = self._run(env)
         assert result.returncode == 0, result.stderr
         assert len(self._dumps(env)) == 1
-        assert "off-host copy skipped: rclone remote 'proton:' not configured" in result.stdout
+        assert "off-host copy skipped: rclone remote 'offsite:' not configured" in result.stdout
         assert not any(c.startswith("copy") for c in self._calls(env))
 
-    def test_copies_to_proton_and_prunes_old_remote_copies(self, env: dict[str, str]) -> None:
-        env["FAKE_REMOTES"] = "proton:"
+    def test_copies_to_offsite_and_prunes_old_remote_copies(self, env: dict[str, str]) -> None:
+        env["FAKE_REMOTES"] = "offsite:"
         result = self._run(env)
         assert result.returncode == 0, result.stderr
         calls = self._calls(env)
-        assert f"copy {env['BACKUP_DIR']} proton:diplomacy-backups --include diplomacy-*.sql.gz" in calls
-        assert "delete proton:diplomacy-backups --include diplomacy-*.sql.gz --min-age 60d" in calls
-        assert "off-host copy done: proton:diplomacy-backups" in result.stdout
+        assert f"copy {env['BACKUP_DIR']} offsite:diplomacy-backups --include diplomacy-*.sql.gz" in calls
+        assert "delete offsite:diplomacy-backups --include diplomacy-*.sql.gz --min-age 60d" in calls
+        assert "off-host copy done: offsite:diplomacy-backups" in result.stdout
 
     def test_a_failed_upload_fails_the_run_and_keeps_the_local_file(self, env: dict[str, str]) -> None:
-        env["FAKE_REMOTES"] = "proton:"
+        env["FAKE_REMOTES"] = "offsite:"
         env["FAKE_COPY_FAIL"] = "1"
         result = self._run(env)
         assert result.returncode == 1
-        assert "ERROR: off-host copy to proton:diplomacy-backups failed" in result.stderr
+        assert "ERROR: off-host copy to offsite:diplomacy-backups failed" in result.stderr
         assert len(self._dumps(env)) == 1
         assert not any(c.startswith("delete") for c in self._calls(env))
 
-    def test_an_rclone_without_protondrive_is_not_used(self, env: dict[str, str]) -> None:
-        env["FAKE_REMOTES"] = "proton:"
+    def test_an_old_rclone_is_not_used(self, env: dict[str, str]) -> None:
+        env["FAKE_REMOTES"] = "offsite:"
         env["FAKE_RCLONE_VERSION"] = "v1.60.1-DEV"  # Ubuntu's package
         result = self._run(env)
         assert result.returncode == 0, result.stderr
