@@ -444,8 +444,9 @@ A player quitting is not such a change: the vacated seat's power still owes its 
 
 **Each player is told what the turn did to their own units** (BW1), in a block after those
 lines (`GameService.turn_outcomes`, `api.shared.turn_results_lines`): "Your results for
-Spring 1901 movement:" and then one line per unit, sorted by province, worded like the web's
-results list:
+Spring 1901 movement:" and then one line per order, in the order the player submitted them (a unit re-ordered
+counts at its latest submission, from `order_history`), each with its outcome, worded like the web's
+results list; units the engine ordered for the player ("held (no order)") follow, by province:
 
 - movement — "A PAR - BUR bounced.", "F BRE - MAO succeeded.", "A MUN S A PAR - BUR was
   cut.", "A KIE - BUR was invalid, so the unit held.", "A LON - BEL VIA failed: no convoy

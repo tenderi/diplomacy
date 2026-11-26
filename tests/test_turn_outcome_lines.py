@@ -18,6 +18,9 @@ class _Repo:
     def get_resolution_history(self, _game_id: str) -> dict[str, dict[str, Any]]:
         return {"3": self._resolution}
 
+    def get_order_history(self, _game_id: str) -> dict[str, dict[str, list[str]]]:
+        return {"3": getattr(self, "orders", {})}
+
 
 def _r(order_str: str, order: dict[str, Any], result: str = "OK", **extra: Any) -> dict[str, Any]:
     return {"order": order, "order_str": order_str, "result": result, "dislodged": False, "retreat_options": [], **extra}
@@ -89,3 +92,40 @@ def test_a_player_holding_two_powers_gets_a_block_per_power() -> None:
         "A ROM - VEN bounced.",
         "Centres: -VEN (now 2).",
     ]
+
+
+def test_lines_follow_the_order_the_player_submitted_them_in() -> None:
+    repo = _Repo(
+        {
+            "results": [
+                _r("A BUR - MUN", {"type": "MOVE", "power": "FRANCE", "unit": "BUR", "dest": "MUN"}, "BOUNCE"),
+                _r("A MAR S A PAR - BUR", {"type": "SUPPORT_MOVE", "power": "FRANCE", "unit": "MAR"}, "CUT"),
+                _r("A PAR - BUR", {"type": "MOVE", "power": "FRANCE", "unit": "PAR", "dest": "BUR"}),
+                _r("F BRE - MAO", {"type": "MOVE", "power": "FRANCE", "unit": "BRE", "dest": "MAO"}),
+                _r("A GAS H", {"type": "HOLD", "power": "FRANCE", "unit": "GAS"}, unordered=True),
+            ]
+        }
+    )
+    repo.orders = {"FRANCE": ["F BRE - MAO", "A PAR - BUR", "A MAR S A PAR - BUR", "A BUR - MUN"]}
+    assert GameService(repo).turn_outcomes("1", 3) == {
+        "FRANCE": [
+            "F BRE - MAO succeeded.",
+            "A PAR - BUR succeeded.",
+            "A MAR S A PAR - BUR was cut.",
+            "A BUR - MUN bounced.",
+            "A GAS held (no order).",
+        ]
+    }
+
+
+def test_adjustment_lines_follow_submission_order() -> None:
+    repo = _Repo(
+        {
+            "results": [
+                _r("BUILD A MAR", {"type": "BUILD", "power": "FRANCE", "location": "MAR", "kind": "A"}, "BUILD"),
+                _r("BUILD F BRE", {"type": "BUILD", "power": "FRANCE", "location": "BRE", "kind": "F"}, "BUILD"),
+            ]
+        }
+    )
+    repo.orders = {"FRANCE": ["BUILD F BRE", "BUILD A MAR"]}
+    assert GameService(repo).turn_outcomes("1", 3) == {"FRANCE": ["F BRE was built.", "A MAR was built."]}

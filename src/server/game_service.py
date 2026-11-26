@@ -1575,13 +1575,15 @@ class GameService:
         return out
 
     def turn_outcomes(self, game_id: str, turn: int) -> dict[str, list[str]]:
-        """What ``turn`` did to each power's own units (BW1), one sentence per unit,
+        """What ``turn`` did to each power's own units (BW1), one sentence per order,
         then the power's centre changes, for the turn-processed DM::
 
             {"FRANCE": ["A PAR - BUR bounced.", "A MAR held (no order).",
                         "Centres: +BEL, -SPA (now 5)."]}
 
-        Units sorted by province; a power that ordered none of its several units
+        Lines in the order the player submitted the orders (a unit re-ordered counts
+        at its latest submission), then the units the engine ordered for them, by
+        province; a power that ordered none of its several units
         gets one line ("No orders, so F BRE, A MAR and A PAR held."). Leaves out
         what another notice of the same DM already says: a bounced or unordered
         retreat disband (``retreat_disbands``), a civil-disorder disband, a trapped
@@ -1591,7 +1593,19 @@ class GameService:
         results = stored.get("results", [])
         out: dict[str, list[str]] = {}
         idle: dict[str, list[str]] = {}  # units that held for want of any order
-        for r in sorted(results, key=lambda r: str(r["order"].get("unit") or r["order"].get("location") or "")):
+        ordered = self.order_history(game_id).get(str(turn), {})
+        rank = {
+            (power, _ordered_province(s)): i
+            for power, strings in ordered.items()
+            for i, s in enumerate(strings)
+        }
+
+        def sort_key(r: dict[str, Any]) -> tuple[int, str]:
+            province = str(r["order"].get("unit") or r["order"].get("location") or "").split("/")[0]
+            # The power's own orders first, as submitted; what the engine made up after.
+            return rank.get((r["order"]["power"], province), len(rank)), province
+
+        for r in sorted(results, key=sort_key):
             line = _outcome_line(r, results)
             if line is not None:
                 out.setdefault(r["order"]["power"], []).append(line)
@@ -2153,6 +2167,16 @@ def _unordered_support_reason(r: dict[str, Any], results: list[dict[str, Any]]) 
         if _province(o["order"].get("unit")) == target and o["order"]["type"] == "MOVE":
             return f"{_unit_text(o)} moved" if o["result"] == "OK" else f"{_unit_text(o)} was ordered to move"
     return None
+
+
+def _ordered_province(order: str) -> str:
+    """The province an order string is about: the ordered unit's, or the build or
+    disband site's ("A PAR - BUR" -> "PAR", "BUILD F STP/SC" -> "STP", "WAIVE" -> "")."""
+    words = order.split()
+    if not words or words[0].upper() == "WAIVE":
+        return ""
+    index = 2 if words[0].upper() in ("D", "DISBAND", "BUILD", "B") else 1
+    return words[index].split("/")[0].upper() if len(words) > index else ""
 
 
 def _outcome_line(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[str]:

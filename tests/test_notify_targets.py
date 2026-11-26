@@ -80,7 +80,7 @@ def test_a_power_eliminated_by_the_turn_is_announced_once_and_a_conceded_one_get
     results = "Your results for Fall 1901 movement:"
     assert dms[by_power["FRANCE"]] == [
         f"{head} Orders are due for Spring 1902 movement.\n{results}\n"
-        f"A PAR held (no order).\nA TUS - ROM succeeded.\nCentres: +ROM (now 2).\n{out}\n{idle}"
+        f"A TUS - ROM succeeded.\nA PAR held (no order).\nCentres: +ROM (now 2).\n{out}\n{idle}"
     ]
     for power, unit in (("ENGLAND", "A LON"), ("GERMANY", "A BER"), ("RUSSIA", "A MOS"), ("AUSTRIA", "A VIE")):
         assert dms[by_power[power]] == [

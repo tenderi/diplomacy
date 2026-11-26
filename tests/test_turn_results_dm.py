@@ -78,18 +78,18 @@ def test_movement_then_retreat_results(client: TestClient, monkeypatch: pytest.M
     wait = f"{head} you have nothing to order this phase; wait for the other powers."
     results = "Your results for Spring 1901 movement:"
     assert messages["FRANCE"] == [
-        f"{wait}\n{results}\nF BRE - MAO succeeded.\nA MAR held (no order).\nA PAR - BUR bounced (GERMANY's A MUN also moved there)."
+        f"{wait}\n{results}\nA PAR - BUR bounced (GERMANY's A MUN also moved there).\nF BRE - MAO succeeded.\nA MAR held (no order)."
     ]
     assert messages["GERMANY"] == [
-        f"{wait}\n{results}\nA BER held.\nF KIE held.\nA MUN - BUR bounced (FRANCE's A PAR also moved there)."
+        f"{wait}\n{results}\nA MUN - BUR bounced (FRANCE's A PAR also moved there).\nA BER held.\nF KIE held."
     ]
     assert messages["ITALY"] == [
-        f"{wait}\n{results}\nF NAP held (no order).\nA ROM held (no order).\nA TYR - TRI succeeded.\nA VEN S A TYR - TRI succeeded."
+        f"{wait}\n{results}\nA TYR - TRI succeeded.\nA VEN S A TYR - TRI succeeded.\nF NAP held (no order).\nA ROM held (no order)."
     ]
     assert messages["AUSTRIA"] == [
         f"{head} your orders are due.\n"
         "Your F TRI was dislodged: it may retreat to ADR, ALB, or disband. With no order it is disbanded.\n"
-        f"{results}\nA BUD held (no order).\nF TRI was dislodged by A TYR (ITALY).\nA VIE held (no order)."
+        f"{results}\nF TRI was dislodged by A TYR (ITALY).\nA BUD held (no order).\nA VIE held (no order)."
     ]
     # The group is told what is due, never anyone's results.
     assert posted == [
@@ -131,11 +131,11 @@ def test_fall_centres_then_adjustment_results(client: TestClient, monkeypatch: p
     results = "Your results for Fall 1901 movement:"
     assert messages["FRANCE"] == [
         f"{head}\nYou may build 3 units (free home centres: BRE, MAR, PAR).\n"
-        f"{results}\nA BUR - MUN succeeded.\nA PIC - BEL succeeded.\nCentres: +BEL, +MUN (now 5)."
+        f"{results}\nA PIC - BEL succeeded.\nA BUR - MUN succeeded.\nCentres: +BEL, +MUN (now 5)."
     ]
     assert messages["GERMANY"] == [
         f"{head}\nYou must disband 1 unit. With no order, civil disorder picks which units are disbanded.\n"
-        f"{results}\nA BER held (no order).\nF KIE held (no order).\nA MUN - SIL succeeded.\nCentres: -MUN (now 2)."
+        f"{results}\nA MUN - SIL succeeded.\nA BER held (no order).\nF KIE held (no order).\nCentres: -MUN (now 2)."
     ]
     assert all("results" not in text and "Centres" not in text for text in posted)
 
@@ -144,7 +144,7 @@ def test_fall_centres_then_adjustment_results(client: TestClient, monkeypatch: p
     messages, posted = _process(client, game_id, users, monkeypatch)
     head = f"The turn has been processed for game {game_id}. Orders are due for Spring 1902 movement."
     assert messages["FRANCE"] == [
-        f"{head}\nYour results for Winter 1901 builds:\nF BRE was built.\nA PAR was built.\n1 build was waived."
+        f"{head}\nYour results for Winter 1901 builds:\nA PAR was built.\nF BRE was built.\n1 build was waived."
     ]
     assert messages["GERMANY"] == [f"{head}\nYour results for Winter 1901 builds:\nA SIL was disbanded."]
     assert posted == ["The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private."]

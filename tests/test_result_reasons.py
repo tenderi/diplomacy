@@ -36,6 +36,9 @@ class _Repo:
     def get_resolution_history(self, _game_id: str) -> dict[str, dict[str, Any]]:
         return {"1": self._resolution}
 
+    def get_order_history(self, _game_id: str) -> dict[str, dict[str, list[str]]]:
+        return {"1": getattr(self, "orders", {})}
+
 
 def _outcomes(resolution: dict[str, Any]) -> dict[str, list[str]]:
     return GameService(_Repo(resolution)).turn_outcomes("1", 1)

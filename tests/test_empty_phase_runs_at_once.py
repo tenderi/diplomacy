@@ -88,7 +88,7 @@ def test_a_trapped_retreat_phase_runs_straight_after_the_movement(
     assert probe.by_recipient() == {
         e: [
             f"{head}\nYour results for Spring 1901 movement:\n"
-            "A HOL S A PIC - BEL succeeded.\nF NTH S A PIC - BEL succeeded.\nA PIC - BEL succeeded."
+            "A PIC - BEL succeeded.\nA HOL S A PIC - BEL succeeded.\nF NTH S A PIC - BEL succeeded."
         ],
         f: [
             f"{head}\nYour results for Spring 1901 movement:\nA BEL was dislodged by A PIC (ENGLAND).\nA PAR held.\n"
