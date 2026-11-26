@@ -43,15 +43,22 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = str(user.id)
     try:
         ensure_registered(user)
-        game_id = str(api_post("/games/create", {
+        # Creating a game seats its creator (DV4c): here, as Germany.
+        created = api_post("/games/create", {
             "map_name": "demo",
             "telegram_id": user_id,
             "dummy_powers": DEMO_OPPONENTS,
             "auto_process": True,
-        })["game_id"])
-        api_post(f"/games/{game_id}/join", {"telegram_id": user_id, "game_id": int(game_id), "power": DEMO_POWER})
+            "power": DEMO_POWER,
+        })
     except requests.RequestException as e:
         await send(f"❌ Could not start a demo game: {escape_markdown(str(e))}")
+        return
+    game_id = str(created["game_id"])
+    seat = created.get("seat") or {}
+    if seat.get("status") not in ("ok", "already_joined"):
+        reason = seat.get("reason") or "the server didn't seat you."
+        await send(f"❌ Could not start a demo game: {escape_markdown(reason)}")
         return
     set_current_game(user_id, game_id)
 

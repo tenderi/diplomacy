@@ -31,6 +31,9 @@ function when(code: string | null | undefined, turn: number): string {
 
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
 
+/** The creator's own seat, which creating a game takes (DV4c). */
+type Seat = { status: 'ok' | 'already_joined' | 'not_seated'; power: string | null; reason: string | null }
+
 export default function GameList() {
   const navigate = useNavigate()
   const [myGames, setMyGames] = useState<Game[]>([])
@@ -48,6 +51,10 @@ export default function GameList() {
   const [anonymous, setAnonymous] = useState(false)
   // Random powers: joiners don't choose; the server deals each an open power.
   const [randomPowers, setRandomPowers] = useState(false)
+  // The power the creator plays: creating the game seats them in it (DV4c).
+  // Not asked in a random-powers game, where they are dealt one.
+  const [myPower, setMyPower] = useState('')
+  const needsPower = !randomPowers && !myPower
 
   const load = () => {
     Promise.all([
@@ -69,7 +76,7 @@ export default function GameList() {
     setCreating(true)
     setError('')
     try {
-      const res = await apiJson<{ game_id: string }>('/games/create', {
+      const res = await apiJson<{ game_id: string; seat?: Seat | null }>('/games/create', {
         method: 'POST',
         body: JSON.stringify({
           map_name: 'standard',
@@ -77,10 +84,13 @@ export default function GameList() {
           auto_process: autoProcess,
           anonymous,
           random_powers: randomPowers,
+          ...(randomPowers ? {} : { power: myPower }),
           ...(joinPassword ? { join_password: joinPassword } : {}),
         }),
       })
-      toast.success('Game created')
+      const seat = res.seat
+      if (seat && seat.status !== 'not_seated') toast.success(`Game created: you play ${seat.power}`)
+      else toast.warning(`Game created, but you weren't seated: ${seat?.reason ?? 'no reason given'}`)
       navigate(`/games/${res.game_id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Create failed')
@@ -137,9 +147,10 @@ export default function GameList() {
                   className="size-5 shrink-0"
                   checked={dummies.includes(p)}
                   disabled={!dummies.includes(p) && dummies.length >= POWERS.length - 1}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setDummies((d) => (e.target.checked ? [...d, p] : d.filter((x) => x !== p)))
-                  }
+                    if (e.target.checked && p === myPower) setMyPower('')
+                  }}
                 />
                 {p}
               </label>
@@ -154,6 +165,22 @@ export default function GameList() {
           <input type="checkbox" className="size-5 shrink-0" checked={randomPowers} onChange={(e) => setRandomPowers(e.target.checked)} />
           Assign powers at random — players join without choosing one (can't be changed later)
         </label>
+        {!randomPowers && (
+          <label className={`flex flex-wrap items-center gap-2 text-sm ${TAP_ROW}`}>
+            Your power (you join the game as it):
+            <select
+              value={myPower}
+              onChange={(e) => setMyPower(e.target.value)}
+              aria-label="Your power"
+              className="h-10 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm"
+            >
+              <option value="">Choose...</option>
+              {POWERS.filter((p) => !dummies.includes(p)).map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <fieldset>
           <legend className="text-sm text-muted-foreground mb-1">
             Player names (can't be changed once the game exists):
@@ -180,7 +207,10 @@ export default function GameList() {
             className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm"
           />
         </label>
-        <Button onClick={handleCreateGame} disabled={creating}>
+        {needsPower && (
+          <p className="text-sm text-muted-foreground">Choose your power to create the game.</p>
+        )}
+        <Button onClick={handleCreateGame} disabled={creating || needsPower}>
           {creating ? 'Creating...' : 'Create new game'}
         </Button>
       </div>

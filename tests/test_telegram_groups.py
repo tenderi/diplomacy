@@ -12,7 +12,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import requests
-from telegram.error import BadRequest
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, Forbidden
 from telegram.ext import Application, ApplicationBuilder, ApplicationHandlerStop
 
 from server.telegram_bot import app as bot_app
@@ -47,6 +48,7 @@ def _bot(member_of: set[int] = frozenset(), username: str = "DiplomacyTestBot") 
         return SimpleNamespace(status="member" if int(chat_id) in member_of else "left")
 
     bot.get_chat_member = get_chat_member
+    bot.send_message = AsyncMock()
     return bot
 
 
@@ -186,7 +188,8 @@ class TestGroupGuard:
 class TestNewGame:
     @pytest.fixture(autouse=True)
     def _group_has_no_game(self):  # type: ignore[no-untyped-def]
-        with patch.object(channel_commands, "group_game_info", return_value=None):
+        with patch.object(channel_commands, "group_game_info", return_value=None), \
+             patch.object(channel_commands, "_power_selection_prompt", return_value=("Available powers:", None)):
             yield
 
     @staticmethod
@@ -241,6 +244,7 @@ class TestNewGame:
         query.edit_message_text = AsyncMock()
         context = Mock(user_data={})
         context.bot.username = "DiplomacyTestBot"
+        context.bot.send_message = AsyncMock()
         return query, context
 
     def test_confirming_creates_the_game_and_relinks(self) -> None:
@@ -334,7 +338,65 @@ class TestNewGame:
             post.side_effect = lambda path, body: {"game_id": 42} if path == "/games/create" else {"status": "ok"}
             asyncio.run(newgame(update, context))
         assert post.call_args_list[0][0][1]["random_powers"] is random_powers
-        assert ("deal you a power at random" in update.message.reply_text.call_args[0][0]) is random_powers
+        assert ("deal them a power at random" in update.message.reply_text.call_args[0][0]) is random_powers
+
+    @staticmethod
+    def _create(text: str, created: dict, *, dm_refused: bool = False) -> tuple[Mock, Mock, str]:
+        """Run /newgame with the API answering ``created``; returns the update,
+        the context and the group reply."""
+        update, context = _message_update(text)
+        if dm_refused:
+            context.bot.send_message.side_effect = Forbidden("bot can't initiate conversation with a user")
+        with patch.object(channel_commands, "api_post", return_value=created), \
+             patch.object(channel_commands, "ensure_registered"):
+            asyncio.run(newgame(update, context))
+        return update, context, update.message.reply_text.call_args[0][0]
+
+    def test_a_creator_dealt_a_power_is_told_so_without_naming_it(self) -> None:
+        _update, context, reply = self._create(
+            "/newgame anonymous random", {"game_id": 42, "seat": {"status": "ok", "power": "TURKEY", "reason": None}},
+        )
+        assert "✅ Its creator is already seated: I've sent them their power in our private chat.\n\n" in reply
+        assert "TURKEY" not in reply
+        context.bot.send_message.assert_not_called()
+
+    def test_a_creator_of_a_choosing_game_is_sent_the_powers_privately(self) -> None:
+        not_seated = {"status": "not_seated", "power": None, "reason": "Choose a power to join as."}
+        picker = InlineKeyboardMarkup([[InlineKeyboardButton("Join as FRANCE", callback_data="join_game_42_FRANCE")]])
+        with patch.object(channel_commands, "_power_selection_prompt", return_value=("Available powers:", picker)):
+            _update, context, reply = self._create("/newgame anonymous", {"game_id": 42, "seat": not_seated})
+        context.bot.send_message.assert_awaited_once_with(
+            chat_id=555, text="You created Game 42. Pick your power:\n\nAvailable powers:",
+            reply_markup=picker, parse_mode="Markdown",
+        )
+        assert "✅ Its creator picks their power in our private chat, where I've just sent the choice.\n\n" in reply
+        assert "Everyone else taps the button to pick their power" in reply
+
+    def test_a_creator_with_no_picker_to_send_is_told_to_tap_the_button(self) -> None:
+        not_seated = {"status": "not_seated", "power": None, "reason": "Choose a power to join as."}
+        with patch.object(channel_commands, "_power_selection_prompt", return_value=("Could not retrieve game 42.", None)):
+            _update, context, reply = self._create("/newgame anonymous", {"game_id": 42, "seat": not_seated})
+        context.bot.send_message.assert_not_called()
+        assert (
+            "Its creator isn't seated yet: I couldn't send them the power choice privately, so they tap the button below too.\n\n"
+        ) in reply
+        assert "picks their power in our private chat" not in reply
+
+    def test_a_creator_the_bot_cannot_message_is_told_to_tap_the_button(self) -> None:
+        not_seated = {"status": "not_seated", "power": None, "reason": "Choose a power to join as."}
+        picker = InlineKeyboardMarkup([[InlineKeyboardButton("Join as FRANCE", callback_data="join_game_42_FRANCE")]])
+        with patch.object(channel_commands, "_power_selection_prompt", return_value=("Available powers:", picker)):
+            _update, context, reply = self._create("/newgame public", {"game_id": 42, "seat": not_seated}, dm_refused=True)
+        context.bot.send_message.assert_awaited_once()
+        assert (
+            "Its creator isn't seated yet: I couldn't send them the power choice privately, so they tap the button below too.\n\n"
+        ) in reply
+
+    def test_a_creator_who_could_not_be_seated_is_told_why(self) -> None:
+        not_seated = {"status": "not_seated", "power": None, "reason": "Game 42 is full: every power is taken."}
+        _update, context, reply = self._create("/newgame public random", {"game_id": 42, "seat": not_seated})
+        assert "Its creator wasn't seated: Game 42 is full: every power is taken.\n\n" in reply
+        context.bot.send_message.assert_not_called()
 
     @pytest.mark.parametrize("text", [
         "/newgame", "/newgame secret", "/newgame anonymous public", "/newgame random", "/newgame public random random",

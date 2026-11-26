@@ -12,7 +12,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from .admin import require_admin
 from .auth import require_bot_or_game_member, require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
 from .channels import link_or_409
@@ -71,6 +71,11 @@ class CreateGameRequest(BaseModel):
     # linked to it, or not at all (409) -- never left behind unlinked.
     channel_id: Optional[str] = None
     channel_name: Optional[str] = None
+    # DV4c: the creator is seated in the new game as if they had joined it.
+    # In a choose-your-power game this is their power (without it they are left
+    # unseated, and the response says why); in a random-powers game it must be
+    # left out, and they are dealt an open power.
+    power: Optional[str] = None
 
 
 class AutoProcessRequest(BaseModel):
@@ -278,6 +283,15 @@ def create_game(
     plays that game. Otherwise 409, and the new game is deleted again rather
     than left unlinked in the public list. ``replaced_game_id`` names the game
     that lost the group.
+
+    DV4c: a creator who is a person (a Bearer user, or the bot's
+    ``telegram_id``) is then seated through the join route's own code, so the
+    power assignment, the notifications and the cache invalidation are the
+    join's. ``seat`` in the response reports it: ``{"status": "ok" |
+    "already_joined", "power": ...}``, or ``{"status": "not_seated", "reason":
+    ...}`` with the join's refusal -- the game is created either way. A bare
+    ``X-Bot-Secret`` (no ``telegram_id``) creates an ownerless game and seats
+    nobody (``seat`` is null).
     """
     if req.channel_id is not None and not (is_bot_secret(x_bot_secret)):
         raise HTTPException(status_code=403, detail="Only the bot creates a game for a Telegram group.")
@@ -293,11 +307,13 @@ def create_game(
         except ScheduleError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
     # The creator, when the caller is a person: a Bearer user, or the bot passing
-    # telegram_id. A bare X-Bot-Secret (the demo seeder) creates an ownerless game.
+    # telegram_id. A bare X-Bot-Secret creates an ownerless game.
+    creator: Any = None
     creator_id: Optional[int] = None
     if credentials is not None or req.telegram_id:
         creator = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
         creator_id = int(creator.id)
+    _check_creator_power(req, creator is not None)
     try:
         game_id = game_service.create_game(
             map_name=req.map_name,
@@ -312,14 +328,59 @@ def create_game(
         )
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    if req.channel_id is None:
-        return {"game_id": game_id}
+    result: Dict[str, Any] = {"game_id": game_id}
+    if req.channel_id is not None:
+        try:
+            result["replaced_game_id"] = link_or_409(
+                game_id, req.channel_id, req.channel_name, displacer_user_id=creator_id
+            )
+        except HTTPException:
+            db_service.delete_game(int(game_id))
+            raise
+    result["seat"] = None if creator is None else _seat_creator(int(game_id), creator, req.power, x_bot_secret)
+    return result
+
+
+def _check_creator_power(req: CreateGameRequest, has_creator: bool) -> None:
+    """Refuse (400), before anything is created, a creator's power that no join
+    could take: not a power, a power left to civil disorder, any power in a
+    random-powers game, or a power with nobody to seat in it."""
+    if req.power is None:
+        return
+    if not has_creator:
+        raise HTTPException(status_code=400, detail="A power is taken by a player: send who is creating the game.")
+    if req.random_powers:
+        raise HTTPException(
+            status_code=400, detail="Powers are assigned at random in this game: create it without choosing one.",
+        )
+    if req.power.upper() not in REQUIRED_POWERS:
+        raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
+    if req.power.upper() in {p.upper() for p in req.dummy_powers}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{req.power.upper()} is left to civil disorder in this game: choose another power.",
+        )
+
+
+SEAT_FAILED = "The server failed while seating you: join the game to take your seat."
+
+
+def _seat_creator(game_id: int, creator: Any, power: Optional[str], x_bot_secret: Optional[str]) -> Dict[str, Any]:
+    """DV4c: seat the new game's creator through the join path. A refusal
+    leaves the game created and is reported as the reason they weren't seated."""
     try:
-        replaced = link_or_409(game_id, req.channel_id, req.channel_name, displacer_user_id=creator_id)
-    except HTTPException:
-        db_service.delete_game(int(game_id))
-        raise
-    return {"game_id": game_id, "replaced_game_id": replaced}
+        # Not in an anonymous game's group: everyone there just watched the
+        # creator type /newgame, so "A new player has joined as X" would name
+        # the creator's power. The creator's own DM still does.
+        joined = _join(game_id, creator, power, None, x_bot_secret, post_join=not is_anonymous(game_id))
+    except HTTPException as e:
+        return {"status": "not_seated", "power": None, "reason": str(e.detail)}
+    except SQLAlchemyError:
+        # The game exists (and may be linked to a group): a 500 would hide it.
+        # Joining again is safe -- a seat already taken answers already_joined.
+        scheduler_logger.exception("Failed to seat the creator of game %s", game_id)
+        return {"status": "not_seated", "power": None, "reason": SEAT_FAILED}
+    return {"status": joined["status"], "power": joined["power"], "reason": None}
 
 
 @router.post("/games/{game_id}/join_password")
@@ -1029,35 +1090,47 @@ def join_game(
             ),
         )
     user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
+    return _join(game_id, user, req.power, req.join_password, x_bot_secret)
+
+
+def _join(
+    game_id: int, user: Any, wanted_power: Optional[str], join_password: Optional[str], x_bot_secret: Optional[str],
+    *, post_join: bool = True,
+) -> Dict[str, Any]:
+    """Seat ``user`` in game ``game_id``: the whole join, checks, seat write,
+    notifications and cache invalidation included. ``POST /games/{id}/join``
+    and ``POST /games/create`` (DV4c: the creator is seated like any joiner)
+    both run it. ``post_join=False`` leaves out the "has joined as" line in
+    the game's group. Raises HTTPException when the user can't be seated."""
     _require_group_join_via_bot(str(game_id), user, x_bot_secret)
     view = game_service.view(str(game_id))
     random_powers = bool(view and view.get("random_powers"))
     if random_powers:
-        if req.power is not None:
+        if wanted_power is not None:
             raise HTTPException(
                 status_code=400,
                 detail=f"Powers are assigned at random in game {game_id}: join without choosing one.",
             )
-    elif req.power is None:
+    elif wanted_power is None:
         raise HTTPException(status_code=400, detail="Choose a power to join as.")
-    elif req.power.upper() not in REQUIRED_POWERS:
-        raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
+    elif wanted_power.upper() not in REQUIRED_POWERS:
+        raise HTTPException(status_code=400, detail=f"Invalid power name: {wanted_power}")
     _refuse_if_ended(view, game_id)
-    if req.power is not None:
-        _refuse_if_dummy(view, req.power, game_id)
+    if wanted_power is not None:
+        _refuse_if_dummy(view, wanted_power, game_id)
     # Check if already joined
     existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
     if existing:
         return {"status": "already_joined", "player_id": existing.id, "power": existing.power_name}
-    if req.power is not None:
+    if wanted_power is not None:
         # BL2: a conceded power's seat is dead; taking it back revives nothing.
-        api_shared.require_not_eliminated(str(game_id), req.power, "its seat cannot be taken")
-    _require_join_password(str(game_id), user, req.join_password)
+        api_shared.require_not_eliminated(str(game_id), wanted_power, "its seat cannot be taken")
+    _require_join_password(str(game_id), user, join_password)
     try:
         if random_powers:
             power, taken = _take_random_seat(game_id, int(user.id), (view or {}).get("dummy_powers", []))
         else:
-            power = str(req.power).upper()
+            power = str(wanted_power).upper()
             taken = _take_chosen_seat(game_id, int(user.id), power)
     except SeatHeldError as e:
         # A simultaneous join by the same user (a double-click, the web and the
@@ -1076,7 +1149,8 @@ def join_game(
         # A join is one line in the group, not a DM to every seated player (seven
         # joins sent 21). Players are DMed when the table fills, below.
         who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
-        post_to_game_group(game_id, f"{who} has joined game {game_id} as {power}.", GroupPost.ROUTINE)
+        if post_join:
+            post_to_game_group(game_id, f"{who} has joined game {game_id} as {power}.", GroupPost.ROUTINE)
         if taken is not None:
             # A vacated seat filled mid-game: the table is told by DM too, as a game
             # without a group would otherwise never hear of it.

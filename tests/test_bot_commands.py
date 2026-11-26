@@ -322,17 +322,33 @@ class TestDemoAndDebug:
         update, context = _command()
         update.callback_query = None
         with patch.object(bot_admin, "ensure_registered"), \
-             patch.object(bot_admin, "api_post", side_effect=[{"game_id": 31}, {"status": "ok"}]) as post, \
+             patch.object(bot_admin, "api_post", return_value={
+                 "game_id": 31, "seat": {"status": "ok", "power": "GERMANY", "reason": None},
+             }) as post, \
              patch.object(bot_admin, "set_current_game") as remember:
             asyncio.run(bot_admin.start_demo_game(update, context))
-        create, join = post.call_args_list
-        assert create.args == ("/games/create", {"map_name": "demo", "telegram_id": str(ME),
-                                                 "dummy_powers": ["AUSTRIA", "ENGLAND", "FRANCE", "ITALY", "RUSSIA", "TURKEY"],
-                                                 "auto_process": True})
-        assert join.args == ("/games/31/join", {"telegram_id": str(ME), "game_id": 31, "power": "GERMANY"})
+        # One call: creating the game seats its creator as Germany (DV4c).
+        post.assert_called_once_with("/games/create", {
+            "map_name": "demo", "telegram_id": str(ME),
+            "dummy_powers": ["AUSTRIA", "ENGLAND", "FRANCE", "ITALY", "RUSSIA", "TURKEY"],
+            "auto_process": True, "power": "GERMANY",
+        })
         remember.assert_called_once_with(str(ME), "31")
         markup = update.message.reply_text.call_args[1]["reply_markup"]
         assert [b.callback_data for row in markup.inline_keyboard for b in row] == ["g|31|all|n", "g|31|map", "g|31|hub|n", "demo_help_31"]
+
+    def test_a_demo_whose_creator_was_not_seated_says_why(self) -> None:
+        from server.telegram_bot import admin as bot_admin
+        update, context = _command()
+        update.callback_query = None
+        with patch.object(bot_admin, "ensure_registered"), \
+             patch.object(bot_admin, "api_post", return_value={
+                 "game_id": 31, "seat": {"status": "not_seated", "power": None, "reason": "Power already taken"},
+             }), \
+             patch.object(bot_admin, "set_current_game") as remember:
+            asyncio.run(bot_admin.start_demo_game(update, context))
+        remember.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == "❌ Could not start a demo game: Power already taken"
 
     def test_a_demo_that_cannot_start_says_so(self) -> None:
         from server.telegram_bot import admin as bot_admin

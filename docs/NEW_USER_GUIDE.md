@@ -41,9 +41,11 @@ This is how most beta games work. It needs one person, the **organiser**, to set
    **`/newgame public`** (nicknames are shown next to powers). The choice can't be changed later.
    Add **`random`** (`/newgame public random`) to deal the powers at random instead of letting
    everyone pick.
-3. The bot posts **"Game N for this group"** with a **🎮 Join this game** button.
+3. The bot posts **"Game N for this group"** with a **🎮 Join this game** button. The
+   organiser is seated already: with `random` they are dealt a power, otherwise the bot sends
+   them the powers to pick from in their private chat.
 
-**Everyone (including the organiser):**
+**Everyone else:**
 4. Tap **🎮 Join this game**. It opens your *private* chat with the bot, where you pick a
    power.
 5. The game begins when all seven powers are taken.

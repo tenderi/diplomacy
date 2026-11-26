@@ -49,6 +49,14 @@ def _game(client, **settings):
     return str(r.json()["game_id"])
 
 
+def _created(client, **settings):
+    """A game and the seat its creator was dealt (DV4c): ``(game_id, creator, seat)``."""
+    creator = _telegram_user(client)
+    r = client.post("/games/create", json={"map_name": "standard", **settings, **_as(creator)}, headers=_BOT)
+    assert r.status_code == 200, r.text
+    return str(r.json()["game_id"]), creator, r.json()["seat"]
+
+
 def _join(client, game_id, tg, **extra):
     return client.post(f"/games/{game_id}/join", json=_as(tg, **extra))
 
@@ -71,9 +79,9 @@ class TestTheSettingIsStored:
 
 class TestJoining:
     def test_each_join_is_dealt_a_different_open_power(self, client):
-        game_id = _game(client, random_powers=True)
-        dealt = []
-        for _ in range(7):
+        game_id, _creator, seat = _created(client, random_powers=True)
+        dealt = [seat["power"]]
+        for _ in range(6):
             r = _join(client, game_id, _telegram_user(client))
             assert r.status_code == 200, r.text
             assert r.json()["status"] == "ok"
@@ -87,10 +95,8 @@ class TestJoining:
 
     def test_civil_disorder_powers_are_never_dealt(self, client):
         dummies = ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA"]
-        game_id = _game(client, random_powers=True, dummy_powers=dummies)
-        r = _join(client, game_id, _telegram_user(client))
-        assert r.status_code == 200, r.text
-        assert r.json()["power"] == "TURKEY"
+        _game_id, _creator, seat = _created(client, random_powers=True, dummy_powers=dummies)
+        assert seat == {"status": "ok", "power": "TURKEY", "reason": None}
 
     def test_choosing_a_power_is_refused(self, client):
         game_id = _game(client, random_powers=True)
@@ -108,9 +114,9 @@ class TestJoining:
 
     def test_a_vacated_seat_is_dealt_again(self, client):
         dummies = ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY"]
-        game_id = _game(client, random_powers=True, dummy_powers=dummies)
-        leaver, stayer = _telegram_user(client), _telegram_user(client)
-        left = _join(client, game_id, leaver).json()["power"]
+        game_id, leaver, seat = _created(client, random_powers=True, dummy_powers=dummies)
+        stayer = _telegram_user(client)
+        left = seat["power"]
         kept = _join(client, game_id, stayer).json()["power"]
         assert {left, kept} == {"RUSSIA", "TURKEY"}
         assert client.post(f"/games/{game_id}/quit", json=_as(leaver)).status_code == 200
