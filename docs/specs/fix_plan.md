@@ -17,8 +17,8 @@
 ## Status
 
 - **Last updated:** 2026-11-28.
-- **Open tracks:** DD (DAIDE server defects found by the 2026-11-28 audit; next: DD1 and
-  DD2, then DD3); F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** DD (DAIDE server defects found by the 2026-11-28 audit; DD1 is done;
+  next: DD2 and DD3); F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -31,14 +31,14 @@ listener to 127.0.0.1 and holds no DAIDE game, so none of them is live yet.
 
 ## DD1 — Session hardening (`daide/wire.py`, `session.py`, `server.py`)
 
-- [ ] A client that never reads must not block other sessions. Today delivery to a peer
+- [x] A client that never reads must not block other sessions. Today delivery to a peer
       awaits its socket drain with no timeout, and press relay and `notify_game_processed`
       run inline, so one stuck socket hangs the sender and the turn broadcast.
-- [ ] `IAM` passcodes can be brute-forced: there are 8191 values from `random`, unlimited
+- [x] `IAM` passcodes can be brute-forced: there are 8191 values from `random`, unlimited
       tries per connection. Use `secrets` and close the connection after a failed `IAM`.
-- [ ] A plain `NME` takes a disconnected player's power, and that power's passcode. A
+- [x] A plain `NME` takes a disconnected player's power, and that power's passcode. A
       power that has a passcode can only be reclaimed with `IAM`.
-- [ ] A connection that never sends `NME` idles forever, so time it out.
+- [x] A connection that never sends `NME` idles forever, so time it out.
 
 ## DD2 — HTTP must not seat or order in the DAIDE game
 

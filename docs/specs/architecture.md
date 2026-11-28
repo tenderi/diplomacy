@@ -174,12 +174,17 @@ src/server/daide/
 
 **The handshake follows the DAIDE client-server sequence.** After IM/RM, a client's
 `NME ('name') ('version')` seats the next free power (or gets `REJ (NME ...)` when all
-seven are taken) and is answered `YES (NME ...)` followed by `MAP ('STANDARD')`. The
+seven are claimed) and is answered `YES (NME ...)` followed by `MAP ('STANDARD')`. The
 client may ask `MAP` and `MDF` (both served before `NME` too), then accepts the map with
 `YES (MAP ('STANDARD'))`, which the server answers with `HLO (power) (passcode) (LVL 0)`,
-`SCO` and `NOW` (a repeated `YES (MAP ...)` gets nothing). `REJ (MAP ...)` releases the
-power, gets `OFF`, and ends the session. A reconnecting client sends `IAM (power)
-(passcode)`, gets `YES (IAM ...)`, and asks for what it needs; a client `HLO` re-sends its
+`SCO` and `NOW` (a repeated `YES (MAP ...)` gets nothing). `REJ (MAP ...)` gives the
+power up for good, gets `OFF`, and ends the session. A power stays claimed once its
+passcode is issued, connected or not: a later `NME` never takes it. The passcode is drawn
+with `secrets` from 1..8191 (the positive DAIDE integer range). A reconnecting client sends
+`IAM (power) (passcode)`, gets `YES (IAM ...)`, and asks for what it needs; an `IAM` that
+fails (a wrong passcode, a power still held by a live connection, no game yet) gets
+`REJ (IAM ...)` and the connection is closed, so each passcode guess costs a new
+connection; a client `HLO` re-sends its
 `HLO` at any time. `HLO` comes only after `YES (MAP ...)` (or a client `HLO`), never straight after `NME`. `OBS` gets `REJ`:
 observers are out of scope. Every other command before a power is held gets `REJ`.
 
@@ -204,18 +209,23 @@ RM from the client 0x0D. A client's own `ErrorMessage`, whatever its code, is lo
 the connection closed without a reply (DCSP: its sender closes). A connection that sends
 no IM within `IM_TIMEOUT_SECONDS` (30 s) gets 0x01 and is closed; a frame whose first
 byte arrived but whose remainder did not within `FRAME_TIMEOUT_SECONDS` (30 s) gets 0x09
-and is closed; an idle connection *between* frames is left open. A connection holds at
-most one power: a second `NME`, or an `IAM` on a connection that already holds a power,
-gets `REJ`, and a session that ends for any reason releases its power. Every accepted
+and is closed; a connection that holds no power `SEAT_TIMEOUT_SECONDS` (90 s) after its
+handshake (no successful `NME` or `IAM`) is closed; a seated connection idle *between*
+frames is left open. A connection holds at most one power: a second `NME`, or an `IAM` on a connection that already holds a power,
+gets `REJ`, and a session that ends for any reason leaves its power free for `IAM`. Every accepted
 socket has TCP keepalive on (`SO_KEEPALIVE`, plus `TCP_KEEPIDLE` 60 s, `TCP_KEEPINTVL` 20 s
 and `TCP_KEEPCNT` 6 where the platform has them), so a seated client whose network vanishes
 without a FIN or RST is dropped within about three minutes and its power can be reclaimed
 by `IAM`. An `OSError` while a command is handled ends the session with a logged warning
 naming it. Writes to *other*
 sessions (`broadcast_admin`, `relay_press`, the `notify_game_processed` NOW/ORD fan-out)
-go through `DaideSession.deliver`, which treats a closed or closing transport (including
-uvloop's `RuntimeError`) as a dead peer: it is unregistered and closed, and delivery
-continues to the rest. `DaideServer.stop()` sends `OFF` to every seated session, then
+go through `DaideSession.deliver`, which never waits for that peer to read: it queues the
+frames on the peer's transport (behind anything already queued there, so each session's
+messages keep their order) and returns. A closed or closing transport (including uvloop's
+`RuntimeError`), or an unsent backlog past `MAX_OUTBOUND_BUFFER_BYTES` (1 MiB, a client
+that has stopped reading), makes it a dead peer: it is unregistered and its connection
+aborted, and delivery continues to the rest. A session's replies to its own client do
+wait for that client to read, which stalls only that session. `DaideServer.stop()` sends `OFF` to every seated session, then
 closes every open connection (`Server.close_clients`), seated or not, so shutdown never
 waits on a peer that does not hang up. `tests/test_daide_robustness.py` covers each case
 over a real socket.

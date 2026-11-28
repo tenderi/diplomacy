@@ -144,6 +144,13 @@ IM_TIMEOUT_SECONDS: float = 30.0
 # this many seconds; a peer that stalls mid-frame is closed. Idling *between*
 # frames is never timed (a bot may wait a whole phase for the next NOW).
 FRAME_TIMEOUT_SECONDS: float = 30.0
+# A connection past its handshake must take a power (NME or IAM) within this
+# many seconds, or it is closed: an unseated connection does nothing useful.
+SEAT_TIMEOUT_SECONDS: float = 90.0
+# What `deliver` may leave unsent in a peer's transport buffer. Delivery on
+# behalf of another session never waits for the peer to read; a peer whose
+# backlog passes this is not reading, and is dropped.
+MAX_OUTBOUND_BUFFER_BYTES: int = 1 << 20
 
 # What writing to a peer's dead transport raises: a reset/broken pipe, or
 # uvloop's `RuntimeError` ("unable to perform operation on <TCPTransport
@@ -661,7 +668,7 @@ class DaideSession:
     deploy pipeline), ``assign_power(game_id) -> Optional[str]``,
     ``register(game_id, power, session) -> int``, ``try_reclaim(game_id,
     power, passcode, session) -> bool``, ``unregister(game_id, power,
-    session) -> None``, ``deadline_seconds(game_id) -> Optional[int]``,
+    session) -> None``, ``release(game_id, power, session) -> None``, ``deadline_seconds(game_id) -> Optional[int]``,
     ``draw_voted(game_id, power, vote, result)``, ``broadcast_admin(game_id,
     from_name, message_tokens, exclude)``, ``relay_press(game_id, from_power,
     to_powers, message_tokens)``.
@@ -755,9 +762,16 @@ class DaideSession:
         _logger.warning("DAIDE %s: client sent ErrorMessage %s (0x%02X)", self._peer(), code, int(msg.code))
 
     async def _dispatch_loop(self) -> None:
+        seat_deadline = asyncio.get_running_loop().time() + SEAT_TIMEOUT_SECONDS
         while True:
             try:
-                msg = await wire.read_message(self.reader, frame_timeout=FRAME_TIMEOUT_SECONDS)
+                # Until it holds a power, the connection has SEAT_TIMEOUT_SECONDS
+                # in all; once seated, idling between frames is never timed.
+                async with asyncio.timeout_at(seat_deadline if self.power is None else None):
+                    msg = await wire.read_message(self.reader, frame_timeout=FRAME_TIMEOUT_SECONDS)
+            except TimeoutError:
+                _logger.warning("DAIDE %s: closing, no NME or IAM within %s s", self._peer(), SEAT_TIMEOUT_SECONDS)
+                return
             except DaideWireError as exc:
                 await self._protocol_error(exc.code, str(exc))
                 return
@@ -797,33 +811,63 @@ class DaideSession:
         """Send ``messages`` to this session on behalf of *another* one (a
         broadcast, relayed press, a turn's NOW/ORD fan-out).
 
-        Never raises for a dead peer: if this session's transport is closed or
-        closing, it is unregistered and closed, and ``False`` returned, so the
-        caller goes on to the remaining sessions.
+        Never waits for this peer to read: the frames go into its transport's
+        write buffer, in order after anything already queued there, and the
+        event loop sends them as the peer reads. So a client that stops
+        reading cannot stall the sender or a fan-out.
+
+        Never raises for a dead or stuck peer: if this session's transport is
+        closed or closing, or its unsent backlog passes
+        `MAX_OUTBOUND_BUFFER_BYTES`, it is unregistered and its connection
+        aborted, and ``False`` returned, so the caller goes on to the
+        remaining sessions.
         """
         try:
             for tokens_ in messages:
-                await self._send(*tokens_)
+                self._write_nowait(wire.DiplomacyMessage(payload=b"".join(bytes(tok) for tok in tokens_)))
+            backlog = self._outbound_backlog()
+            if backlog > MAX_OUTBOUND_BUFFER_BYTES:
+                raise ConnectionResetError(f"peer is not reading ({backlog} bytes unsent)")
         except _TRANSPORT_ERRORS as exc:
             _logger.warning("DAIDE %s: dropping dead peer: %s", self._peer(), exc)
             self.server.unregister(self.game_id, self.power, self)
-            with contextlib.suppress(*_TRANSPORT_ERRORS, RuntimeError):
-                self.writer.close()
+            self._abort()
             return False
         return True
+
+    def _outbound_backlog(self) -> int:
+        """Bytes written to this peer's transport but not yet sent."""
+        transport = getattr(self.writer, "transport", None)
+        return transport.get_write_buffer_size() if transport is not None else 0
+
+    def _abort(self) -> None:
+        """Close this connection now, discarding unsent data: a plain close
+        would wait to flush a buffer the peer is not reading."""
+        transport = getattr(self.writer, "transport", None)
+        with contextlib.suppress(*_TRANSPORT_ERRORS, RuntimeError):
+            if transport is not None:
+                transport.abort()
+            else:
+                self.writer.close()
 
     async def _send(self, *tokens_: Token) -> None:
         payload = b"".join(bytes(tok) for tok in tokens_)
         await self._write(wire.DiplomacyMessage(payload=payload))
 
     async def _write(self, message: wire.Message) -> None:
-        """Write one frame; a closed transport raises `ConnectionResetError`
-        (never uvloop's `RuntimeError`)."""
+        """Write one frame and wait for the peer to take it (this session's
+        own replies: a client that does not read stalls only itself)."""
+        self._write_nowait(message)
+        await self.writer.drain()
+
+    def _write_nowait(self, message: wire.Message) -> None:
+        """Queue one frame on the transport; a closed transport raises
+        `ConnectionResetError` (never uvloop's `RuntimeError`)."""
         is_closing = getattr(self.writer, "is_closing", None)
         if is_closing is not None and is_closing():
             raise ConnectionResetError("transport is closing")
         try:
-            await wire.write_message(self.writer, message)
+            self.writer.write(message.to_bytes())
         except RuntimeError as exc:
             raise ConnectionResetError(str(exc)) from exc
 
@@ -894,12 +938,12 @@ class DaideSession:
             # No NME has ever succeeded on this listener -- no game, no
             # passcode was ever issued, nothing to reclaim. IAM never creates
             # a game itself (only NME does; see ensure_game_id()'s docstring).
-            await self._send(t.REJ, *_echo(raw))
+            await self._reject_iam(raw)
             return
         try:
             power = t.engine_power_name(groups[0][0])
         except ValueError:
-            await self._send(t.REJ, *_echo(raw))
+            await self._reject_iam(raw)
             return
         passcode = int(groups[1][0])
         if self.server.try_reclaim(game_id, power, passcode, self):
@@ -909,7 +953,13 @@ class DaideSession:
             self.welcomed = True  # a reconnecting client asks for HLO/NOW/... itself
             await self._send(t.YES, *_echo(raw))
         else:
-            await self._send(t.REJ, *_echo(raw))
+            await self._reject_iam(raw)
+
+    async def _reject_iam(self, raw: list[Token]) -> None:
+        """A failed `IAM` gets `REJ` and ends the connection: one passcode
+        guess per connection, so the small passcode space cannot be swept."""
+        self.closing = True
+        await self._send(t.REJ, *_echo(raw))
 
     async def _cmd_map(self, args: list[Token], raw: list[Token]) -> None:
         await self._send(t.MAP, *text_clause(MAP_NAME))
@@ -935,10 +985,11 @@ class DaideSession:
 
     async def _cmd_rej(self, args: list[Token], raw: list[Token]) -> None:
         """``REJ (MAP ('name'))``: the client cannot play this map. Release
-        its power, say ``OFF`` and end the session."""
+        its power for good (a later `NME` may take it), say ``OFF`` and end
+        the session."""
         if not self._is_map_reply(args):
             raise SessionProtocolError("the only REJ a client sends is REJ (MAP ('name'))")
-        self.server.unregister(self.game_id, self.power, self)
+        self.server.release(self.game_id, self.power, self)
         self.power = None
         self.closing = True
         await self._send(t.OFF)

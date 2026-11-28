@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
+import secrets
 import socket
 from datetime import datetime, timezone
 from collections.abc import Callable
@@ -43,6 +43,11 @@ DEFAULT_PORT = 8432
 KEEPALIVE_IDLE_SECONDS = 60
 KEEPALIVE_INTERVAL_SECONDS = 20
 KEEPALIVE_PROBES = 6
+
+# Passcodes are drawn with `secrets` from the positive DAIDE integer range
+# (1..8191). The space is small, so a failed `IAM` also ends its connection
+# (`DaideSession._cmd_iam`): each guess costs a new connection and handshake.
+MAX_PASSCODE = 8191
 
 
 def enable_keepalive(sock: socket.socket) -> None:
@@ -202,21 +207,26 @@ class DaideServer:
 
     def assign_power(self, game_id: str) -> Optional[str]:
         """The next unclaimed standard power (canonical `STANDARD_POWERS` order),
-        or ``None`` if all seven are already occupied by a live session."""
-        claimed = set(self._sessions.get(game_id, {}))
+        or ``None`` if all seven are claimed.
+
+        A power is claimed while a live session holds it *or* once a passcode
+        has been issued for it: a seated client whose connection dropped keeps
+        its power, and only `IAM` with that passcode (`try_reclaim`) takes it
+        back. `release` frees a power for good."""
+        claimed = set(self._sessions.get(game_id, {})) | set(self._passcodes.get(game_id, {}))
         for power in STANDARD_POWERS:
             if power not in claimed:
                 return power
         return None
 
     def register(self, game_id: str, power: str, daide_session: DaideSession) -> int:
-        """Claim ``power`` for ``daide_session``; returns its passcode (reused
-        across a reconnect if one was already issued for this power)."""
+        """Claim ``power`` for ``daide_session`` and return its passcode: the
+        one already issued for this power if there is one, else a fresh one."""
         self._sessions.setdefault(game_id, {})[power] = daide_session
         passcodes = self._passcodes.setdefault(game_id, {})
         passcode = passcodes.get(power)
         if passcode is None:
-            passcode = random.randint(1, 8191)
+            passcode = secrets.randbelow(MAX_PASSCODE) + 1
             passcodes[power] = passcode
         return passcode
 
@@ -232,6 +242,16 @@ class DaideServer:
             return False  # slot is live under another connection right now
         sessions[power] = daide_session
         return True
+
+    def release(self, game_id: Optional[str], power: Optional[str], daide_session: DaideSession) -> None:
+        """Give ``power`` up for good (the client sent `REJ (MAP ...)`): unregister
+        the session and forget the passcode, so the next `NME` may take it."""
+        if game_id is None or power is None:
+            return
+        sessions = self._sessions.get(game_id)
+        if sessions and sessions.get(power) is daide_session:
+            del sessions[power]
+            self._passcodes.get(game_id, {}).pop(power, None)
 
     def unregister(self, game_id: Optional[str], power: Optional[str], daide_session: DaideSession) -> None:
         if game_id is None or power is None:
