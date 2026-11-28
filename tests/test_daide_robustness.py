@@ -18,6 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from persistence.database import Base
+from engine.types import STANDARD_POWERS
 from persistence.game_repo import GameRepo
 from server.daide import server as server_mod
 from server.daide import session as session_mod
@@ -353,4 +354,227 @@ class TestHandlerOsErrorAndKeepalive:
             assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE) == server_mod.KEEPALIVE_IDLE_SECONDS
             assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL) == server_mod.KEEPALIVE_INTERVAL_SECONDS
             assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT) == server_mod.KEEPALIVE_PROBES
+        conn[1].close()
+
+
+# ---------------------------------------------------------------------------
+# DD1: a client that never reads, IAM guessing, NME and claimed powers, and a
+# connection that never takes a power
+# ---------------------------------------------------------------------------
+
+
+def _iam(power: Token, passcode: int) -> list[Token]:
+    return [t.IAM, t.OPEN_PAREN, power, t.CLOSE_PAREN, t.OPEN_PAREN, Token.from_int(passcode), t.CLOSE_PAREN]
+
+
+def _passcode(hlo: list[Token]) -> int:
+    return int(hlo[hlo.index(t.OPEN_PAREN, 2) + 1])
+
+
+async def _stalled_peer(server: DaideServer) -> tuple[Conn, DaideSession]:
+    """A seated client that floods `MDF` requests and never reads a reply,
+    until its session's own replies back up in the server's write buffer."""
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    sock.connect(("127.0.0.1", server.port))
+    sock.setblocking(False)
+    reader, writer = await asyncio.open_connection(sock=sock)
+    await wire.write_message(writer, wire.InitialMessage())
+    assert isinstance(await _read(reader), wire.RepresentationMessage)
+    hlo = await _nme((reader, writer))
+    power = t.engine_power_name(hlo[2])
+    stuck = server.sessions_for(server.game_id)[power]
+    mdf = wire.DiplomacyMessage(payload=bytes(t.MDF)).to_bytes()
+    for _ in range(200):
+        writer.write(mdf * 100)
+        await asyncio.sleep(0.01)
+        if stuck.writer.transport.get_write_buffer_size() > 0:
+            return (reader, writer), stuck
+    raise AssertionError("the server never had to buffer a reply to the stalled client")
+
+
+class TestPeerThatNeverReads:
+    """Each test closes its sockets in ``finally``: were delivery to block
+    again, the stalled peer would otherwise hang the fixture's ``stop()``."""
+
+    async def test_press_and_the_turn_fan_out_do_not_wait_for_it(self, server: DaideServer) -> None:
+        conns: list[Conn] = []
+        try:
+            conns.append(sender := await _connect(server))
+            await _nme(sender)  # AUSTRIA
+            stalled, _stuck = await _stalled_peer(server)  # ENGLAND
+            conns.append(stalled)
+            await _send(sender[1], t.SND, t.OPEN_PAREN, t.ENG, t.CLOSE_PAREN, t.OPEN_PAREN, t.PCE, t.CLOSE_PAREN)
+            assert (await _recv_tokens(sender[0]))[0] == t.YES
+            await _send(sender[1], t.MAP)  # the sender's session is not stuck either
+            assert (await _recv_tokens(sender[0]))[0] == t.MAP
+            conns.append(later := await _connect(server))
+            await _nme(later)  # FRANCE
+            await asyncio.wait_for(server.notify_game_processed(server.game_id), timeout=5)
+            assert (await _recv_tokens(sender[0]))[0] == t.NOW
+            assert (await _recv_tokens(later[0]))[0] == t.NOW
+        finally:
+            for conn in conns:
+                conn[1].close()
+
+    async def test_its_backlog_overflowing_drops_it(self, server: DaideServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        conns: list[Conn] = []
+        try:
+            conns.append(live := await _connect(server))
+            await _nme(live)  # AUSTRIA
+            stalled, stuck = await _stalled_peer(server)  # ENGLAND
+            conns.append(stalled)
+            monkeypatch.setattr(session_mod, "MAX_OUTBOUND_BUFFER_BYTES", 0, raising=False)
+            await asyncio.wait_for(server.notify_game_processed(server.game_id), timeout=5)
+            assert (await _recv_tokens(live[0]))[0] == t.NOW
+            assert list(server.sessions_for(server.game_id)) == ["AUSTRIA"]
+            assert stuck.writer.transport.is_closing()
+        finally:
+            for conn in conns:
+                conn[1].close()
+
+
+class TestIamGuessing:
+    async def test_a_failed_iam_gets_rej_and_ends_the_connection(self, server: DaideServer) -> None:
+        owner = await _connect(server)
+        passcode = _passcode(await _nme(owner))
+        owner[1].close()
+        await asyncio.sleep(0.1)  # AUSTRIA's session ends; its passcode stays
+        guesser = await _connect(server)
+        wrong = _iam(t.AUS, passcode % 8191 + 1)
+        await _send(guesser[1], *wrong)
+        assert await _recv_tokens(guesser[0]) == [t.REJ, t.OPEN_PAREN, *wrong, t.CLOSE_PAREN]
+        assert await asyncio.wait_for(guesser[0].read(), timeout=5) == b""
+        guesser[1].close()
+
+    async def test_iam_for_a_power_never_issued_ends_the_connection(self, server: DaideServer) -> None:
+        seated = await _connect(server)
+        await _nme(seated)  # creates the game: AUSTRIA
+        guesser = await _connect(server)
+        await _send(guesser[1], *_iam(t.TUR, 1))
+        assert (await _recv_tokens(guesser[0]))[0] == t.REJ
+        assert await asyncio.wait_for(guesser[0].read(), timeout=5) == b""
+        seated[1].close()
+        guesser[1].close()
+
+    async def test_the_passcode_comes_from_secrets_within_the_integer_token_range(
+        self, server: DaideServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bounds: list[int] = []
+
+        def randbelow(n: int) -> int:
+            bounds.append(n)
+            return n - 1
+
+        monkeypatch.setattr(server_mod.secrets, "randbelow", randbelow)
+        gid = server.ensure_game_id()
+        assert server.register(gid, "AUSTRIA", DaideSession(asyncio.StreamReader(), DeadWriter(raises=False), server)) == 8191
+        assert bounds == [8191]
+
+    async def test_a_wrong_guess_locks_the_power_for_iam_for_a_while(
+        self, server: DaideServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(server_mod, "IAM_LOCKOUT_SECONDS", 0.5, raising=False)
+        owner = await _connect(server)
+        passcode = _passcode(await _nme(owner))
+        owner[1].close()
+        await asyncio.sleep(0.1)
+        guesser = await _connect(server)
+        await _send(guesser[1], *_iam(t.AUS, passcode % 8191 + 1))
+        assert (await _recv_tokens(guesser[0]))[0] == t.REJ
+        guesser[1].close()
+        early = await _connect(server)  # the right passcode, during the lockout
+        await _send(early[1], *_iam(t.AUS, passcode))
+        assert (await _recv_tokens(early[0]))[0] == t.REJ
+        early[1].close()
+        await asyncio.sleep(0.6)
+        back = await _connect(server)
+        await _send(back[1], *_iam(t.AUS, passcode))
+        assert (await _recv_tokens(back[0]))[0] == t.YES
+        back[1].close()
+
+
+class TestClaimedPowers:
+    async def test_nme_does_not_take_a_disconnected_power_but_iam_does(self, server: DaideServer) -> None:
+        first = await _connect(server)
+        passcode = _passcode(await _nme(first))  # AUSTRIA
+        first[1].close()
+        await asyncio.sleep(0.1)
+        newcomer = await _connect(server)
+        hlo = await _nme(newcomer)
+        assert hlo[2] == t.ENG
+        back = await _connect(server)
+        await _send(back[1], *_iam(t.AUS, passcode))
+        assert (await _recv_tokens(back[0]))[0] == t.YES
+        assert sorted(server.sessions_for(server.game_id)) == ["AUSTRIA", "ENGLAND"]
+        newcomer[1].close()
+        back[1].close()
+
+    async def test_nme_is_rejected_once_seven_clients_got_their_hlo(self, server: DaideServer) -> None:
+        for _ in STANDARD_POWERS:
+            conn = await _connect(server)
+            assert (await _nme(conn))[0] == t.HLO  # NME, YES (MAP), HLO
+            conn[1].close()
+        await asyncio.sleep(0.1)
+        assert server.sessions_for(server.game_id) == {}
+        late = await _connect(server)
+        assert (await _nme(late))[0] == t.REJ
+        late[1].close()
+
+    async def test_a_disconnect_before_hlo_frees_the_power(self, server: DaideServer) -> None:
+        conn = await _connect(server)
+        await _send(conn[1], t.NME, *text_clause("Bot"), *text_clause("1.0"))
+        assert (await _recv_tokens(conn[0]))[0] == t.YES
+        assert (await _recv_tokens(conn[0]))[0] == t.MAP
+        conn[1].close()  # gone before YES (MAP), so it never saw a passcode
+        await asyncio.sleep(0.1)
+        again = await _connect(server)
+        assert (await _nme(again))[2] == t.AUS
+        again[1].close()
+
+    async def test_rej_map_gives_the_power_up_for_good(self, server: DaideServer) -> None:
+        conn = await _connect(server)
+        await _send(conn[1], t.NME, *text_clause("Bot"), *text_clause("1.0"))
+        assert (await _recv_tokens(conn[0]))[0] == t.YES
+        map_msg = await _recv_tokens(conn[0])
+        await _send(conn[1], t.REJ, t.OPEN_PAREN, *map_msg, t.CLOSE_PAREN)
+        assert await _recv_tokens(conn[0]) == [t.OFF]
+        conn[1].close()
+        again = await _connect(server)
+        assert (await _nme(again))[2] == t.AUS
+        again[1].close()
+
+
+class TestSeatTimeout:
+    async def test_a_connection_that_never_takes_a_power_is_closed(
+        self, server: DaideServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(session_mod, "SEAT_TIMEOUT_SECONDS", 0.2, raising=False)
+        reader, writer = await _connect(server)
+        await _send(writer, t.MAP)  # an unseated command does not reset the clock
+        assert (await _recv_tokens(reader))[0] == t.MAP
+        assert await asyncio.wait_for(reader.read(), timeout=5) == b""
+        writer.close()
+
+    async def test_a_connection_that_stops_before_hlo_is_closed_and_frees_the_power(
+        self, server: DaideServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(session_mod, "SEAT_TIMEOUT_SECONDS", 0.2, raising=False)
+        reader, writer = await _connect(server)
+        await _send(writer, t.NME, *text_clause("Bot"), *text_clause("1.0"))
+        assert (await _recv_tokens(reader))[0] == t.YES
+        assert (await _recv_tokens(reader))[0] == t.MAP
+        assert await asyncio.wait_for(reader.read(), timeout=5) == b""  # no YES (MAP): closed
+        writer.close()
+        assert server.assign_power(server.game_id) == "AUSTRIA"
+
+    async def test_a_seated_connection_may_idle_past_it(
+        self, server: DaideServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(session_mod, "SEAT_TIMEOUT_SECONDS", 0.2, raising=False)
+        conn = await _connect(server)
+        await _nme(conn)
+        await asyncio.sleep(0.4)
+        await _send(conn[1], t.MAP)
+        assert (await _recv_tokens(conn[0]))[0] == t.MAP
         conn[1].close()

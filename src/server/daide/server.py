@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
+import secrets
 import socket
+import time
 from datetime import datetime, timezone
 from collections.abc import Callable
 from typing import Any, Optional
@@ -43,6 +44,15 @@ DEFAULT_PORT = 8432
 KEEPALIVE_IDLE_SECONDS = 60
 KEEPALIVE_INTERVAL_SECONDS = 20
 KEEPALIVE_PROBES = 6
+
+# Passcodes are drawn with `secrets` from the positive DAIDE integer range
+# (1..8191). The space is small, so a failed `IAM` also ends its connection
+# (`DaideSession._cmd_iam`): each guess costs a new connection and handshake.
+MAX_PASSCODE = 8191
+# After a wrong `IAM` passcode for a power, every `IAM` for that power is
+# refused for this many seconds, right passcode or not, so guesses cannot
+# be made faster than one per lockout (a sweep of 8191 takes over 11 hours).
+IAM_LOCKOUT_SECONDS: float = 5.0
 
 
 def enable_keepalive(sock: socket.socket) -> None:
@@ -106,6 +116,8 @@ class DaideServer:
         self._sessions: dict[str, dict[str, DaideSession]] = {}
         # game_id -> power -> passcode (kept across disconnects for IAM reclaim)
         self._passcodes: dict[str, dict[str, int]] = {}
+        # game_id -> power -> time.monotonic() before which IAM is refused
+        self._iam_locked_until: dict[str, dict[str, float]] = {}
         # game_id -> powers already reported eliminated (diffed each notify)
         self._eliminated_seen: dict[str, frozenset[str]] = {}
         # game_id -> has a completion (DRW or SLO) already been broadcast
@@ -202,36 +214,64 @@ class DaideServer:
 
     def assign_power(self, game_id: str) -> Optional[str]:
         """The next unclaimed standard power (canonical `STANDARD_POWERS` order),
-        or ``None`` if all seven are already occupied by a live session."""
-        claimed = set(self._sessions.get(game_id, {}))
+        or ``None`` if all seven are claimed.
+
+        A power is claimed while a live session holds it *or* once a passcode
+        has been issued for it: a seated client whose connection dropped keeps
+        its power, and only `IAM` with that passcode (`try_reclaim`) takes it
+        back. `release` frees a power for good."""
+        claimed = set(self._sessions.get(game_id, {})) | set(self._passcodes.get(game_id, {}))
         for power in STANDARD_POWERS:
             if power not in claimed:
                 return power
         return None
 
     def register(self, game_id: str, power: str, daide_session: DaideSession) -> int:
-        """Claim ``power`` for ``daide_session``; returns its passcode (reused
-        across a reconnect if one was already issued for this power)."""
+        """Claim ``power`` for ``daide_session`` and return its passcode: the
+        one already issued for this power if there is one, else a fresh one."""
         self._sessions.setdefault(game_id, {})[power] = daide_session
         passcodes = self._passcodes.setdefault(game_id, {})
         passcode = passcodes.get(power)
         if passcode is None:
-            passcode = random.randint(1, 8191)
+            passcode = secrets.randbelow(MAX_PASSCODE) + 1
             passcodes[power] = passcode
         return passcode
 
     def try_reclaim(self, game_id: str, power: str, passcode: int, daide_session: DaideSession) -> bool:
         """`IAM (power) (passcode)` on a new connection: reclaim ``power``'s
         slot if the passcode matches what `register` issued and no other live
-        session currently holds it."""
+        session currently holds it.
+
+        A wrong passcode locks ``power`` for `IAM_LOCKOUT_SECONDS`: until then
+        every `IAM` for it fails, the right passcode included. An attempt
+        during the lockout does not extend it."""
+        now = time.monotonic()
+        locked_until = self._iam_locked_until.setdefault(game_id, {})
+        if now < locked_until.get(power, 0.0):
+            return False
         passcodes = self._passcodes.get(game_id, {})
         if passcodes.get(power) != passcode:
+            locked_until[power] = now + IAM_LOCKOUT_SECONDS
             return False
         sessions = self._sessions.setdefault(game_id, {})
         if power in sessions:
             return False  # slot is live under another connection right now
         sessions[power] = daide_session
         return True
+
+    def release(self, game_id: Optional[str], power: Optional[str], daide_session: DaideSession) -> None:
+        """Give ``power`` up for good: unregister ``daide_session`` and forget
+        the passcode, so the next `NME` may take it. For `REJ (MAP ...)`, and
+        for a session that ends before its client got the passcode (`HLO`).
+        Does nothing if another session holds the power."""
+        if game_id is None or power is None:
+            return
+        sessions = self._sessions.get(game_id, {})
+        holder = sessions.get(power)
+        if holder is not None and holder is not daide_session:
+            return
+        sessions.pop(power, None)
+        self._passcodes.get(game_id, {}).pop(power, None)
 
     def unregister(self, game_id: Optional[str], power: Optional[str], daide_session: DaideSession) -> None:
         if game_id is None or power is None:
