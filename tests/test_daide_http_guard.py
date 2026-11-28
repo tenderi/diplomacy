@@ -41,7 +41,7 @@ def _seat(game_id: str, tg: str, power: str) -> None:
     db_service.create_player(numeric, power, int(user.id))
 
 
-def _refused(r) -> None:
+def _assert_refused(r) -> None:
     assert r.status_code == 409, r.text
     assert r.json()["detail"] == DAIDE_GAME_REFUSAL
     assert r.headers["X-Error-Code"] == "daide_game"
@@ -50,14 +50,14 @@ def _refused(r) -> None:
 def test_join_with_a_power_is_refused(client: TestClient) -> None:
     game_id = _daide_game()
     tg, _ = _telegram_user(client, "Djn")
-    _refused(client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE")))
+    _assert_refused(client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE")))
     assert db_service.get_players_by_game_id(int(db_service.get_game_by_game_id(game_id).id)) == []
 
 
 def test_join_without_a_power_is_refused(client: TestClient) -> None:
     game_id = _daide_game()
     tg, _ = _telegram_user(client, "Djr")
-    _refused(client.post(f"/games/{game_id}/join", json=_as(tg)))
+    _assert_refused(client.post(f"/games/{game_id}/join", json=_as(tg)))
 
 
 def test_replace_is_refused(client: TestClient) -> None:
@@ -68,18 +68,18 @@ def test_replace_is_refused(client: TestClient) -> None:
     player = db_service.get_player_by_game_id_and_power(game_id=numeric, power="FRANCE")
     db_service.assign_player_seat(int(player.id), None, False)  # vacated
     tg, _ = _telegram_user(client, "Drp")
-    _refused(client.post(f"/games/{game_id}/replace", json=_as(tg, power="FRANCE")))
+    _assert_refused(client.post(f"/games/{game_id}/replace", json=_as(tg, power="FRANCE")))
 
 
 def test_making_a_power_a_dummy_is_refused_even_for_an_admin(client: TestClient) -> None:
     game_id = _daide_game()
-    _refused(client.post(f"/games/{game_id}/dummies", json={"power": "FRANCE", "dummy": True}, headers=ADMIN))
+    _assert_refused(client.post(f"/games/{game_id}/dummies", json={"power": "FRANCE", "dummy": True}, headers=ADMIN))
     assert game_service.dummy_powers(game_id) == frozenset()
 
 
 def test_admin_add_player_is_refused(client: TestClient) -> None:
     game_id = _daide_game()
-    _refused(client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN))
+    _assert_refused(client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN))
 
 
 def test_orders_are_refused_replace_and_merge(client: TestClient) -> None:
@@ -88,7 +88,7 @@ def test_orders_are_refused_replace_and_merge(client: TestClient) -> None:
     _seat(game_id, tg, "FRANCE")
     for merge in (False, True):
         body = {"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"], "merge": merge, **_as(tg)}
-        _refused(client.post("/games/set_orders", json=body))
+        _assert_refused(client.post("/games/set_orders", json=body))
     assert (game_service.pending_orders_view(game_id) or {}).get("FRANCE", []) == []
 
 
@@ -96,35 +96,35 @@ def test_clearing_orders_is_refused(client: TestClient) -> None:
     game_id = _daide_game()
     tg, _ = _telegram_user(client, "Dcl")
     _seat(game_id, tg, "FRANCE")
-    _refused(client.post(f"/games/{game_id}/orders/FRANCE/clear", json=_as(tg)))
+    _assert_refused(client.post(f"/games/{game_id}/orders/FRANCE/clear", json=_as(tg)))
 
 
 def test_draw_vote_is_refused(client: TestClient) -> None:
     game_id = _daide_game()
     tg, _ = _telegram_user(client, "Ddv")
     _seat(game_id, tg, "FRANCE")
-    _refused(client.post(f"/games/{game_id}/draw_vote", json=_as(tg, power="FRANCE", vote=True)))
+    _assert_refused(client.post(f"/games/{game_id}/draw_vote", json=_as(tg, power="FRANCE", vote=True)))
 
 
 def test_wait_flag_is_refused(client: TestClient) -> None:
     game_id = _daide_game()
     tg, _ = _telegram_user(client, "Dwf")
     _seat(game_id, tg, "FRANCE")
-    _refused(client.post(f"/games/{game_id}/wait", json=_as(tg, power="FRANCE", waiting=True)))
+    _assert_refused(client.post(f"/games/{game_id}/wait", json=_as(tg, power="FRANCE", waiting=True)))
 
 
 def test_concede_is_refused(client: TestClient) -> None:
     game_id = _daide_game()
     tg, _ = _telegram_user(client, "Dcn")
     _seat(game_id, tg, "FRANCE")
-    _refused(client.post(f"/games/{game_id}/concede", json=_as(tg, power="FRANCE")))
+    _assert_refused(client.post(f"/games/{game_id}/concede", json=_as(tg, power="FRANCE")))
 
 
 def test_deadline_proposal_is_refused(client: TestClient) -> None:
     game_id = _daide_game()
     tg, _ = _telegram_user(client, "Ddp")
     _seat(game_id, tg, "FRANCE")
-    _refused(client.post(f"/games/{game_id}/deadline/propose", json=_as(tg, power="FRANCE", hours=24)))
+    _assert_refused(client.post(f"/games/{game_id}/deadline/propose", json=_as(tg, power="FRANCE", hours=24)))
 
 
 @pytest.mark.parametrize("path, extra", [("vote", {"vote": True}), ("withdraw", {})])
@@ -132,7 +132,7 @@ def test_deadline_vote_and_withdraw_are_refused(client: TestClient, path: str, e
     game_id = _daide_game()
     tg, _ = _telegram_user(client, "Ddw")
     _seat(game_id, tg, "FRANCE")
-    _refused(client.post(f"/games/{game_id}/deadline/{path}", json=_as(tg, power="FRANCE", **extra)))
+    _assert_refused(client.post(f"/games/{game_id}/deadline/{path}", json=_as(tg, power="FRANCE", **extra)))
 
 
 def test_reads_and_admin_processing_stay_allowed(client: TestClient) -> None:
