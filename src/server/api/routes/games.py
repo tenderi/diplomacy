@@ -428,6 +428,8 @@ def set_auto_process(
         raise HTTPException(status_code=404, detail="Game not found")
     caller_telegram_id = None
     if not is_admin_token(x_admin_token):
+        # A player's switch; an admin keeps control of the DAIDE game's processing.
+        api_shared.refuse_if_daide(game_id)
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
         if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
             raise HTTPException(status_code=403, detail="You are not a player in this game.")
@@ -1549,6 +1551,7 @@ def set_deadline_schedule(
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    api_shared.refuse_if_daide(game_id)
     user = resolve_user_or_telegram(
         credentials, req.telegram_id, bot_secret=x_bot_secret
     )
@@ -1606,6 +1609,7 @@ def set_deadline(
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    api_shared.refuse_if_daide(game_id)
     # Whoever the caller is -- Bearer user, or telegram_id + bot_secret -- they
     # must hold a power in this game. Until v2.7.79 (Track T) a Bearer caller
     # could omit telegram_id and set any game's deadline unchecked.

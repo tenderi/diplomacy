@@ -135,6 +135,30 @@ def test_deadline_vote_and_withdraw_are_refused(client: TestClient, path: str, e
     _assert_refused(client.post(f"/games/{game_id}/deadline/{path}", json=_as(tg, power="FRANCE", **extra)))
 
 
+def test_setting_the_deadline_is_refused(client: TestClient) -> None:
+    game_id = _daide_game()
+    tg, _ = _telegram_user(client, "Dsd")
+    _seat(game_id, tg, "FRANCE")
+    _assert_refused(client.post(f"/games/{game_id}/deadline", json=_as(tg, phase_length_seconds=3600)))
+    assert game_service.meta(game_id)["deadline"] is None
+
+
+def test_setting_the_deadline_schedule_is_refused(client: TestClient) -> None:
+    game_id = _daide_game()
+    tg, _ = _telegram_user(client, "Dss")
+    _seat(game_id, tg, "FRANCE")
+    _assert_refused(client.post(f"/games/{game_id}/deadline/schedule", json=_as(tg, schedule="Mon 16:00")))
+    assert game_service.meta(game_id)["deadline_schedule"] is None
+
+
+def test_a_players_auto_process_switch_is_refused(client: TestClient) -> None:
+    game_id = _daide_game()
+    tg, _ = _telegram_user(client, "Dap")
+    _seat(game_id, tg, "FRANCE")
+    _assert_refused(client.post(f"/games/{game_id}/auto_process", json=_as(tg, enabled=True)))
+    assert game_service.meta(game_id)["auto_process"] is False
+
+
 def test_reads_and_admin_processing_stay_allowed(client: TestClient) -> None:
     game_id = _daide_game()
     assert client.get(f"/games/{game_id}/state").status_code == 200
