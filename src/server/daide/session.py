@@ -696,6 +696,10 @@ class DaideSession:
         # the power and answers YES (NME ...) + MAP; HLO/SCO/NOW wait for the
         # client's YES (MAP ...). True once HLO has been pushed (or after IAM).
         self.welcomed = False
+        # True once this connection's client knows its power's passcode: HLO
+        # was sent, or IAM succeeded. A session that ends before then gives
+        # its power up (`DaideServer.release`), since nobody could reclaim it.
+        self.claimed = False
         # Set by a handler that ends the session (REJ (MAP ...)); the dispatch
         # loop returns after that message.
         self.closing = False
@@ -708,13 +712,17 @@ class DaideSession:
         Nothing a client sends can raise out of here: a framing violation
         gets the matching DCSP `ErrorMessage` and a clean close, logged at
         warning; a dead transport just ends the session. Whatever happens,
-        the session is unregistered and its socket closed on the way out.
+        the session is unregistered and its socket closed on the way out; a
+        power whose passcode the client never received is released.
         """
         try:
             if await self._handshake():
                 await self._dispatch_loop()
         finally:
-            self.server.unregister(self.game_id, self.power, self)
+            if self.claimed:
+                self.server.unregister(self.game_id, self.power, self)
+            else:
+                self.server.release(self.game_id, self.power, self)
             with contextlib.suppress(*_TRANSPORT_ERRORS, RuntimeError):
                 self.writer.close()
 
@@ -765,12 +773,13 @@ class DaideSession:
         seat_deadline = asyncio.get_running_loop().time() + SEAT_TIMEOUT_SECONDS
         while True:
             try:
-                # Until it holds a power, the connection has SEAT_TIMEOUT_SECONDS
-                # in all; once seated, idling between frames is never timed.
-                async with asyncio.timeout_at(seat_deadline if self.power is None else None):
+                # Until its client holds a power and knows the passcode (HLO
+                # sent, or IAM), the connection has SEAT_TIMEOUT_SECONDS in
+                # all; after that, idling between frames is never timed.
+                async with asyncio.timeout_at(None if self.claimed else seat_deadline):
                     msg = await wire.read_message(self.reader, frame_timeout=FRAME_TIMEOUT_SECONDS)
             except TimeoutError:
-                _logger.warning("DAIDE %s: closing, no NME or IAM within %s s", self._peer(), SEAT_TIMEOUT_SECONDS)
+                _logger.warning("DAIDE %s: closing, not seated (NME to HLO, or IAM) within %s s", self._peer(), SEAT_TIMEOUT_SECONDS)
                 return
             except DaideWireError as exc:
                 await self._protocol_error(exc.code, str(exc))
@@ -951,13 +960,15 @@ class DaideSession:
             self.power = power
             self.passcode = passcode
             self.welcomed = True  # a reconnecting client asks for HLO/NOW/... itself
+            self.claimed = True
             await self._send(t.YES, *_echo(raw))
         else:
             await self._reject_iam(raw)
 
     async def _reject_iam(self, raw: list[Token]) -> None:
         """A failed `IAM` gets `REJ` and ends the connection: one passcode
-        guess per connection, so the small passcode space cannot be swept."""
+        guess per connection (and `DaideServer.try_reclaim` locks the power
+        after a wrong guess), so the small passcode space cannot be swept."""
         self.closing = True
         await self._send(t.REJ, *_echo(raw))
 
@@ -969,6 +980,7 @@ class DaideSession:
         if self.power is None or self.passcode is None:
             raise SessionProtocolError("HLO before a power was assigned")
         await self._send(*build_hlo_tokens(self.power, self.passcode))
+        self.claimed = True
 
     async def _cmd_yes(self, args: list[Token], raw: list[Token]) -> None:
         """``YES (MAP ('name'))`` accepts the map: push HLO, SCO and NOW, the

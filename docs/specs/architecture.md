@@ -179,12 +179,16 @@ client may ask `MAP` and `MDF` (both served before `NME` too), then accepts the 
 `YES (MAP ('STANDARD'))`, which the server answers with `HLO (power) (passcode) (LVL 0)`,
 `SCO` and `NOW` (a repeated `YES (MAP ...)` gets nothing). `REJ (MAP ...)` gives the
 power up for good, gets `OFF`, and ends the session. A power stays claimed once its
-passcode is issued, connected or not: a later `NME` never takes it. The passcode is drawn
-with `secrets` from 1..8191 (the positive DAIDE integer range). A reconnecting client sends
-`IAM (power) (passcode)`, gets `YES (IAM ...)`, and asks for what it needs; an `IAM` that
-fails (a wrong passcode, a power still held by a live connection, no game yet) gets
-`REJ (IAM ...)` and the connection is closed, so each passcode guess costs a new
-connection; a client `HLO` re-sends its
+client has had its `HLO`, connected or not: a later `NME` never takes it. A session that
+ends before its `HLO` was sent gives the power up, since nobody knows its passcode. The
+passcode is drawn with `secrets` from 1..8191 (the positive DAIDE integer range). A
+reconnecting client sends `IAM (power) (passcode)`, gets `YES (IAM ...)`, and asks for what
+it needs; an `IAM` that fails (a wrong passcode, a power still held by a live connection,
+an unknown power, no game yet) gets `REJ (IAM ...)` and the connection is closed. A wrong
+passcode also locks that power for `IAM_LOCKOUT_SECONDS` (5 s): every `IAM` for it is
+refused until then, the right passcode included, so guessing runs at one try per 5 s and
+a sweep of the 8191 values takes over 11 hours. The price is that someone sending wrong
+guesses can keep the rightful owner from reconnecting while they keep at it; a client `HLO` re-sends its
 `HLO` at any time. `HLO` comes only after `YES (MAP ...)` (or a client `HLO`), never straight after `NME`. `OBS` gets `REJ`:
 observers are out of scope. Every other command before a power is held gets `REJ`.
 
@@ -209,10 +213,12 @@ RM from the client 0x0D. A client's own `ErrorMessage`, whatever its code, is lo
 the connection closed without a reply (DCSP: its sender closes). A connection that sends
 no IM within `IM_TIMEOUT_SECONDS` (30 s) gets 0x01 and is closed; a frame whose first
 byte arrived but whose remainder did not within `FRAME_TIMEOUT_SECONDS` (30 s) gets 0x09
-and is closed; a connection that holds no power `SEAT_TIMEOUT_SECONDS` (90 s) after its
-handshake (no successful `NME` or `IAM`) is closed; a seated connection idle *between*
-frames is left open. A connection holds at most one power: a second `NME`, or an `IAM` on a connection that already holds a power,
-gets `REJ`, and a session that ends for any reason leaves its power free for `IAM`. Every accepted
+and is closed; a connection that is not seated `SEAT_TIMEOUT_SECONDS` (90 s) after its
+handshake (no `NME` through to `HLO`, no successful `IAM`) is closed; a seated connection
+idle *between* frames is left open. A connection holds at most one power: a second `NME`, or an `IAM` on a connection that already holds a power,
+gets `REJ`. A session that ends leaves its power to be reclaimed by `IAM`, except after
+`REJ (MAP ...)` or before its `HLO` was sent: then the power is released for the next
+`NME`. Every accepted
 socket has TCP keepalive on (`SO_KEEPALIVE`, plus `TCP_KEEPIDLE` 60 s, `TCP_KEEPINTVL` 20 s
 and `TCP_KEEPCNT` 6 where the platform has them), so a seated client whose network vanishes
 without a FIN or RST is dropped within about three minutes and its power can be reclaimed

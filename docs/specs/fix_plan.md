@@ -56,6 +56,8 @@ listener to 127.0.0.1 and holds no DAIDE game, so none of them is live yet.
 - [ ] `ADM` relays an escaped `(` in the name as a real bracket, which unbalances the
       message for other clients.
 - [ ] `MIS` after the game has ended still lists units.
+- [ ] A seated client that stops reading blocks its own session in `_write`'s drain
+      forever and keeps its power live; time out own-session writes.
 
 # Track F — Manual acceptance (maintainer)
 
