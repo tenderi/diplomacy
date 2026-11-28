@@ -220,6 +220,15 @@ closes every open connection (`Server.close_clients`), seated or not, so shutdow
 waits on a peer that does not hang up. `tests/test_daide_robustness.py` covers each case
 over a real socket.
 
+**The DAIDE game is DAIDE-only.** Its seats are the listener's live connections, so the
+HTTP API refuses, with 409 and `X-Error-Code: daide_game`, every write that would seat
+someone in it or act as one of its powers: join (and so a seat taken at create), replace,
+dummy changes (an admin's too), the admin `add_player`, orders (set, merge or clear), draw
+votes, wait flags, concessions, deadline proposals and votes, and a player setting the
+deadline, the deadline schedule or auto-processing (`api.shared.refuse_if_daide`, keyed on `GameService.meta(...)["daide"]`). Reads and an
+admin's turn processing stay allowed, and `GET /games` leaves the game out, so neither the
+web nor the bot offers it for joining.
+
 **Known, permanent limitation: press content is relayed opaquely, not parsed.** DAIDE's
 press negotiation grammar (`PRP`/`ALY`/`XDO`/... nested inside `SND`/`FRM`) is the
 deepest part of the spec and the least essential for interoperability. This codebase

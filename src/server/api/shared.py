@@ -1296,6 +1296,23 @@ def seats_filled(game_id: str, numeric_game_id: int) -> bool:
     return not unseated_powers(game_id, numeric_game_id)
 
 
+DAIDE_GAME_REFUSAL = (
+    "This game is played over DAIDE: its powers are held by DAIDE clients, so "
+    "nobody can join it, take a seat or act for a power over HTTP."
+)
+
+
+def refuse_if_daide(game_id: str) -> None:
+    """409 for an HTTP write that seats someone in, or acts as a power in, the
+    DAIDE listener's game (DD2): joins, seat and dummy changes, orders, draw
+    votes, wait flags, concessions, deadline votes. Its seats are live DAIDE
+    connections held in memory, never seat rows, so such a write would take
+    or overwrite what a DAIDE client holds. Reads and an admin's turn
+    processing stay allowed. An unknown game passes: the caller says 404."""
+    if (game_service.meta(str(game_id)) or {}).get("daide"):
+        raise HTTPException(status_code=409, detail=DAIDE_GAME_REFUSAL, headers={"X-Error-Code": "daide_game"})
+
+
 def unseated_powers(game_id: str, numeric_game_id: int) -> list[str]:
     """The powers with neither a seat row nor dummy status, sorted; empty once
     the table is full (see ``seats_filled``).

@@ -17,8 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-28.
-- **Open tracks:** DD (DAIDE server defects found by the 2026-11-28 audit; next: DD1 and
-  DD2, then DD3); F (a human playing the game end to end — the first play-throughs are
+- **Open tracks:** DD (DAIDE server defects found by the 2026-11-28 audit; next: DD1, then DD3); F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -42,7 +41,7 @@ listener to 127.0.0.1 and holds no DAIDE game, so none of them is live yet.
 
 ## DD2 — HTTP must not seat or order in the DAIDE game
 
-- [ ] `POST /games/{id}/join` (`_join`, `_take_chosen_seat`) and the HTTP order and
+- [x] `POST /games/{id}/join` (`_join`, `_take_chosen_seat`) and the HTTP order and
       replace writes ignore `meta["daide"]`. An HTTP user can take a power that a DAIDE
       client holds and overwrite its orders. Refuse them with 409.
 

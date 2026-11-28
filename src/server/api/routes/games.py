@@ -428,6 +428,8 @@ def set_auto_process(
         raise HTTPException(status_code=404, detail="Game not found")
     caller_telegram_id = None
     if not is_admin_token(x_admin_token):
+        # A player's switch; an admin keeps control of the DAIDE game's processing.
+        api_shared.refuse_if_daide(game_id)
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
         if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
             raise HTTPException(status_code=403, detail="You are not a player in this game.")
@@ -506,6 +508,7 @@ def set_dummy_power(
     meta = game_service.meta(game_id)
     if meta is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    api_shared.refuse_if_daide(game_id)
     if not is_admin_token(x_admin_token):
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
         if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
@@ -558,6 +561,7 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
     row = db_service.get_game_by_game_id(str(req.game_id))
     if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    api_shared.refuse_if_daide(str(req.game_id))
     power = req.power.upper()
     if power not in REQUIRED_POWERS:
         raise HTTPException(status_code=400, detail=f"Unknown power {req.power}")
@@ -944,7 +948,8 @@ def concede_game(
 
 @router.get("/games")
 def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
-    """List all games with basic info and player count.
+    """List all games with basic info and player count. The DAIDE listener's
+    game is left out: it cannot be joined over HTTP (DD2).
 
     **A game that belongs to a Telegram group is listed only to the bot** (with
     its ``channel_id``), which shows it only to that group's members: players
@@ -956,6 +961,11 @@ def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
     result: list[dict[str, Any]] = []
     for g in games:
         if g.channel_id and not bot:
+            continue
+        if g.daide:
+            # DD2: the DAIDE listener's game is played by DAIDE clients, and
+            # every HTTP seat or power write to it is refused, so it is not
+            # offered for joining.
             continue
         players = db_service.get_players_by_game_id(int(g.id))  # type: ignore
         result.append({
@@ -1102,6 +1112,7 @@ def _join(
     and ``POST /games/create`` (DV4c: the creator is seated like any joiner)
     both run it. ``post_join=False`` leaves out the "has joined as" line in
     the game's group. Raises HTTPException when the user can't be seated."""
+    api_shared.refuse_if_daide(str(game_id))
     _require_group_join_via_bot(str(game_id), user, x_bot_secret)
     view = game_service.view(str(game_id))
     random_powers = bool(view and view.get("random_powers"))
@@ -1267,6 +1278,7 @@ def replace_player(
 ) -> Dict[str, Any]:
     """Replace a vacated power in a game."""
     user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=x_bot_secret)
+    api_shared.refuse_if_daide(str(game_id))
     _require_group_join_via_bot(str(game_id), user, x_bot_secret)
     view = game_service.view(str(game_id))
     _refuse_if_ended(view, game_id)
@@ -1539,6 +1551,7 @@ def set_deadline_schedule(
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    api_shared.refuse_if_daide(game_id)
     user = resolve_user_or_telegram(
         credentials, req.telegram_id, bot_secret=x_bot_secret
     )
@@ -1596,6 +1609,7 @@ def set_deadline(
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    api_shared.refuse_if_daide(game_id)
     # Whoever the caller is -- Bearer user, or telegram_id + bot_secret -- they
     # must hold a power in this game. Until v2.7.79 (Track T) a Bearer caller
     # could omit telegram_id and set any game's deadline unchecked.
