@@ -16,12 +16,46 @@
 
 ## Status
 
-- **Last updated:** 2026-11-26.
-- **Open tracks:** F (a human playing the game end to end — the first play-throughs are
+- **Last updated:** 2026-11-28.
+- **Open tracks:** DD (DAIDE server defects found by the 2026-11-28 audit; next: DD1 and
+  DD2, then DD3); F (a human playing the game end to end — the first play-throughs are
   under way — which is the maintainer's). Finished tracks are removed;
   `git log` and the versioned commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DD — DAIDE server defects (audit 2026-11-28)
+
+An audit of `src/server/daide/` reproduced these with scripts. Production binds the
+listener to 127.0.0.1 and holds no DAIDE game, so none of them is live yet.
+
+## DD1 — Session hardening (`daide/wire.py`, `session.py`, `server.py`)
+
+- [ ] A client that never reads must not block other sessions. Today delivery to a peer
+      awaits its socket drain with no timeout, and press relay and `notify_game_processed`
+      run inline, so one stuck socket hangs the sender and the turn broadcast.
+- [ ] `IAM` passcodes can be brute-forced: there are 8191 values from `random`, unlimited
+      tries per connection. Use `secrets` and close the connection after a failed `IAM`.
+- [ ] A plain `NME` takes a disconnected player's power, and that power's passcode. A
+      power that has a passcode can only be reclaimed with `IAM`.
+- [ ] A connection that never sends `NME` idles forever, so time it out.
+
+## DD2 — HTTP must not seat or order in the DAIDE game
+
+- [ ] `POST /games/{id}/join` (`_join`, `_take_chosen_seat`) and the HTTP order and
+      replace writes ignore `meta["daide"]`. An HTTP user can take a power that a DAIDE
+      client holds and overwrite its orders. Refuse them with 409.
+
+## DD3 — Protocol conformance (after DD1; same files)
+
+- [ ] `DRW (powers)` (a partial draw, which needs level 10) is counted as a full-draw vote.
+      Answer it with `REJ`/`HUH`.
+- [ ] `SUB` ignores the declared unit type: `(RUS FLT MOS)` orders the army. Answer `NSU`.
+- [ ] THX note codes: `DSB`/`REM` in a movement phase must be `NRS`, not `NSP`; a bad
+      convoy route `CTO … VIA` must be `FAR`.
+- [ ] `ADM` relays an escaped `(` in the name as a real bracket, which unbalances the
+      message for other clients.
+- [ ] `MIS` after the game has ended still lists units.
 
 # Track F — Manual acceptance (maintainer)
 
