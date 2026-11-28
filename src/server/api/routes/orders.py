@@ -86,11 +86,16 @@ def _refuse_if_stale(game_id: str, client_timestamp: Optional[datetime]) -> None
     )
 
 
-def _authorize_power(credentials, game_id: str, power: str, telegram_id, bot_secret):
-    """Resolve the caller and confirm they hold ``power`` in ``game_id``."""
+def _authorize_power(credentials, game_id: str, power: str, telegram_id, bot_secret, *, write: bool = True):
+    """Resolve the caller and confirm they hold ``power`` in ``game_id``.
+
+    ``write`` (the default) is an act as the power -- orders, votes, flags --
+    which the DAIDE listener's game refuses (``refuse_if_daide``, DD2)."""
     user = resolve_user_or_telegram(credentials, telegram_id, bot_secret=bot_secret)
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+    if write:
+        api_shared.refuse_if_daide(game_id)
     player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
     if player is None:
         raise HTTPException(status_code=404, detail="Player not found")
@@ -183,7 +188,7 @@ def get_order_notes(
     for the set as a whole, computed from the board and this power's own
     orders only -- never another power's pending orders.
     """
-    _, player = _authorize_power(credentials, game_id, power, req.telegram_id, x_bot_secret)
+    _, player = _authorize_power(credentials, game_id, power, req.telegram_id, x_bot_secret, write=False)
     try:
         notes = game_service.order_notes(game_id, player.power_name, req.orders, merge=req.merge)
     except OrderError as e:
